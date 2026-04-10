@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<configuration>
+    <connectionStrings>
+        <add name="MyERP"
+             connectionString="Server=localhost\SQLEXPRESS;Database=JaneERP;User Id=YOUR_DB_USER;Password=YOUR_DB_PASSWORD;TrustServerCertificate=True;"
+             providerName="Microsoft.Data.SqlClient" />
+    </connectionStrings>
+</configuration>

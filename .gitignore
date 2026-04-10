@@ -1,0 +1,41 @@
+# ========================
+# SENSITIVE / PRIVATE FILES
+# ========================
+App.config
+Shopify Admin Info.txt
+*.secret
+secrets.*
+
+# ========================
+# BUILD OUTPUT
+# ========================
+bin/
+obj/
+
+# ========================
+# VISUAL STUDIO
+# ========================
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+*.v2
+
+# ========================
+# CLAUDE CODE
+# ========================
+.claude/
+
+# ========================
+# RUNTIME / GENERATED
+# ========================
+*.log
+*.pdb
+
+# ========================
+# OS FILES
+# ========================
+Thumbs.db
+Desktop.ini
+.DS_Store
