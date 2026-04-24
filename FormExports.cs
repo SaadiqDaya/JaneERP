@@ -110,6 +110,7 @@ namespace JaneERP
                 "Last 30 days of audit entries from the AppLogger activity log",
                 ExportActivityLog);
 
+            Theme.MakeDraggable(this, pnlHeader);
             Controls.Add(scroll);
             Controls.Add(pnlHeader);
         }
@@ -201,8 +202,13 @@ namespace JaneERP
         private void WriteAndConfirm(string path, string csv)
         {
             File.WriteAllText(path, csv, new UTF8Encoding(true));
-            MessageBox.Show(this, $"Export saved to:\n{path}", "Export Complete",
-                MessageBoxButtons.OK, MessageBoxIcon.Information);
+            var result = MessageBox.Show(this, $"Export saved to:\n{path}\n\nOpen the file now?", "Export Complete",
+                MessageBoxButtons.YesNo, MessageBoxIcon.Information);
+            if (result == DialogResult.Yes)
+            {
+                try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(path) { UseShellExecute = true }); }
+                catch { /* silently ignore if OS can't open */ }
+            }
         }
 
         private static string Date => DateTime.Today.ToString("yyyyMMdd");

@@ -183,6 +183,11 @@ namespace JaneERP.Data
                     IsActive    BIT           NOT NULL DEFAULT 1,
                     CONSTRAINT UQ_LocationBins_Code UNIQUE (LocationID, BinCode)
                 );");
+
+            // Migration: add ShelfSpots column if it doesn't exist
+            db.Execute(@"
+                IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('LocationBins') AND name='ShelfSpots')
+                    ALTER TABLE LocationBins ADD ShelfSpots INT NULL;");
         }
 
         /// <returns>All bins for the given location (active only by default).</returns>
@@ -203,8 +208,8 @@ namespace JaneERP.Data
         {
             using IDbConnection db = new SqlConnection(_connectionString);
             bin.BinID = db.ExecuteScalar<int>(@"
-                INSERT INTO LocationBins (LocationID, BinCode, Description, Capacity, IsActive)
-                VALUES (@LocationID, @BinCode, @Description, @Capacity, @IsActive);
+                INSERT INTO LocationBins (LocationID, BinCode, Description, Capacity, ShelfSpots, IsActive)
+                VALUES (@LocationID, @BinCode, @Description, @Capacity, @ShelfSpots, @IsActive);
                 SELECT SCOPE_IDENTITY();",
                 bin);
             AppLogger.Audit("system", "AddBin", $"BinID={bin.BinID} LocationID={bin.LocationID} Code={bin.BinCode}");
@@ -216,7 +221,7 @@ namespace JaneERP.Data
             db.Execute(@"
                 UPDATE LocationBins
                 SET BinCode = @BinCode, Description = @Description,
-                    Capacity = @Capacity, IsActive = @IsActive
+                    Capacity = @Capacity, ShelfSpots = @ShelfSpots, IsActive = @IsActive
                 WHERE BinID = @BinID",
                 bin);
             AppLogger.Audit("system", "UpdateBin", $"BinID={bin.BinID} Code={bin.BinCode}");

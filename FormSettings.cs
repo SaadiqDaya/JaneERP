@@ -4,6 +4,9 @@ namespace JaneERP
     public class FormSettings : Form
     {
         private readonly AppSettings _settings;
+        private TextBox    _txtBackupFolder    = new();
+        private ComboBox   _cboBackupSchedule  = new();
+        private Label      _lblLastBackup      = new();
         private PictureBox pbPreview       = new();
         private TextBox    txtLogoPath     = new();
         private Button     btnBrowse       = new();
@@ -26,6 +29,12 @@ namespace JaneERP
         private TextBox      txtSmtpUser   = new();
         private TextBox      txtSmtpPass   = new();
         private TextBox      txtFromEmail  = new();
+        // Security settings
+        private NumericUpDown nudMaxAttempts  = new();
+        private NumericUpDown nudLockoutMins  = new();
+        private TextBox      txtAdminPhone    = new();
+        private TextBox      txtAdminEmail    = new();
+        private CheckBox     chkRememberUser  = new();
 
         public FormSettings()
         {
@@ -289,7 +298,7 @@ namespace JaneERP
             txtSmtpPass.Size                  = new Size(200, 23);
             txtSmtpPass.UseSystemPasswordChar = true;
             txtSmtpPass.PlaceholderText       = "app password";
-            txtSmtpPass.Text                  = _settings.SmtpPassword;
+            txtSmtpPass.Text                  = _settings.SmtpPasswordPlain;
             tabEmail.Controls.Add(txtSmtpPass);
             y += 32;
 
@@ -301,7 +310,75 @@ namespace JaneERP
             tabEmail.Controls.Add(txtFromEmail);
 
             // ──────────────────────────────────────────────────────────────────────
-            // TAB 5: System
+            // TAB 5: Security
+            // ──────────────────────────────────────────────────────────────────────
+            var tabSecurity = new TabPage("Security") { Padding = new Padding(12) };
+            tabs.TabPages.Add(tabSecurity);
+            y = 12;
+
+            tabSecurity.Controls.Add(new Label
+            {
+                Text = "Login & Lockout Policy", Font = new Font("Segoe UI", 10F, FontStyle.Bold),
+                ForeColor = Theme.Gold, Location = new Point(12, y), AutoSize = true
+            });
+            y += 28;
+
+            tabSecurity.Controls.Add(new Label { Text = "Max failed attempts before lockout:", AutoSize = true, Location = new Point(12, y + 3) });
+            nudMaxAttempts.Location = new Point(260, y);
+            nudMaxAttempts.Size     = new Size(70, 23);
+            nudMaxAttempts.Minimum  = 1;
+            nudMaxAttempts.Maximum  = 20;
+            nudMaxAttempts.Value    = _settings.MaxLoginAttempts > 0 ? _settings.MaxLoginAttempts : 5;
+            tabSecurity.Controls.Add(nudMaxAttempts);
+            y += 32;
+
+            tabSecurity.Controls.Add(new Label { Text = "Lockout duration (minutes):", AutoSize = true, Location = new Point(12, y + 3) });
+            nudLockoutMins.Location = new Point(260, y);
+            nudLockoutMins.Size     = new Size(70, 23);
+            nudLockoutMins.Minimum  = 1;
+            nudLockoutMins.Maximum  = 1440;
+            nudLockoutMins.Value    = _settings.LockoutMinutes > 0 ? _settings.LockoutMinutes : 15;
+            tabSecurity.Controls.Add(nudLockoutMins);
+            y += 36;
+
+            tabSecurity.Controls.Add(new Label
+            {
+                Text = "Admin Contact  (shown in lockout messages)", Font = new Font("Segoe UI", 10F, FontStyle.Bold),
+                ForeColor = Theme.Gold, Location = new Point(12, y), AutoSize = true
+            });
+            y += 28;
+
+            tabSecurity.Controls.Add(new Label { Text = "Admin Phone:", AutoSize = true, Location = new Point(12, y + 3) });
+            txtAdminPhone.Location        = new Point(130, y);
+            txtAdminPhone.Size            = new Size(200, 23);
+            txtAdminPhone.PlaceholderText = "e.g. 604-555-0100";
+            txtAdminPhone.Text            = _settings.AdminPhone;
+            tabSecurity.Controls.Add(txtAdminPhone);
+            y += 32;
+
+            tabSecurity.Controls.Add(new Label { Text = "Admin Email:", AutoSize = true, Location = new Point(12, y + 3) });
+            txtAdminEmail.Location        = new Point(130, y);
+            txtAdminEmail.Size            = new Size(200, 23);
+            txtAdminEmail.PlaceholderText = "admin@company.com";
+            txtAdminEmail.Text            = _settings.AdminEmail;
+            tabSecurity.Controls.Add(txtAdminEmail);
+            y += 36;
+
+            tabSecurity.Controls.Add(new Label
+            {
+                Text = "Login Options", Font = new Font("Segoe UI", 10F, FontStyle.Bold),
+                ForeColor = Theme.Gold, Location = new Point(12, y), AutoSize = true
+            });
+            y += 28;
+
+            chkRememberUser.Text     = "Remember last username on login screen";
+            chkRememberUser.AutoSize = true;
+            chkRememberUser.Checked  = _settings.RememberLastUsername;
+            chkRememberUser.Location = new Point(12, y);
+            tabSecurity.Controls.Add(chkRememberUser);
+
+            // ──────────────────────────────────────────────────────────────────────
+            // TAB 6: System
             // ──────────────────────────────────────────────────────────────────────
             var tabSystem = new TabPage("System") { Padding = new Padding(12) };
             tabs.TabPages.Add(tabSystem);
@@ -328,6 +405,14 @@ namespace JaneERP
             };
             btnDiscountTiers.Click += (_, _) => { using var frm = new FormDiscountTiers(); frm.ShowDialog(this); };
             grpDiscountTiers.Controls.Add(btnDiscountTiers);
+
+            var btnCustomerTiers = new Button
+            {
+                Text = "Assign Tiers to Customers →", Location = new Point(218, 50), Size = new Size(220, 28)
+            };
+            btnCustomerTiers.Click += (_, _) => { using var frm = new FormCustomerTiers(); frm.ShowDialog(this); };
+            grpDiscountTiers.Controls.Add(btnCustomerTiers);
+
             tabSystem.Controls.Add(grpDiscountTiers);
             y += 104;
 
@@ -353,6 +438,85 @@ namespace JaneERP
             btnConfigureSearch.Click += (_, _) => { using var frm = new FormProductSearch(); frm.ShowDialog(this); };
             grpProductSearch.Controls.Add(btnConfigureSearch);
             tabSystem.Controls.Add(grpProductSearch);
+
+            // ──────────────────────────────────────────────────────────────────────
+            // TAB 7: Backup
+            // ──────────────────────────────────────────────────────────────────────
+            var tabBackup = new TabPage("Backup") { Padding = new Padding(12) };
+            tabs.TabPages.Add(tabBackup);
+            y = 12;
+
+            tabBackup.Controls.Add(new Label
+            {
+                Text      = "Database Backup",
+                Font      = new Font("Segoe UI", 11F, FontStyle.Bold),
+                ForeColor = Theme.Gold,
+                Location  = new Point(12, y),
+                AutoSize  = true
+            });
+            y += 30;
+
+            tabBackup.Controls.Add(new Label
+            {
+                Text      = "Backup Folder:",
+                AutoSize  = true,
+                Location  = new Point(12, y + 3)
+            });
+            _txtBackupFolder           = new TextBox();
+            _txtBackupFolder.Location  = new Point(130, y);
+            _txtBackupFolder.Size      = new Size(320, 23);
+            _txtBackupFolder.Text      = _settings.BackupFolder;
+            tabBackup.Controls.Add(_txtBackupFolder);
+
+            var btnBrowseBackup = new Button { Text = "Browse…", Location = new Point(458, y - 1), Size = new Size(80, 25) };
+            btnBrowseBackup.Click += (_, _) =>
+            {
+                using var dlg = new FolderBrowserDialog { Description = "Select backup folder" };
+                if (!string.IsNullOrEmpty(_txtBackupFolder.Text))
+                    dlg.SelectedPath = _txtBackupFolder.Text;
+                if (dlg.ShowDialog(this) == DialogResult.OK)
+                    _txtBackupFolder.Text = dlg.SelectedPath;
+            };
+            tabBackup.Controls.Add(btnBrowseBackup);
+            y += 36;
+
+            tabBackup.Controls.Add(new Label { Text = "Auto Backup:", AutoSize = true, Location = new Point(12, y + 3) });
+            _cboBackupSchedule = new ComboBox
+            {
+                Location      = new Point(130, y),
+                Size          = new Size(120, 23),
+                DropDownStyle = ComboBoxStyle.DropDownList
+            };
+            _cboBackupSchedule.Items.AddRange(new object[] { "None", "Daily", "Weekly" });
+            _cboBackupSchedule.SelectedItem = _settings.BackupSchedule ?? "None";
+            tabBackup.Controls.Add(_cboBackupSchedule);
+            y += 36;
+
+            // Last backup label
+            _lblLastBackup = new Label
+            {
+                AutoSize  = true,
+                Location  = new Point(12, y),
+                ForeColor = Theme.TextSecondary,
+                Text      = _settings.LastBackupAt.HasValue
+                    ? $"Last backup: {_settings.LastBackupAt.Value.ToLocalTime():yyyy-MM-dd HH:mm}"
+                    : "Last backup: never"
+            };
+            tabBackup.Controls.Add(_lblLastBackup);
+            y += 30;
+
+            var btnBackupNow = new Button { Text = "Backup Now", Location = new Point(12, y), Size = new Size(130, 32) };
+            btnBackupNow.Click += BtnBackupNow_Click;
+            tabBackup.Controls.Add(btnBackupNow);
+
+            tabBackup.Controls.Add(new Label
+            {
+                Text      = "Note: The backup folder must be accessible by the SQL Server service account\n" +
+                             "(usually MSSQLSERVER or SQLServerMSSQLUser). For localhost, any local folder works.",
+                ForeColor = Theme.TextSecondary,
+                Location  = new Point(12, y + 42),
+                Size      = new Size(520, 40)
+            });
         }
 
         private void LoadCurrencies()
@@ -455,11 +619,55 @@ namespace JaneERP
             _settings.SmtpServer   = txtSmtpServer.Text.Trim();
             _settings.SmtpPort     = (int)nudSmtpPort.Value;
             _settings.SmtpUser     = txtSmtpUser.Text.Trim();
-            _settings.SmtpPassword = txtSmtpPass.Text.Trim();
+            _settings.SmtpPasswordPlain = txtSmtpPass.Text.Trim();
             _settings.FromEmail    = txtFromEmail.Text.Trim();
+            _settings.MaxLoginAttempts     = (int)nudMaxAttempts.Value;
+            _settings.LockoutMinutes       = (int)nudLockoutMins.Value;
+            _settings.AdminPhone           = txtAdminPhone.Text.Trim();
+            _settings.AdminEmail           = txtAdminEmail.Text.Trim();
+            _settings.RememberLastUsername = chkRememberUser.Checked;
+            _settings.BackupFolder   = _txtBackupFolder.Text.Trim();
+            _settings.BackupSchedule = _cboBackupSchedule.SelectedItem?.ToString() ?? "None";
             _settings.Save();
             MessageBox.Show(this, "Settings saved.", "Saved", MessageBoxButtons.OK, MessageBoxIcon.Information);
             Close();
+        }
+
+        private void BtnBackupNow_Click(object? sender, EventArgs e)
+        {
+            var folder = _txtBackupFolder.Text.Trim();
+            if (string.IsNullOrWhiteSpace(folder))
+            {
+                MessageBox.Show(this, "Choose a backup folder first.", "Required",
+                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            // Save current backup folder before running
+            _settings.BackupFolder   = folder;
+            _settings.BackupSchedule = _cboBackupSchedule.SelectedItem?.ToString() ?? "None";
+            _settings.Save();
+
+            Cursor = Cursors.WaitCursor;
+            try
+            {
+                Services.BackupService.Backup(folder);
+                _lblLastBackup.Text = $"Last backup: {DateTime.Now:yyyy-MM-dd HH:mm}";
+                MessageBox.Show(this, $"Backup completed successfully.\n\nFolder: {folder}", "Backup Complete",
+                    MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this,
+                    $"Backup failed:\n\n{ex.Message}\n\n" +
+                    "Tip: Make sure the SQL Server service account has write access to the backup folder.\n" +
+                    "For a local SQL Express install, try a folder under C:\\Users or C:\\Backups.",
+                    "Backup Failed", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+            finally
+            {
+                Cursor = Cursors.Default;
+            }
         }
 
         protected override void OnFormClosed(FormClosedEventArgs e)

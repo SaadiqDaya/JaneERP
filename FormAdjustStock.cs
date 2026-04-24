@@ -2,6 +2,7 @@ using JaneERP.Data;
 using JaneERP.Logging;
 using JaneERP.Models;
 using JaneERP.Security;
+using JaneERP.Services;
 
 namespace JaneERP
 {
@@ -114,6 +115,14 @@ namespace JaneERP
 
                 AppLogger.Audit(AppSession.CurrentUser?.Username, "InventoryAdjustment",
                     $"SKU={_product.SKU} qty={change:+0;-0} location={selectedLocation.LocationName}");
+
+                // Fire low-stock notification if stock just fell at or below the reorder point
+                int newStock = _product.CurrentStock + change;
+                if (_product.ReorderPoint > 0 && newStock <= _product.ReorderPoint)
+                {
+                    _ = NotificationService.NotifyLowStockAsync(
+                        _product.SKU, _product.ProductName, newStock, _product.ReorderPoint);
+                }
 
                 string action = rdoAdd.Checked ? "added to" : "removed from";
                 MessageBox.Show(

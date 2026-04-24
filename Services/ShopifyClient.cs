@@ -30,6 +30,7 @@ namespace JaneERP.Services
             string accessToken,
             DateTime? createdAtMin = null,
             DateTime? createdAtMax = null,
+            DateTime? updatedAtMin = null,
             decimal? amountMin = null,
             decimal? amountMax = null,
             IProgress<string>? progress = null,
@@ -47,6 +48,8 @@ namespace JaneERP.Services
                 baseUrl += $"&created_at_min={Uri.EscapeDataString(createdAtMin.Value.ToString("o"))}";
             if (createdAtMax.HasValue)
                 baseUrl += $"&created_at_max={Uri.EscapeDataString(createdAtMax.Value.ToString("o"))}";
+            if (updatedAtMin.HasValue)
+                baseUrl += $"&updated_at_min={Uri.EscapeDataString(updatedAtMin.Value.ToString("o"))}";
 
             string? url = baseUrl;
             var retryDelay = 1000;

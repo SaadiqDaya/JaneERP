@@ -64,7 +64,22 @@ namespace JaneERP.Services
             Migrate(db, "IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('SalesOrders') AND name='Status') ALTER TABLE SalesOrders ADD Status NVARCHAR(20) NOT NULL DEFAULT 'Draft'");
             Migrate(db, "IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('SalesOrders') AND name='InventoryAffected') ALTER TABLE SalesOrders ADD InventoryAffected BIT NOT NULL DEFAULT 0");
             Migrate(db, "IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('SalesOrders') AND name='OrderType') ALTER TABLE SalesOrders ADD OrderType NVARCHAR(50) NOT NULL DEFAULT 'Shopify'");
+            Migrate(db, "IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('SalesOrders') AND name='ShippingCost') ALTER TABLE SalesOrders ADD ShippingCost DECIMAL(18,2) NOT NULL DEFAULT 0");
             Migrate(db, "UPDATE SalesOrders SET OrderType='Manual' WHERE ShopifyOrderID IS NULL AND OrderType='Shopify'");
+
+            // Replace UNIQUE constraint on ShopifyOrderID (which disallows multiple NULLs) with a filtered
+            // unique index that only applies when ShopifyOrderID IS NOT NULL — allows unlimited manual orders.
+            Migrate(db, @"
+        DECLARE @cn NVARCHAR(128)
+        SELECT TOP 1 @cn = i.name
+        FROM sys.indexes i
+        JOIN sys.index_columns ic ON i.object_id=ic.object_id AND i.index_id=ic.index_id
+        JOIN sys.columns c        ON ic.object_id=c.object_id  AND ic.column_id=c.column_id
+        WHERE i.object_id=OBJECT_ID('SalesOrders') AND c.name='ShopifyOrderID'
+          AND (i.is_unique_constraint=1 OR (i.is_unique=1 AND i.filter_definition IS NULL))
+        IF @cn IS NOT NULL EXEC('ALTER TABLE SalesOrders DROP CONSTRAINT IF EXISTS [' + @cn + ']; DROP INDEX IF EXISTS [' + @cn + '] ON SalesOrders')
+        IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id=OBJECT_ID('SalesOrders') AND name='UIX_SalesOrders_ShopifyOrderID')
+            EXEC('CREATE UNIQUE INDEX UIX_SalesOrders_ShopifyOrderID ON SalesOrders(ShopifyOrderID) WHERE ShopifyOrderID IS NOT NULL')");
 
             // Make ShopifyOrderID nullable (for manual orders)
             Migrate(db, @"
@@ -150,7 +165,8 @@ namespace JaneERP.Services
                     new { s = newStatus, id = salesOrderId }, tx);
 
                 // Deduct inventory once when first going Live
-                bool wasAffected = order.InventoryAffected == true || (int)order.InventoryAffected == 1;
+                // Dapper returns BIT as bool — cast directly, don't cast to int
+                bool wasAffected = (bool)order.InventoryAffected;
                 if (newStatus == "Live" && !wasAffected)
                 {
                     var items = db.Query(
@@ -229,7 +245,8 @@ namespace JaneERP.Services
             string orderType = "Manual",
             string? discountType = null,
             decimal discountAmount = 0,
-            decimal discountPercent = 0)
+            decimal discountPercent = 0,
+            decimal shippingCost = 0)
         {
             using var db = new SqlConnection(_connectionString);
             db.Open();
@@ -253,19 +270,21 @@ namespace JaneERP.Services
                 var orderNumber = db.ExecuteScalar<int>(
                     "SELECT ISNULL(MAX(OrderNumber), 0) + 1 FROM SalesOrders WHERE ShopifyOrderID IS NULL", null, tx);
 
-                decimal total = lineItems.Sum(li => li.Qty * li.UnitPrice);
+                decimal subtotal = lineItems.Sum(li => li.Qty * li.UnitPrice);
+                decimal total    = subtotal - discountAmount + shippingCost;
 
                 bool affectsInventory = status == "Live";
 
                 var salesOrderId = db.QuerySingle<int>(@"
-                    INSERT INTO SalesOrders (ShopifyOrderID, OrderNumber, CustomerID, StoreID, OrderDate, TotalPrice, Currency, Notes, Status, InventoryAffected, OrderType, DiscountType, DiscountAmount, DiscountPercent)
-                    VALUES (NULL, @OrderNumber, @CustomerID, @StoreID, @OrderDate, @TotalPrice, @Currency, @Notes, @Status, @InventoryAffected, @OrderType, @DiscountType, @DiscountAmount, @DiscountPercent);
+                    INSERT INTO SalesOrders (ShopifyOrderID, OrderNumber, CustomerID, StoreID, OrderDate, TotalPrice, Currency, Notes, Status, InventoryAffected, OrderType, DiscountType, DiscountAmount, DiscountPercent, ShippingCost)
+                    VALUES (NULL, @OrderNumber, @CustomerID, @StoreID, @OrderDate, @TotalPrice, @Currency, @Notes, @Status, @InventoryAffected, @OrderType, @DiscountType, @DiscountAmount, @DiscountPercent, @ShippingCost);
                     SELECT CAST(SCOPE_IDENTITY() AS INT);",
                     new { OrderNumber = orderNumber, CustomerID = customerId, StoreID = storeId,
-                          OrderDate = orderDate, TotalPrice = total - discountAmount, Currency = currency ?? "CAD",
+                          OrderDate = orderDate, TotalPrice = total, Currency = currency ?? "CAD",
                           Notes = notes, Status = status, InventoryAffected = affectsInventory,
                           OrderType = orderType,
-                          DiscountType = discountType, DiscountAmount = discountAmount, DiscountPercent = discountPercent }, tx);
+                          DiscountType = discountType, DiscountAmount = discountAmount, DiscountPercent = discountPercent,
+                          ShippingCost = shippingCost }, tx);
 
                 foreach (var li in lineItems)
                 {
@@ -275,8 +294,8 @@ namespace JaneERP.Services
                     if (productId == null)
                     {
                         productId = db.QuerySingle<int>(@"
-                            INSERT INTO Products (SKU, ProductName, RetailPrice, IsActive)
-                            VALUES (@SKU, @ProductName, @RetailPrice, 1);
+                            INSERT INTO Products (SKU, ProductName, RetailPrice, IsActive, IsAutoCreated, IsVerified)
+                            VALUES (@SKU, @ProductName, @RetailPrice, 1, 1, 0);
                             SELECT CAST(SCOPE_IDENTITY() AS INT);",
                             new { SKU = sku, ProductName = li.Title, RetailPrice = li.UnitPrice }, tx);
 
@@ -286,8 +305,8 @@ namespace JaneERP.Services
                         if (partId == null)
                         {
                             partId = db.QuerySingle<int>(@"
-                                INSERT INTO Parts (PartNumber, PartName, UnitCost, CurrentStock, IsActive)
-                                VALUES (@sku, @name, 0, 0, 1);
+                                INSERT INTO Parts (PartNumber, PartName, UnitCost, CurrentStock, IsActive, IsAutoCreated, IsVerified)
+                                VALUES (@sku, @name, 0, 0, 1, 1, 0);
                                 SELECT CAST(SCOPE_IDENTITY() AS INT);",
                                 new { sku, name = li.Title ?? sku }, tx);
                         }
@@ -392,8 +411,8 @@ namespace JaneERP.Services
                     if (productId == null)
                     {
                         productId = db.QuerySingle<int>(@"
-                            INSERT INTO Products (SKU, ProductName, RetailPrice, IsActive)
-                            VALUES (@SKU, @ProductName, @RetailPrice, 1);
+                            INSERT INTO Products (SKU, ProductName, RetailPrice, IsActive, IsAutoCreated, IsVerified)
+                            VALUES (@SKU, @ProductName, @RetailPrice, 1, 1, 0);
                             SELECT CAST(SCOPE_IDENTITY() AS INT);",
                             new
                             {
@@ -410,8 +429,8 @@ namespace JaneERP.Services
                         if (partId == null)
                         {
                             partId = db.QuerySingle<int>(@"
-                                INSERT INTO Parts (PartNumber, PartName, UnitCost, CurrentStock, IsActive)
-                                VALUES (@sku, @name, 0, 0, 1);
+                                INSERT INTO Parts (PartNumber, PartName, UnitCost, CurrentStock, IsActive, IsAutoCreated, IsVerified)
+                                VALUES (@sku, @name, 0, 0, 1, 1, 0);
                                 SELECT CAST(SCOPE_IDENTITY() AS INT);",
                                 new { sku, name = li.Title ?? sku }, tx);
                         }

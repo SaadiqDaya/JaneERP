@@ -123,22 +123,22 @@ namespace JaneERP
             pnl.Controls.Add(nudUnitQty);
             y += rowH;
 
-            pnl.Controls.Add(MakeLabel("Unit Cost (R):",  y));
+            pnl.Controls.Add(MakeLabel("Unit Cost ($):",  y));
             txtUnitCost = MakeTextBox(ctlX, y, ctlW);
             pnl.Controls.Add(txtUnitCost);
             y += rowH;
 
-            pnl.Controls.Add(MakeLabel("Other Direct Costs (R):", y));
+            pnl.Controls.Add(MakeLabel("Other Direct Costs ($):", y));
             txtOtherCosts = MakeTextBox(ctlX, y, ctlW);
             pnl.Controls.Add(txtOtherCosts);
             y += rowH;
 
-            pnl.Controls.Add(MakeLabel("Overhead (R):", y));
+            pnl.Controls.Add(MakeLabel("Overhead ($):", y));
             txtOverhead = MakeTextBox(ctlX, y, ctlW);
             pnl.Controls.Add(txtOverhead);
             y += rowH;
 
-            pnl.Controls.Add(MakeLabel("Target Selling Price (R):", y));
+            pnl.Controls.Add(MakeLabel("Target Selling Price ($):", y));
             txtTargetPrice = MakeTextBox(ctlX, y, ctlW);
             pnl.Controls.Add(txtTargetPrice);
             y += rowH + secGap;
@@ -174,7 +174,7 @@ namespace JaneERP
                 BackColor = Color.Transparent
             };
 
-            pnlSolveRow.Controls.Add(MakeLabel("Target Total Cost (R):", 0));
+            pnlSolveRow.Controls.Add(MakeLabel("Target Total Cost ($):", 0));
             txtTargetTotal = MakeTextBox(ctlX, 0, ctlW);
             pnlSolveRow.Controls.Add(txtTargetTotal);
 
@@ -205,12 +205,12 @@ namespace JaneERP
             // ── Section: Outputs ──────────────────────────────────────────────
             pnl.Controls.Add(MakeSectionLabel("RESULTS", ref y));
 
-            (lblTotalCostVal,     y) = AddOutputRow(pnl, "Total Cost (R):",         y, ctlX);
-            (lblCostPerUnitVal,   y) = AddOutputRow(pnl, "Cost Per Unit (R):",       y, ctlX);
-            (lblBreakevenVal,     y) = AddOutputRow(pnl, "Breakeven Price/Unit (R):", y, ctlX);
+            (lblTotalCostVal,     y) = AddOutputRow(pnl, "Total Cost ($):",          y, ctlX);
+            (lblCostPerUnitVal,   y) = AddOutputRow(pnl, "Cost Per Unit ($):",        y, ctlX);
+            (lblBreakevenVal,     y) = AddOutputRow(pnl, "Breakeven Price/Unit ($):", y, ctlX);
             (lblGrossMarginVal,   y) = AddOutputRow(pnl, "Gross Margin:",             y, ctlX);
-            (lblProfitPerUnitVal, y) = AddOutputRow(pnl, "Profit Per Unit (R):",     y, ctlX);
-            (lblTotalProfitVal,   y) = AddOutputRow(pnl, "Total Profit (R):",        y, ctlX);
+            (lblProfitPerUnitVal, y) = AddOutputRow(pnl, "Profit Per Unit ($):",     y, ctlX);
+            (lblTotalProfitVal,   y) = AddOutputRow(pnl, "Total Profit ($):",        y, ctlX);
 
             y += secGap;
 
@@ -392,7 +392,7 @@ namespace JaneERP
                             solved = (targetTotal - otherCosts - overhead) / unitQty;
                             unitCost = solved;
                             ok = true;
-                            ShowSolved(solved, "R");
+                            ShowSolved(solved, "$");
                         }
                         break;
 
@@ -400,14 +400,14 @@ namespace JaneERP
                         solved = targetTotal - (unitQty * unitCost) - overhead;
                         otherCosts = solved;
                         ok = true;
-                        ShowSolved(solved, "R");
+                        ShowSolved(solved, "$");
                         break;
 
                     case "Overhead":
                         solved = targetTotal - (unitQty * unitCost) - otherCosts;
                         overhead = solved;
                         ok = true;
-                        ShowSolved(solved, "R");
+                        ShowSolved(solved, "$");
                         break;
                 }
 

@@ -118,6 +118,18 @@ namespace JaneERP.Manufacturing
                         INSERT INTO WorkOrders (MOID, ProductID, Quantity, Status, Notes, ShopifyOrderID)
                         VALUES (@MOID, @ProductID, @Quantity, @Status, @Notes, @ShopifyOrderID);",
                         wo, tx);
+
+                    // Deduct BOM parts from Parts.CurrentStock immediately when MO is created
+                    var bomItems = db.Query(
+                        "SELECT pp.PartID, pp.Quantity FROM ProductParts pp WHERE pp.ProductID = @productId",
+                        new { productId = wo.ProductID }, tx).ToList();
+                    foreach (var bom in bomItems)
+                    {
+                        int deduct = (int)Math.Round((decimal)bom.Quantity * wo.Quantity, MidpointRounding.AwayFromZero);
+                        db.Execute(
+                            "UPDATE Parts SET CurrentStock = CurrentStock - @deduct WHERE PartID = @partId",
+                            new { deduct, partId = (int)bom.PartID }, tx);
+                    }
                 }
 
                 tx.Commit();
@@ -186,28 +198,61 @@ namespace JaneERP.Manufacturing
                         Date      = now
                     }, tx);
 
-                // 3. Deduct BOM parts from Parts.CurrentStock
-                //    Table is ProductParts (ProductID, PartID, Quantity), not BillOfMaterials
+                // 3. Calculate COGS from BOM parts + labour (parts already deducted at MO creation)
                 var bomItems = db.Query(
                     "SELECT pp.PartID, pp.Quantity, ISNULL(p.UnitCost, 0) AS UnitCost " +
                     "FROM ProductParts pp JOIN Parts p ON p.PartID = pp.PartID " +
                     "WHERE pp.ProductID = @productId",
                     new { productId }, tx).ToList();
 
-                decimal totalCogs = 0m;
-                foreach (var bom in bomItems)
-                {
-                    int deduct = (int)bom.Quantity * quantity;
-                    db.Execute(
-                        "UPDATE Parts SET CurrentStock = CurrentStock - @deduct WHERE PartID = @partId",
-                        new { deduct, partId = (int)bom.PartID }, tx);
-                    totalCogs += (decimal)bom.UnitCost * deduct;
-                }
+                var labourItems = db.Query(
+                    "SELECT HourlyRate, Hours FROM BomLabourCosts WHERE ProductID = @productId",
+                    new { productId }, tx).ToList();
+
+                decimal partsCogs  = bomItems.Sum(bom => (decimal)bom.UnitCost * (int)bom.Quantity * quantity);
+                decimal labourCogs = labourItems.Sum(lc => (decimal)lc.HourlyRate * (decimal)lc.Hours * quantity);
+                decimal totalCogs  = partsCogs + labourCogs;
 
                 // 4. Record COGS on the work order
                 db.Execute(
                     "UPDATE WorkOrders SET CostOfGoods = @cogs WHERE WorkOrderID = @workOrderId",
                     new { cogs = totalCogs, workOrderId }, tx);
+
+                // 5. Get the parent MO and check if all its work orders are now complete
+                int moid = db.QuerySingle<int>(
+                    "SELECT MOID FROM WorkOrders WHERE WorkOrderID = @workOrderId",
+                    new { workOrderId }, tx);
+
+                int remaining = db.QuerySingle<int>(
+                    "SELECT COUNT(*) FROM WorkOrders WHERE MOID = @moid AND Status <> 'Complete'",
+                    new { moid }, tx);
+
+                if (remaining == 0)
+                {
+                    // All work orders done — close the Manufacturing Order
+                    db.Execute(
+                        "UPDATE ManufacturingOrders SET Status = 'Complete' WHERE MOID = @moid",
+                        new { moid }, tx);
+
+                    // 6. For each SalesOrder linked to this MO via ShopifyOrderID, mark it Complete
+                    //    only if ALL work orders for that order (across every MO) are now complete.
+                    //    This prevents prematurely completing an order that has other WOs still in progress.
+                    db.Execute(@"
+                        UPDATE SalesOrders
+                        SET    Status = 'Complete'
+                        WHERE  Status <> 'Complete'
+                          AND  ShopifyOrderID IN (
+                                SELECT wo1.ShopifyOrderID
+                                FROM   WorkOrders wo1
+                                WHERE  wo1.MOID = @moid AND wo1.ShopifyOrderID IS NOT NULL
+                                  AND  NOT EXISTS (
+                                        SELECT 1 FROM WorkOrders wo2
+                                        WHERE  wo2.ShopifyOrderID = wo1.ShopifyOrderID
+                                          AND  wo2.Status <> 'Complete'
+                                       )
+                               )",
+                        new { moid }, tx);
+                }
 
                 tx.Commit();
             }

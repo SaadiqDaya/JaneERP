@@ -245,7 +245,8 @@ namespace JaneERP
             if (btnSave.Parent != null)
                 btnSave.Location = new Point(right - btnCancel.Width - btnSave.Width - 8, bottom - btnSave.Height);
 
-            lblTotal.Location = new Point(right - 260 - btnCancel.Width - 20, bottom - 24);
+            // Position total label above the button row to avoid overlap
+            lblTotal.Location = new Point(right - lblTotal.Width, bottom - btnCancel.Height - lblTotal.Height - 6);
         }
 
         private void DgvItems_CellFormatting(object? sender, DataGridViewCellFormattingEventArgs e)
@@ -254,7 +255,7 @@ namespace JaneERP
             if (dgvItems.Columns[e.ColumnIndex].Name == "cLineTotal")
             {
                 var item = _items[e.RowIndex];
-                e.Value = $"R {item.UnitCost * item.QuantityOrdered:N2}";
+                e.Value = $"${item.UnitCost * item.QuantityOrdered:N2} CAD";
                 e.FormattingApplied = true;
             }
         }
@@ -317,6 +318,7 @@ namespace JaneERP
 
         private void BtnNewSupplier_Click(object? sender, EventArgs e)
         {
+            var oldIds = new HashSet<int>(_suppliers.Select(s => s.SupplierID));
             using var frm = new FormSupplierManager(_repo);
             frm.ShowDialog(this);
             // Reload and refresh autocomplete
@@ -324,6 +326,14 @@ namespace JaneERP
             var ac = new AutoCompleteStringCollection();
             foreach (var s in _suppliers) ac.Add(s.SupplierName);
             txtSupplierSearch.AutoCompleteCustomSource = ac;
+            // Auto-select the newly added supplier (highest ID not in old list)
+            var newest = _suppliers.Where(s => !oldIds.Contains(s.SupplierID))
+                                   .MaxBy(s => s.SupplierID);
+            if (newest != null)
+            {
+                _selectedSupplier      = newest;
+                txtSupplierSearch.Text = newest.SupplierName;
+            }
         }
 
         private void BtnAddLine_Click(object? sender, EventArgs e)
@@ -331,6 +341,9 @@ namespace JaneERP
             using var picker = new FormPOItemPicker(_parts, _products);
             if (picker.ShowDialog(this) != DialogResult.OK) return;
             foreach (var item in picker.SelectedItems) _items.Add(item);
+            // Sync back any new parts/products created inside the picker
+            _parts    = picker.Parts;
+            _products = picker.Products;
             RefreshGrid();
         }
 
@@ -362,7 +375,7 @@ namespace JaneERP
         {
             SyncGridToItems();
             decimal total = _items.Sum(i => i.UnitCost * i.QuantityOrdered);
-            lblTotal.Text = $"Total Cost: R {total:N2}";
+            lblTotal.Text = $"Total Cost: ${total:N2} CAD";
             dgvItems.Refresh();
         }
 
@@ -552,8 +565,11 @@ namespace JaneERP
 
     internal sealed class FormPOItemPicker : Form
     {
-        private readonly List<Part>    _parts;
-        private readonly List<Product> _products;
+        private List<Part>    _parts;
+        private List<Product> _products;
+
+        private readonly PartRepository    _partRepo    = new();
+        private readonly ProductRepository _productRepo = new();
 
         private TextBox      txtSearch   = new();
         private ComboBox     cboCategory = new();
@@ -561,6 +577,8 @@ namespace JaneERP
         private Button       btnAdd      = new();
 
         public List<PurchaseOrderItem> SelectedItems { get; } = new();
+        public List<Part>    Parts    => _parts;
+        public List<Product> Products => _products;
 
         public FormPOItemPicker(List<Part> parts, List<Product> products)
         {
@@ -576,8 +594,8 @@ namespace JaneERP
         private void BuildUI()
         {
             Text          = "Add PO Line Items";
-            ClientSize    = new Size(680, 480);
-            MinimumSize   = new Size(560, 380);
+            ClientSize    = new Size(780, 480);
+            MinimumSize   = new Size(700, 380);
             StartPosition = FormStartPosition.CenterParent;
 
             Controls.Add(new Label
@@ -604,6 +622,38 @@ namespace JaneERP
             cboCategory.SelectedIndex        = 0;
             cboCategory.SelectedIndexChanged += (_, _) => ApplyFilter();
             Controls.Add(cboCategory);
+
+            var btnNewPart = new Button
+            {
+                Text     = "+ New Part",
+                Location = new Point(472, 48),
+                Size     = new Size(90, 26),
+                UseVisualStyleBackColor = true
+            };
+            btnNewPart.Click += (_, _) =>
+            {
+                using var frm = new FormPartsManager();
+                frm.ShowDialog(this);
+                _parts = _partRepo.GetAll(includeInactive: false);
+                ApplyFilter();
+            };
+            Controls.Add(btnNewPart);
+
+            var btnNewProduct = new Button
+            {
+                Text     = "+ New Product",
+                Location = new Point(570, 48),
+                Size     = new Size(100, 26),
+                UseVisualStyleBackColor = true
+            };
+            btnNewProduct.Click += (_, _) =>
+            {
+                using var frm = new FormAddProduct();
+                frm.ShowDialog(this);
+                _products = _productRepo.GetProducts().ToList();
+                ApplyFilter();
+            };
+            Controls.Add(btnNewProduct);
 
             dgv.AutoGenerateColumns = false;
             dgv.Columns.Add(new DataGridViewTextBoxColumn { Name = "cCat",  HeaderText = "Type",      Width = 72, ReadOnly = true });
@@ -651,7 +701,7 @@ namespace JaneERP
                     row.Cells["cCat"].Value  = "Part";
                     row.Cells["cSKU"].Value  = p.PartNumber;
                     row.Cells["cName"].Value = p.PartName;
-                    row.Cells["cCost"].Value = $"R {p.UnitCost:N2}";
+                    row.Cells["cCost"].Value = $"${p.UnitCost:N2} CAD";
                     row.Tag = (object)p;
                 }
             }
@@ -668,7 +718,7 @@ namespace JaneERP
                     row.Cells["cCat"].Value  = "Product";
                     row.Cells["cSKU"].Value  = p.SKU;
                     row.Cells["cName"].Value = p.ProductName;
-                    row.Cells["cCost"].Value = $"R {p.WholesalePrice:N2}";
+                    row.Cells["cCost"].Value = $"${p.WholesalePrice:N2} CAD";
                     row.Tag = (object)p;
                 }
             }

@@ -16,13 +16,45 @@ namespace JaneERP.Logging
             try
             {
                 Directory.CreateDirectory(LogFolder);
-                // write start line
+                RolloverIfNeeded();
                 File.AppendAllText(LogFile, $"{DateTime.UtcNow:O} [Info] App starting{Environment.NewLine}");
             }
             catch
             {
                 // swallow - logging is best-effort
             }
+        }
+
+        /// <summary>
+        /// If app.log was last written on a previous day, renames it to app_YYYY-MM-DD.log
+        /// and deletes any archived logs older than 30 days.
+        /// </summary>
+        private static void RolloverIfNeeded()
+        {
+            try
+            {
+                if (!File.Exists(LogFile)) return;
+
+                var lastWrite = File.GetLastWriteTimeUtc(LogFile);
+                if (lastWrite.Date >= DateTime.UtcNow.Date) return;
+
+                // Archive the old log with the date it was last written
+                var archive = Path.Combine(LogFolder, $"app_{lastWrite:yyyy-MM-dd}.log");
+                if (!File.Exists(archive))
+                    File.Move(LogFile, archive);
+
+                // Purge archived logs older than 30 days
+                foreach (var old in Directory.GetFiles(LogFolder, "app_????.??.??.log"))
+                {
+                    try
+                    {
+                        if (File.GetLastWriteTimeUtc(old) < DateTime.UtcNow.AddDays(-30))
+                            File.Delete(old);
+                    }
+                    catch { /* skip files we can't delete */ }
+                }
+            }
+            catch { /* best-effort */ }
         }
 
         public static void Shutdown()

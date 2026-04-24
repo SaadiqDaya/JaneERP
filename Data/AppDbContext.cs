@@ -45,6 +45,27 @@ namespace JaneERP.Data
             catch { /* column already exists — safe to ignore */ }
         }
 
+        /// <summary>
+        /// Deletes cached Shopify orders older than <paramref name="days"/> days to prevent unbounded growth.
+        /// Safe to call at every startup — only removes stale cache entries, never ERP data.
+        /// </summary>
+        public void PurgeOldOrders(int days = 90)
+        {
+            try
+            {
+                var cutoff = DateTime.UtcNow.AddDays(-days).ToString("o");
+                // Remove line items for old orders first (FK constraint)
+                Database.ExecuteSqlRaw(
+                    $"DELETE FROM LineItems WHERE OrderId IN (SELECT Id FROM Orders WHERE CreatedAt < '{cutoff}')");
+                Database.ExecuteSqlRaw(
+                    $"DELETE FROM Orders WHERE CreatedAt < '{cutoff}'");
+            }
+            catch (Exception ex)
+            {
+                Logging.AppLogger.Info($"[AppDbContext.PurgeOldOrders]: {ex.Message}");
+            }
+        }
+
         public async Task UpsertOrdersAsync(IEnumerable<Order> orders, string? storeDomain = null)
         {
             foreach (var o in orders)

@@ -60,6 +60,40 @@ namespace JaneERP.Data
                 );");
         }
 
+        // ── Schema migration ──────────────────────────────────────────────────────
+        /// <summary>Adds OverdueNotifiedAt column to PurchaseOrders if not already present.</summary>
+        public void MigrateOverdueNotifiedColumn()
+        {
+            using IDbConnection db = new SqlConnection(_cs);
+            db.Execute(@"
+                IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('PurchaseOrders') AND name='OverdueNotifiedAt')
+                    ALTER TABLE PurchaseOrders ADD OverdueNotifiedAt DATETIME NULL;");
+        }
+
+        /// <summary>Returns POs that are past their expected date, not yet received/cancelled,
+        /// and have not yet had an overdue notification sent.</summary>
+        public List<PurchaseOrder> GetUnnotifiedOverduePOs()
+        {
+            using IDbConnection db = new SqlConnection(_cs);
+            return db.Query<PurchaseOrder>(@"
+                SELECT po.*, s.SupplierName
+                FROM   PurchaseOrders po
+                JOIN   Suppliers s ON s.SupplierID = po.SupplierID
+                WHERE  po.ExpectedDate IS NOT NULL
+                  AND  po.ExpectedDate < GETDATE()
+                  AND  po.Status NOT IN ('Received', 'Cancelled')
+                  AND  po.OverdueNotifiedAt IS NULL
+                ORDER  BY po.ExpectedDate").ToList();
+        }
+
+        /// <summary>Stamps OverdueNotifiedAt on a PO so it is not notified again.</summary>
+        public void MarkOverdueNotified(int poid)
+        {
+            using IDbConnection db = new SqlConnection(_cs);
+            db.Execute("UPDATE PurchaseOrders SET OverdueNotifiedAt = GETDATE() WHERE POID = @poid",
+                new { poid });
+        }
+
         // ── Suppliers ─────────────────────────────────────────────────────────────
         public List<Supplier> GetAllSuppliers(bool includeInactive = false)
         {

@@ -17,6 +17,7 @@ namespace JaneERP
         private Label        lblStatus    = new();
         private TextBox      txtSearch    = new();
         private List<Product> _all        = new();
+        private string        _stockFilter = "All"; // "All" | "Negative" | "Zero" | "Low" | "OK"
 
         // Expiry section
         private Label        lblExpiryHeader = new();
@@ -59,26 +60,37 @@ namespace JaneERP
             btnRefresh.Click += (_, _) => LoadData();
             Controls.Add(btnRefresh);
 
-            // ── Legend ──────────────────────────────────────────────────────────
+            // ── Filter buttons (clickable legend) ───────────────────────────────
             int lx = 420;
-            void AddLegend(string text, Color back, Color fore, ref int x)
+            void AddFilterBtn(string label, string filterKey, Color back, Color fore, ref int x)
             {
-                var lbl = new Label
+                var btn = new Button
                 {
-                    Text      = text,
+                    Text      = label,
                     BackColor = back,
                     ForeColor = fore,
+                    FlatStyle = FlatStyle.Flat,
                     AutoSize  = true,
-                    Padding   = new Padding(4, 2, 4, 2),
-                    Location  = new Point(x, 50)
+                    Padding   = new Padding(4, 1, 4, 1),
+                    Location  = new Point(x, 47),
+                    Cursor    = Cursors.Hand,
+                    Tag       = filterKey
                 };
-                Controls.Add(lbl);
-                x += lbl.PreferredWidth + 14;
+                btn.FlatAppearance.BorderColor = Color.FromArgb(
+                    Math.Min(back.R + 60, 255), Math.Min(back.G + 60, 255), Math.Min(back.B + 60, 255));
+                btn.Click += (_, _) =>
+                {
+                    _stockFilter = filterKey;
+                    ApplyFilter();
+                };
+                Controls.Add(btn);
+                x += btn.PreferredSize.Width + 6;
             }
-            AddLegend("Negative",          Color.FromArgb(80, 20, 20),  Color.FromArgb(255, 120, 120), ref lx);
-            AddLegend("Zero",              Color.FromArgb(80, 70, 0),   Color.FromArgb(255, 220, 0),   ref lx);
-            AddLegend("Low (reorder)",     Color.FromArgb(70, 45, 0),   Color.FromArgb(255, 165, 0),   ref lx);
-            AddLegend("OK",                Theme.Surface,               Theme.TextPrimary,              ref lx);
+            AddFilterBtn("All",            "All",      Theme.Surface,               Theme.TextPrimary,              ref lx);
+            AddFilterBtn("Negative",       "Negative", Color.FromArgb(80, 20, 20),  Color.FromArgb(255, 120, 120), ref lx);
+            AddFilterBtn("Zero",           "Zero",     Color.FromArgb(80, 70, 0),   Color.FromArgb(255, 220, 0),   ref lx);
+            AddFilterBtn("Low (reorder)",  "Low",      Color.FromArgb(70, 45, 0),   Color.FromArgb(255, 165, 0),   ref lx);
+            AddFilterBtn("OK",             "OK",       Color.FromArgb(20, 60, 20),  Color.FromArgb(100, 220, 100), ref lx);
 
             dgv.AutoGenerateColumns = false;
             dgv.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Location",     DataPropertyName = "DefaultLocationName", Width = 130, ReadOnly = true });
@@ -226,16 +238,24 @@ namespace JaneERP
         private void ApplyFilter()
         {
             var term = txtSearch.Text.Trim();
-            var filtered = (string.IsNullOrEmpty(term)
-                ? _all
-                : _all.Where(p =>
+            var filtered = _all
+                .Where(p =>
+                    string.IsNullOrEmpty(term) ||
                     (p.SKU         ?? "").Contains(term, StringComparison.OrdinalIgnoreCase) ||
-                    (p.ProductName ?? "").Contains(term, StringComparison.OrdinalIgnoreCase)))
+                    (p.ProductName ?? "").Contains(term, StringComparison.OrdinalIgnoreCase))
+                .Where(p => _stockFilter switch
+                {
+                    "Negative" => p.CurrentStock < 0,
+                    "Zero"     => p.CurrentStock == 0,
+                    "Low"      => p.CurrentStock > 0 && p.ReorderPoint > 0 && p.CurrentStock <= p.ReorderPoint,
+                    "OK"       => p.CurrentStock > 0 && (p.ReorderPoint == 0 || p.CurrentStock > p.ReorderPoint),
+                    _          => true   // "All"
+                })
                 .OrderBy(p => p.DefaultLocationName ?? "\uFFFF")
                 .ThenBy(p => p.ProductName)
                 .ToList();
             dgv.DataSource = filtered;
-            lblStatus.Text = $"{filtered.Count} product(s) | Negative: {filtered.Count(p => p.CurrentStock < 0)} | Out of stock: {filtered.Count(p => p.CurrentStock == 0)} | Low (\u2264 reorder): {filtered.Count(p => p.CurrentStock > 0 && p.ReorderPoint > 0 && p.CurrentStock <= p.ReorderPoint)}";
+            lblStatus.Text = $"{filtered.Count} product(s) | Negative: {_all.Count(p => p.CurrentStock < 0)} | Out of stock: {_all.Count(p => p.CurrentStock == 0)} | Low (\u2264 reorder): {_all.Count(p => p.CurrentStock > 0 && p.ReorderPoint > 0 && p.CurrentStock <= p.ReorderPoint)}";
         }
     }
 }

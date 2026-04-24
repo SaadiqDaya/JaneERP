@@ -30,5 +30,10 @@ namespace JaneERP.Models
         public string? DefaultVendorName    { get; set; }
 
         public List<ProductAttribute> Attributes { get; set; } = [];
+
+        /// <summary>True when the product was created automatically (Shopify sync, manual order, CSV import).</summary>
+        public bool IsAutoCreated { get; set; }
+        /// <summary>True once a user has reviewed and confirmed the auto-created record.</summary>
+        public bool IsVerified    { get; set; }
     }
 }

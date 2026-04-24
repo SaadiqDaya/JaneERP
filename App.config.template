@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!--
+  Copy this file to App.config and fill in your local values.
+  App.config is excluded from source control (.gitignore) — never commit real credentials.
+-->
+<configuration>
+    <connectionStrings>
+        <add name="MyERP"
+             connectionString="Server=localhost\SQLEXPRESS;Database=JaneERP;User Id=YOUR_DB_USER;Password=YOUR_DB_PASSWORD;TrustServerCertificate=True;"
+             providerName="Microsoft.Data.SqlClient" />
+    </connectionStrings>
+</configuration>

@@ -56,19 +56,6 @@ namespace JaneERP
                     }
                 }
 
-                // Pre-select the product's type
-                if (product.ProductTypeID.HasValue)
-                {
-                    foreach (Models.ProductType pt in cboProductType.Items)
-                    {
-                        if (pt.ProductTypeID == product.ProductTypeID.Value)
-                        {
-                            cboProductType.SelectedItem = pt;
-                            break;
-                        }
-                    }
-                }
-
                 // Pre-select the product's default vendor
                 if (product.DefaultVendorID.HasValue)
                 {
@@ -89,19 +76,38 @@ namespace JaneERP
                 // Show Manage BOM button in edit mode
                 btnManageBOM.Visible = true;
 
+                // Load saved attributes FIRST — before setting the product type.
+                // Setting the type fires SelectedIndexChanged which pre-fills template rows;
+                // if the saved attrs are already in the grid the duplicate-check skips them.
                 try
                 {
-                    var col   = dgvAttributes.Columns["colProperty"] as DataGridViewComboBoxColumn; if (col == null) return;
-                    var attrs = new ProductRepository().GetAttributes(product.ProductID);
-                    foreach (var attr in attrs)
+                    var col   = dgvAttributes.Columns["colProperty"] as DataGridViewComboBoxColumn;
+                    if (col != null)
                     {
-                        // Ensure the attribute name is in the combo list so the cell doesn't error
-                        if (!col.Items.Contains(attr.AttributeName))
-                            col.Items.Add(attr.AttributeName);
-                        dgvAttributes.Rows.Add(attr.AttributeName, attr.AttributeValue);
+                        var attrs = new ProductRepository().GetAttributes(product.ProductID);
+                        foreach (var attr in attrs)
+                        {
+                            if (!col.Items.Contains(attr.AttributeName))
+                                col.Items.Add(attr.AttributeName);
+                            dgvAttributes.Rows.Add(attr.AttributeName, attr.AttributeValue);
+                        }
                     }
                 }
                 catch (Exception ex) { AppLogger.Info($"[FormAddProduct.FormAddProduct]: {ex.Message}"); }
+
+                // Now set the product type — SelectedIndexChanged fires but existingNames
+                // already contains the loaded attrs, so no duplicates are added.
+                if (product.ProductTypeID.HasValue)
+                {
+                    foreach (Models.ProductType pt in cboProductType.Items)
+                    {
+                        if (pt.ProductTypeID == product.ProductTypeID.Value)
+                        {
+                            cboProductType.SelectedItem = pt;
+                            break;
+                        }
+                    }
+                }
 
                 // If this is a Package product, load its components after the form finishes loading
                 this.Load += (_, _) => LoadPackageComponentsIfPackage();

@@ -47,13 +47,19 @@ namespace JaneERP.Services
             IsRunning = false;
         }
 
+        private DateTime? _lastSyncAt;
+
         private async Task PerformSyncAsync()
         {
             try
             {
-                // perform a full fetch for now (could be optimized with updated_at_min)
-                var orders = await _client.GetOrdersAsync(_store, _token).ConfigureAwait(false);
+                // Delta sync: only fetch orders updated since the last successful sync.
+                // On first run _lastSyncAt is null, so all orders are fetched.
+                var since = _lastSyncAt;
+                var orders = await _client.GetOrdersAsync(_store, _token, updatedAtMin: since)
+                                          .ConfigureAwait(false);
                 await _db.UpsertOrdersAsync(orders, _store).ConfigureAwait(false);
+                _lastSyncAt = DateTime.UtcNow;
                 SyncCompleted?.Invoke(this, new SyncCompletedEventArgs(true, null, orders.Count));
             }
             catch (Exception ex)

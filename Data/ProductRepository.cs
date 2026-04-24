@@ -13,6 +13,59 @@ namespace JaneERP.Data
             ?? throw new InvalidOperationException(
                 "Connection string 'MyERP' not found in App.config.");
 
+        /// <summary>
+        /// Creates the Products, InventoryTransactions, and ProductAttributes tables if they do not
+        /// already exist. Safe to call on every startup — all statements are IF NOT EXISTS guarded.
+        /// Call this BEFORE LocationRepository, PartRepository, and ManufacturingRepository so that
+        /// the tables they reference via FK already exist.
+        /// </summary>
+        public void EnsureSchema()
+        {
+            using IDbConnection db = new SqlConnection(_connectionString);
+
+            // ── Products ─────────────────────────────────────────────────────────────
+            // FK columns (DefaultLocationID, DefaultVendorID, ProductTypeID) are added later
+            // by LocationRepository.EnsureSchema() and MigrateProductColumns() once the
+            // referenced tables have been created.
+            db.Execute(@"
+                IF NOT EXISTS (SELECT 1 FROM sysobjects WHERE name='Products' AND xtype='U')
+                CREATE TABLE Products (
+                    ProductID      INT IDENTITY(1,1) PRIMARY KEY,
+                    SKU            NVARCHAR(100)  NOT NULL UNIQUE,
+                    ProductName    NVARCHAR(200)  NOT NULL,
+                    RetailPrice    DECIMAL(18,2)  NOT NULL DEFAULT 0,
+                    WholesalePrice DECIMAL(18,2)  NOT NULL DEFAULT 0,
+                    IsActive       BIT            NOT NULL DEFAULT 1,
+                    ReorderPoint   INT            NOT NULL DEFAULT 0,
+                    OrderUpTo      INT            NOT NULL DEFAULT 0,
+                    IsAutoCreated  BIT            NOT NULL DEFAULT 0,
+                    IsVerified     BIT            NOT NULL DEFAULT 0
+                );");
+
+            // ── InventoryTransactions ────────────────────────────────────────────────
+            // LocationID, LotNumber, ExpirationDate, StoreID added by LocationRepository.EnsureSchema()
+            db.Execute(@"
+                IF NOT EXISTS (SELECT 1 FROM sysobjects WHERE name='InventoryTransactions' AND xtype='U')
+                CREATE TABLE InventoryTransactions (
+                    TransactionID   INT IDENTITY(1,1) PRIMARY KEY,
+                    ProductID       INT           NOT NULL REFERENCES Products(ProductID),
+                    QuantityChange  INT           NOT NULL,
+                    TransactionType NVARCHAR(50)  NOT NULL,
+                    Notes           NVARCHAR(500) NULL,
+                    TransactionDate DATETIME      NOT NULL DEFAULT GETDATE()
+                );");
+
+            // ── ProductAttributes ────────────────────────────────────────────────────
+            db.Execute(@"
+                IF NOT EXISTS (SELECT 1 FROM sysobjects WHERE name='ProductAttributes' AND xtype='U')
+                CREATE TABLE ProductAttributes (
+                    AttributeID    INT IDENTITY(1,1) PRIMARY KEY,
+                    ProductID      INT            NOT NULL REFERENCES Products(ProductID),
+                    AttributeName  NVARCHAR(100)  NOT NULL,
+                    AttributeValue NVARCHAR(500)  NULL
+                );");
+        }
+
         // CurrentStock is 100% calculated from InventoryTransactions.
         // Pass locationId to scope the stock to a single location; null = all locations combined.
         public IEnumerable<Product> GetProducts(bool showInactive = false, int? locationId = null)
@@ -48,7 +101,46 @@ namespace JaneERP.Data
                 new { LocationID = locationId }).ToList();
         }
 
-        /// <summary>Adds new product columns (ReorderPoint, OrderUpTo, DefaultVendorID) if they don't exist yet.</summary>
+        /// <summary>Returns a single product by ID, or null if not found.</summary>
+        public Product? GetProductById(int productId)
+        {
+            using IDbConnection db = new SqlConnection(_connectionString);
+            return db.QueryFirstOrDefault<Product>(@"
+                SELECT  p.ProductID, p.SKU, p.ProductName, p.RetailPrice, p.WholesalePrice,
+                        p.ReorderPoint, ISNULL(p.OrderUpTo, 0) AS OrderUpTo,
+                        p.IsActive, p.DefaultLocationID, p.ProductTypeID,
+                        pt.TypeName    AS ProductTypeName,
+                        l.LocationName AS DefaultLocationName,
+                        p.DefaultVendorID,
+                        v.VendorName   AS DefaultVendorName,
+                        ISNULL((SELECT SUM(t.QuantityChange) FROM InventoryTransactions t
+                                WHERE t.ProductID = p.ProductID), 0) AS CurrentStock
+                FROM    Products p
+                LEFT JOIN ProductTypes pt ON pt.ProductTypeID = p.ProductTypeID
+                LEFT JOIN Locations    l  ON l.LocationID     = p.DefaultLocationID
+                LEFT JOIN Vendors      v  ON v.VendorID       = p.DefaultVendorID
+                WHERE   p.ProductID = @productId",
+                new { productId });
+        }
+
+        /// <summary>Returns the count of products and parts that are auto-created and not yet verified.</summary>
+        /// Used to drive the badge overlay on the main menu Unverified tile.</summary>
+        public int GetUnverifiedCount()
+        {
+            using IDbConnection db = new SqlConnection(_connectionString);
+            try
+            {
+                return db.ExecuteScalar<int>(@"
+                    SELECT COUNT(*) FROM (
+                        SELECT ProductID FROM Products WHERE IsAutoCreated = 1 AND IsVerified = 0 AND IsActive = 1
+                        UNION ALL
+                        SELECT PartID    FROM Parts    WHERE IsAutoCreated = 1 AND IsVerified = 0 AND IsActive = 1
+                    ) AS unverified");
+            }
+            catch { return 0; }
+        }
+
+        /// <summary>Adds new product columns (ReorderPoint, OrderUpTo, DefaultVendorID, IsAutoCreated, IsVerified) if they don't exist yet.</summary>
         public void MigrateProductColumns()
         {
             using IDbConnection db = new SqlConnection(_connectionString);
@@ -60,7 +152,11 @@ namespace JaneERP.Data
                     IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('Products') AND name = 'OrderUpTo')
                         ALTER TABLE Products ADD OrderUpTo INT NOT NULL DEFAULT 0;
                     IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('Products') AND name='DefaultVendorID')
-                        ALTER TABLE Products ADD DefaultVendorID INT NULL REFERENCES Vendors(VendorID);");
+                        ALTER TABLE Products ADD DefaultVendorID INT NULL REFERENCES Vendors(VendorID);
+                    IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('Products') AND name='IsAutoCreated')
+                        ALTER TABLE Products ADD IsAutoCreated BIT NOT NULL DEFAULT 0;
+                    IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('Products') AND name='IsVerified')
+                        ALTER TABLE Products ADD IsVerified BIT NOT NULL DEFAULT 0;");
             }
             catch (Exception ex) { Logging.AppLogger.Info($"MigrateProductColumns warning: {ex.Message}"); }
 
@@ -115,6 +211,24 @@ namespace JaneERP.Data
         }
 
         /// <param name="locationId">Limit results to a specific location; null returns all locations.</param>
+        /// <summary>Returns stock level per location for a product.
+        /// Returns a list of (LocationName, Stock) tuples only for locations that have transactions.</summary>
+        public List<(string LocationName, int Stock)> GetStockByLocation(int productId)
+        {
+            using IDbConnection db = new SqlConnection(_connectionString);
+            var rows = db.Query(@"
+                SELECT  ISNULL(l.LocationName, 'No Location') AS LocationName,
+                        SUM(it.QuantityChange) AS Stock
+                FROM    InventoryTransactions it
+                LEFT JOIN Locations l ON l.LocationID = it.LocationID
+                WHERE   it.ProductID = @productId
+                GROUP   BY l.LocationName
+                HAVING  SUM(it.QuantityChange) <> 0
+                ORDER   BY LocationName",
+                new { productId }).ToList();
+            return rows.Select(r => (LocationName: (string)r.LocationName, Stock: (int)r.Stock)).ToList();
+        }
+
         public IEnumerable<InventoryTransaction> GetTransactions(int productId, int? locationId = null)
         {
             using IDbConnection db = new SqlConnection(_connectionString);
@@ -344,8 +458,8 @@ namespace JaneERP.Data
             if (partId == null)
             {
                 partId = db.QuerySingle<int>(@"
-                    INSERT INTO Parts (PartNumber, PartName, UnitCost, CurrentStock, IsActive)
-                    VALUES (@sku, @productName, 0, 0, 1);
+                    INSERT INTO Parts (PartNumber, PartName, UnitCost, CurrentStock, IsActive, IsAutoCreated, IsVerified)
+                    VALUES (@sku, @productName, 0, 0, 1, 1, 0);
                     SELECT CAST(SCOPE_IDENTITY() AS INT);",
                     new { sku, productName }, tx);
             }

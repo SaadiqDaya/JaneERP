@@ -34,6 +34,7 @@ namespace JaneERP
         private TextBox      txtConfirmPassword = new();
         private Button       btnSave          = new();
         private Button       btnResetPassword = new();
+        private Button       btnUnlock        = new();
         private Button       btnDeactivate    = new();
         private Button       btnEmailUser     = new();
 
@@ -216,6 +217,17 @@ namespace JaneERP
             btnEmailUser.Click   += BtnEmailUser_Click;
             Controls.Add(btnEmailUser);
 
+            btnUnlock.Location    = new Point(x, y + 76);
+            btnUnlock.Size        = new Size(230, 30);
+            btnUnlock.Text        = "Unlock";
+            btnUnlock.Enabled     = false;
+            btnUnlock.BackColor   = Color.FromArgb(180, 80, 0);
+            btnUnlock.ForeColor   = Color.White;
+            btnUnlock.FlatStyle   = FlatStyle.Flat;
+            btnUnlock.FlatAppearance.BorderColor = Color.FromArgb(220, 100, 0);
+            btnUnlock.Click      += BtnUnlock_Click;
+            Controls.Add(btnUnlock);
+
             SetEditPanelEnabled(false);
         }
 
@@ -230,6 +242,23 @@ namespace JaneERP
             btnResetPassword.Enabled   = enabled && !_addMode;
             btnDeactivate.Enabled      = enabled && !_addMode;
             btnEmailUser.Enabled       = enabled && !_addMode;
+            // Unlock only enabled when user is actually locked
+            RefreshUnlockButton();
+        }
+
+        private void RefreshUnlockButton()
+        {
+            if (_selected == null || _addMode)
+            {
+                btnUnlock.Enabled = false;
+                btnUnlock.Text    = "Unlock";
+                return;
+            }
+            bool isLocked = _selected.LockedUntil.HasValue && _selected.LockedUntil.Value > DateTime.Now;
+            btnUnlock.Enabled = isLocked;
+            btnUnlock.Text    = isLocked
+                ? $"Unlock (locked until {_selected.LockedUntil!.Value:h:mm tt})"
+                : "Unlock";
         }
 
         private void BtnAddUser_Click(object? sender, EventArgs e)
@@ -433,6 +462,27 @@ namespace JaneERP
             {
                 _selected.IsActive = !_selected.IsActive; // revert
                 MessageBox.Show(this, "Failed: " + ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        private void BtnUnlock_Click(object? sender, EventArgs e)
+        {
+            if (_selected == null) return;
+            try
+            {
+                _repo.UnlockUser(_selected.UserId);
+                _selected.LockedUntil      = null;
+                _selected.FailedLoginCount = 0;
+                AppLogger.Audit(AppSession.CurrentUser?.Username, "UnlockUser", $"Unlocked={_selected.Username}");
+                RefreshUnlockButton();
+                LoadUsers();
+                MessageBox.Show(this, $"'{_selected.Username}' has been unlocked.", "Unlocked",
+                    MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, "Unlock failed: " + ex.Message, "Error",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
 

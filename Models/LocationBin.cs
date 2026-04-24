@@ -7,6 +7,8 @@ namespace JaneERP.Models
         public string  BinCode     { get; set; } = "";
         public string? Description { get; set; }
         public int?    Capacity    { get; set; }
+        /// <summary>How many shelf spots this bin occupies (e.g. Small=2, Medium=1).</summary>
+        public int?    ShelfSpots  { get; set; }
         public bool    IsActive    { get; set; } = true;
 
         /// <summary>Joined display — populated by queries that join Locations.</summary>

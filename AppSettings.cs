@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 
 namespace JaneERP
@@ -5,6 +7,35 @@ namespace JaneERP
     /// <summary>Persists user-configurable settings to settings.json in the app directory.</summary>
     public class AppSettings
     {
+        // ── DPAPI helpers (Windows Data Protection API) ───────────────────────────
+        /// <summary>Encrypts a plain-text string using the current Windows user account key.
+        /// Returns a Base64-encoded ciphertext. Returns empty string for null/empty input.</summary>
+        private static string Protect(string plainText)
+        {
+            if (string.IsNullOrEmpty(plainText)) return "";
+            try
+            {
+                var bytes      = Encoding.UTF8.GetBytes(plainText);
+                var encrypted  = ProtectedData.Protect(bytes, null, DataProtectionScope.CurrentUser);
+                return Convert.ToBase64String(encrypted);
+            }
+            catch { return ""; }
+        }
+
+        /// <summary>Decrypts a DPAPI-protected Base64 string back to plain text.
+        /// Returns empty string on failure (e.g. wrong user account or corrupt data).</summary>
+        private static string Unprotect(string cipherText)
+        {
+            if (string.IsNullOrEmpty(cipherText)) return "";
+            try
+            {
+                var bytes     = Convert.FromBase64String(cipherText);
+                var decrypted = ProtectedData.Unprotect(bytes, null, DataProtectionScope.CurrentUser);
+                return Encoding.UTF8.GetString(decrypted);
+            }
+            catch { return ""; }
+        }
+
         private static readonly string _path =
             Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "settings.json");
 
@@ -38,17 +69,51 @@ namespace JaneERP
             "Manual", "Phone", "Walk-in", "POS"
         };
 
+        // ── Security / Lockout policy ─────────────────────────────────────────────────
+        /// <summary>Failed attempts before account lockout. 0 = use built-in default (5).</summary>
+        public int    MaxLoginAttempts { get; set; } = 5;
+        /// <summary>How many minutes an account stays locked. 0 = use built-in default (15).</summary>
+        public int    LockoutMinutes   { get; set; } = 15;
+        /// <summary>Admin phone number shown in lockout messages.</summary>
+        public string AdminPhone       { get; set; } = "";
+        /// <summary>Admin email shown in lockout messages.</summary>
+        public string AdminEmail       { get; set; } = "";
+        /// <summary>When true, pre-fills the username field with the last successful login name.</summary>
+        public bool   RememberLastUsername { get; set; } = false;
+        /// <summary>Stores the most recently used username (only used when RememberLastUsername is true).</summary>
+        public string LastUsername     { get; set; } = "";
+
         // ── Email / SMTP ──────────────────────────────────────────────────────────────
         public string SmtpServer   { get; set; } = "";
         public int    SmtpPort     { get; set; } = 587;
         public bool   SmtpUseSsl   { get; set; } = true;
         public string SmtpUser     { get; set; } = "";
+
+        /// <summary>DPAPI-encrypted SMTP password stored in settings.json.
+        /// Use SmtpPasswordPlain to read/write the decrypted value at runtime.</summary>
         public string SmtpPassword { get; set; } = "";
+
+        /// <summary>Returns the decrypted SMTP password for use at runtime (never persisted).</summary>
+        [System.Text.Json.Serialization.JsonIgnore]
+        public string SmtpPasswordPlain
+        {
+            get => Unprotect(SmtpPassword);
+            set => SmtpPassword = Protect(value);
+        }
+
         public string FromEmail    { get; set; } = "";
         public string FromName     { get; set; } = "JaneERP";
 
         /// <summary>Attribute names pinned as filter buttons on the Product Search screen.</summary>
         public List<string> ProductSearchPinnedAttributes { get; set; } = new();
+
+        // ── Backup settings ───────────────────────────────────────────────────────
+        /// <summary>Folder where database backups are written.</summary>
+        public string BackupFolder    { get; set; } = "";
+        /// <summary>Auto-backup schedule: "None", "Daily", or "Weekly".</summary>
+        public string BackupSchedule  { get; set; } = "None";
+        /// <summary>UTC datetime of the last successful backup.</summary>
+        public DateTime? LastBackupAt { get; set; }
 
         /// <summary>True if SMTP is configured enough to send email.</summary>
         public bool IsEmailConfigured =>

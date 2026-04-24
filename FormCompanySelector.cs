@@ -285,23 +285,55 @@ namespace JaneERP
             }
         }
 
+        private string BuildMasterConnectionString()
+        {
+            var server = txtServer.Text.Trim();
+            if (chkIntegrated.Checked)
+                return $"Server={server};Database=master;Integrated Security=True;TrustServerCertificate=True;";
+            else
+                return $"Server={server};Database=master;User Id={txtUser.Text.Trim()};Password={txtPwd.Text};TrustServerCertificate=True;";
+        }
+
         private void BtnCreate_Click(object? sender, EventArgs e)
         {
-            var name = txtName.Text.Trim();
-            var db   = txtDb.Text.Trim();
-            if (string.IsNullOrEmpty(name) || string.IsNullOrEmpty(db))
+            var name   = txtName.Text.Trim();
+            var dbName = txtDb.Text.Trim();
+            var server = txtServer.Text.Trim();
+
+            if (string.IsNullOrEmpty(name) || string.IsNullOrEmpty(dbName) || string.IsNullOrEmpty(server))
             {
-                MessageBox.Show(this, "Display name and database name are required.", "Validation",
+                MessageBox.Show(this, "Display name, server, and database name are required.", "Validation",
                     MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }
 
             try
             {
+                lblStatus.Text      = "Creating database…";
+                lblStatus.ForeColor = Theme.TextSecondary;
+                Application.DoEvents();
+
+                // Step 1: Connect to master and create the database if it doesn't exist
+                using var master = new SqlConnection(BuildMasterConnectionString());
+                master.Open();
+
+                // Sanitise name for safe embedding in DDL (bracket-escape any ] characters)
+                var safeDb = dbName.Replace("]", "]]");
+                using var cmd = master.CreateCommand();
+                cmd.CommandText = $@"
+                    IF NOT EXISTS (SELECT 1 FROM sys.databases WHERE name = N'{safeDb.Replace("'", "''")}')
+                        CREATE DATABASE [{safeDb}]";
+                cmd.ExecuteNonQuery();
+                master.Close();
+
+                // Step 2: Verify we can connect to the new database
                 var connStr = BuildConnectionString();
-                // Test before saving
                 using var conn = new SqlConnection(connStr);
                 conn.Open();
+
+                lblStatus.Text      = $"Database '{dbName}' created successfully.";
+                lblStatus.ForeColor = Theme.Teal;
+                Application.DoEvents();
 
                 NewProfile   = new CompanyProfile { Name = name, ConnectionString = connStr };
                 DialogResult = DialogResult.OK;
@@ -309,7 +341,9 @@ namespace JaneERP
             }
             catch (Exception ex)
             {
-                MessageBox.Show(this, "Could not connect: " + ex.Message, "Error",
+                lblStatus.Text      = "Failed: " + ex.Message;
+                lblStatus.ForeColor = Theme.Danger;
+                MessageBox.Show(this, "Could not create database:\n\n" + ex.Message, "Error",
                     MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }

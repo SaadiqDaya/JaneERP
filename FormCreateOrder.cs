@@ -41,9 +41,10 @@ namespace JaneERP
         private ComboBox       cboCurrency  = new();
         private TextBox        txtNotes     = new();
 
-        // ── Discount fields ───────────────────────────────────────────────────────
+        // ── Discount / Shipping fields ─────────────────────────────────────────────
         private ComboBox      cboDiscountType   = new();
         private NumericUpDown nudDiscountValue  = new();
+        private NumericUpDown nudShipping       = new();
         private Label         lblDiscountCalc   = new();
         private Label         lblFinalTotal     = new();
 
@@ -202,33 +203,45 @@ namespace JaneERP
             row += 32;
             BuildGrid(row);
 
-            // ── Totals ────────────────────────────────────────────────────────────
-            lblTotal.Text      = "Total: $0.00";
-            lblTotal.Font      = new Font("Segoe UI", 11F, FontStyle.Bold);
+            // ── Totals & discount (two-row panel anchored to bottom) ──────────────
+            // Row 1: Subtotal | Shipping: [nud] | Discount: [combo] [nud]
+            // Row 2: Home-currency equiv | Discount calc | Final total
+
+            lblTotal.Text      = "Subtotal: $0.00";
+            lblTotal.Font      = new Font("Segoe UI", 10F, FontStyle.Bold);
             lblTotal.ForeColor = Theme.Gold;
             lblTotal.AutoSize  = true;
             lblTotal.Anchor    = AnchorStyles.Bottom | AnchorStyles.Left;
-            lblTotal.Location  = new Point(lx, ClientSize.Height - 72);
+            lblTotal.Location  = new Point(lx, ClientSize.Height - 90);
             Controls.Add(lblTotal);
 
-            lblHomeTotal.Text      = "";
-            lblHomeTotal.Font      = new Font("Segoe UI", 9F);
-            lblHomeTotal.ForeColor = Theme.TextSecondary;
-            lblHomeTotal.AutoSize  = true;
-            lblHomeTotal.Anchor    = AnchorStyles.Bottom | AnchorStyles.Left;
-            lblHomeTotal.Location  = new Point(lx, ClientSize.Height - 54);
-            Controls.Add(lblHomeTotal);
+            // Shipping
+            Controls.Add(new Label
+            {
+                Text      = "Shipping:",
+                Font      = new Font("Segoe UI", 9F),
+                AutoSize  = true,
+                Anchor    = AnchorStyles.Bottom | AnchorStyles.Left,
+                Location  = new Point(lx + 180, ClientSize.Height - 90)
+            });
+            nudShipping.Size          = new Size(90, 23);
+            nudShipping.Anchor        = AnchorStyles.Bottom | AnchorStyles.Left;
+            nudShipping.Location      = new Point(lx + 250, ClientSize.Height - 92);
+            nudShipping.Minimum       = 0;
+            nudShipping.Maximum       = 9999999;
+            nudShipping.DecimalPlaces = 2;
+            nudShipping.ValueChanged += (_, _) => RecalcTotal();
+            Controls.Add(nudShipping);
 
-            // ── Discount section ──────────────────────────────────────────────────
-            var lblDiscountHdr = new Label
+            // Discount
+            Controls.Add(new Label
             {
                 Text      = "Discount:",
                 Font      = new Font("Segoe UI", 9F),
                 AutoSize  = true,
                 Anchor    = AnchorStyles.Bottom | AnchorStyles.Left,
-                Location  = new Point(lx + 200, ClientSize.Height - 72)
-            };
-            Controls.Add(lblDiscountHdr);
+                Location  = new Point(lx + 360, ClientSize.Height - 90)
+            });
 
             // Populate discount options: (None), each active tier, Fixed Amount, Percent
             cboDiscountType.Items.Add(new DiscountOption { Kind = DiscountOption.DiscountKind.None });
@@ -238,13 +251,12 @@ namespace JaneERP
             cboDiscountType.Items.Add(new DiscountOption { Kind = DiscountOption.DiscountKind.Percent });
             cboDiscountType.SelectedIndex = 0;
             cboDiscountType.DropDownStyle = ComboBoxStyle.DropDownList;
-            cboDiscountType.Size          = new Size(160, 23);
+            cboDiscountType.Size          = new Size(150, 23);
             cboDiscountType.Anchor        = AnchorStyles.Bottom | AnchorStyles.Left;
-            cboDiscountType.Location      = new Point(lx + 270, ClientSize.Height - 74);
+            cboDiscountType.Location      = new Point(lx + 430, ClientSize.Height - 92);
             cboDiscountType.SelectedIndexChanged += (_, _) =>
             {
                 var opt = cboDiscountType.SelectedItem as DiscountOption;
-                // Tier items carry their own %; show nudDiscountValue only for Fixed/Percent
                 nudDiscountValue.Visible = opt?.Kind == DiscountOption.DiscountKind.Fixed
                                        || opt?.Kind == DiscountOption.DiscountKind.Percent;
                 RecalcTotal();
@@ -253,7 +265,7 @@ namespace JaneERP
 
             nudDiscountValue.Size           = new Size(80, 23);
             nudDiscountValue.Anchor         = AnchorStyles.Bottom | AnchorStyles.Left;
-            nudDiscountValue.Location       = new Point(lx + 408, ClientSize.Height - 74);
+            nudDiscountValue.Location       = new Point(lx + 588, ClientSize.Height - 92);
             nudDiscountValue.Minimum        = 0;
             nudDiscountValue.Maximum        = 9999999;
             nudDiscountValue.DecimalPlaces  = 2;
@@ -261,20 +273,29 @@ namespace JaneERP
             nudDiscountValue.ValueChanged  += (_, _) => RecalcTotal();
             Controls.Add(nudDiscountValue);
 
+            // Row 2: home total | discount calc | final total
+            lblHomeTotal.Text      = "";
+            lblHomeTotal.Font      = new Font("Segoe UI", 9F);
+            lblHomeTotal.ForeColor = Theme.TextSecondary;
+            lblHomeTotal.AutoSize  = true;
+            lblHomeTotal.Anchor    = AnchorStyles.Bottom | AnchorStyles.Left;
+            lblHomeTotal.Location  = new Point(lx, ClientSize.Height - 66);
+            Controls.Add(lblHomeTotal);
+
             lblDiscountCalc.Text      = "";
             lblDiscountCalc.Font      = new Font("Segoe UI", 9F);
             lblDiscountCalc.ForeColor = Theme.Teal;
             lblDiscountCalc.AutoSize  = true;
             lblDiscountCalc.Anchor    = AnchorStyles.Bottom | AnchorStyles.Left;
-            lblDiscountCalc.Location  = new Point(lx + 200, ClientSize.Height - 54);
+            lblDiscountCalc.Location  = new Point(lx + 360, ClientSize.Height - 66);
             Controls.Add(lblDiscountCalc);
 
-            lblFinalTotal.Text      = "";
-            lblFinalTotal.Font      = new Font("Segoe UI", 10F, FontStyle.Bold);
-            lblFinalTotal.ForeColor = Theme.Gold;
+            lblFinalTotal.Text      = "Total: $0.00";
+            lblFinalTotal.Font      = new Font("Segoe UI", 11F, FontStyle.Bold);
+            lblFinalTotal.ForeColor = Color.FromArgb(130, 220, 130);
             lblFinalTotal.AutoSize  = true;
             lblFinalTotal.Anchor    = AnchorStyles.Bottom | AnchorStyles.Left;
-            lblFinalTotal.Location  = new Point(lx + 380, ClientSize.Height - 54);
+            lblFinalTotal.Location  = new Point(lx + 540, ClientSize.Height - 66);
             Controls.Add(lblFinalTotal);
 
             // ── Action buttons ────────────────────────────────────────────────────
@@ -470,7 +491,7 @@ namespace JaneERP
             }
 
             var selectedCurrency = cboCurrency.SelectedItem?.ToString() ?? _cfg.HomeCurrency;
-            lblTotal.Text = $"Total: {subtotal:N2} {selectedCurrency}";
+            lblTotal.Text = $"Subtotal: {subtotal:N2} {selectedCurrency}";
 
             // Discount calculation
             decimal discountAmt = 0;
@@ -485,20 +506,13 @@ namespace JaneERP
                     : Math.Min(subtotal * val / 100m, subtotal);
             }
 
-            decimal finalTotal = subtotal - discountAmt;
+            decimal shipping   = nudShipping?.Value ?? 0;
+            decimal finalTotal = subtotal - discountAmt + shipping;
 
-            if (lblDiscountCalc != null)
-            {
-                lblDiscountCalc.Text = discountAmt > 0
-                    ? $"Discount: -{discountAmt:N2} {selectedCurrency}"
-                    : "";
-            }
-            if (lblFinalTotal != null)
-            {
-                lblFinalTotal.Text = discountAmt > 0
-                    ? $"Final: {finalTotal:N2} {selectedCurrency}"
-                    : "";
-            }
+            lblDiscountCalc.Text = discountAmt > 0
+                ? $"Discount: -{discountAmt:N2} {selectedCurrency}"
+                : "";
+            lblFinalTotal.Text = $"Total: {finalTotal:N2} {selectedCurrency}";
 
             // Show home-currency equivalent if a foreign currency is selected
             if (!selectedCurrency.Equals(_cfg.HomeCurrency, StringComparison.OrdinalIgnoreCase))
@@ -625,7 +639,8 @@ namespace JaneERP
                     orderType,
                     discountType,
                     discountAmount,
-                    discountPct);
+                    discountPct,
+                    nudShipping.Value);
 
                 DialogResult = DialogResult.OK;
                 Close();

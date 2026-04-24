@@ -101,17 +101,22 @@ namespace JaneERP
                     int w = _form.ClientSize.Width, h = _form.ClientSize.Height;
                     bool l = p.X <= BorderWidth, r = p.X >= w - BorderWidth;
                     bool t = p.Y <= BorderWidth, b = p.Y >= h - BorderWidth;
-                    if (t && l)  { m.Result = (IntPtr)HTTOPLEFT;     return; }
-                    if (t && r)  { m.Result = (IntPtr)HTTOPRIGHT;    return; }
-                    if (b && l)  { m.Result = (IntPtr)HTBOTTOMLEFT;  return; }
-                    if (b && r)  { m.Result = (IntPtr)HTBOTTOMRIGHT; return; }
-                    if (l)       { m.Result = (IntPtr)HTLEFT;        return; }
-                    if (r)       { m.Result = (IntPtr)HTRIGHT;       return; }
-                    if (t)       { m.Result = (IntPtr)HTTOP;         return; }
-                    if (b)       { m.Result = (IntPtr)HTBOTTOM;      return; }
+                    if (t && l)  { m.Result = (IntPtr)HTTOPLEFT;     UpdateCursor(Cursors.SizeNWSE); return; }
+                    if (t && r)  { m.Result = (IntPtr)HTTOPRIGHT;    UpdateCursor(Cursors.SizeNESW); return; }
+                    if (b && l)  { m.Result = (IntPtr)HTBOTTOMLEFT;  UpdateCursor(Cursors.SizeNESW); return; }
+                    if (b && r)  { m.Result = (IntPtr)HTBOTTOMRIGHT; UpdateCursor(Cursors.SizeNWSE); return; }
+                    if (l || r)  { UpdateCursor(Cursors.SizeWE); }
+                    if (l)       { m.Result = (IntPtr)HTLEFT;   return; }
+                    if (r)       { m.Result = (IntPtr)HTRIGHT;  return; }
+                    if (t || b)  { UpdateCursor(Cursors.SizeNS); }
+                    if (t)       { m.Result = (IntPtr)HTTOP;    return; }
+                    if (b)       { m.Result = (IntPtr)HTBOTTOM; return; }
+                    if (_form.Cursor != Cursors.Default) _form.Cursor = Cursors.Default;
                 }
                 base.WndProc(ref m);
             }
+
+            private static void UpdateCursor(Cursor cursor) => Cursor.Current = cursor;
         }
 
         private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Form, ResizableHelper>

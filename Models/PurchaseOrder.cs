@@ -12,7 +12,8 @@ namespace JaneERP.Models
         public string?   Notes        { get; set; }
         public string?   CreatedBy    { get; set; }
         public decimal   TotalCost    { get; set; }
-        public DateTime  CreatedAt    { get; set; } = DateTime.Now;
+        public DateTime  CreatedAt           { get; set; } = DateTime.Now;
+        public DateTime? OverdueNotifiedAt  { get; set; }
 
         public List<PurchaseOrderItem> Items { get; set; } = new();
     }

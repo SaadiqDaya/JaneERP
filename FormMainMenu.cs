@@ -11,8 +11,17 @@ namespace JaneERP
         /// <summary>True when the user explicitly clicked Logout (vs closing the window).</summary>
         public bool LoggedOut { get; private set; }
 
+        /// <summary>True when the session was ended by the idle timeout (not a manual logout).</summary>
+        public bool SessionExpired { get; private set; }
+
         private readonly System.Windows.Forms.Timer _idleTimer;
         private const int IdleTimeoutMinutes = 30;
+
+        // ── Mention badge ─────────────────────────────────────────────────────────
+        private int _mentionCount;
+        private int _unverifiedCount;
+        private readonly System.Windows.Forms.Timer _badgeTimer =
+            new System.Windows.Forms.Timer { Interval = 20_000 };
 
         public FormMainMenu(AppUser user)
         {
@@ -21,6 +30,16 @@ namespace JaneERP
             _idleTimer.Tick += IdleTimer_Tick;
             _idleTimer.Start();
             InitializeComponent();
+
+            // ── Mention badge overlay on Tasks tile ───────────────────────────
+            btnTaskManager.Paint += DrawMentionBadge;
+            // ── Unverified items badge overlay on Unverified tile ────────────
+            btnUnverified.Paint  += DrawUnverifiedBadge;
+            _badgeTimer.Tick     += (_, _) => System.Threading.Tasks.Task.Run(FetchBadgeCounts);
+            Load                 += (_, _) => System.Threading.Tasks.Task.Run(FetchBadgeCounts);
+            FormClosed           += (_, _) => _badgeTimer.Stop();
+            _badgeTimer.Start();
+
             Theme.Apply(this);
             Theme.MakeBorderless(this);
             Theme.MakeResizable(this);
@@ -54,25 +73,48 @@ namespace JaneERP
                 }
             };
             pnlHeader.Controls.Add(lblRoleBadge);
-            btnLoginLog.Visible    = PermissionHelper.IsAdmin() || PermissionHelper.CanEdit("Log");
-            btnManageUsers.Visible = PermissionHelper.IsAdmin();
-            btnActivityLog.Visible = PermissionHelper.IsAdmin();
-            btnProductTypes.Visible = PermissionHelper.IsAdmin() || PermissionHelper.CanEdit("Inventory");
-            // Parts and Manufacturing visible to all (editing is gated within)
-            btnParts.Visible          = true;
-            btnManufacturing.Visible  = true;
-            btnPurchaseOrders.Visible = true;
-            btnInventoryDash.Visible = true;
-            btnBOM.Visible           = true;
-            btnReports.Visible   = true;
-            btnDashboard.Visible = true;
-            btnImports.Visible   = PermissionHelper.IsAdmin() || PermissionHelper.CanEdit("Inventory");
-            // Tasks/CycleCount visible to all; Jane/Ophelia always visible
-            btnTaskManager.Visible = true;
-            btnCycleCount.Visible  = PermissionHelper.IsAdmin() || PermissionHelper.CanEdit("CycleCount") || PermissionHelper.CanEdit("Inventory");
-            btnJane.Visible          = true;
-            btnOphelia.Visible       = true;
-            btnProductSearch.Visible = true;
+            bool isAdmin  = PermissionHelper.IsAdmin();
+            bool isEditor = user.Role == "Editor";
+            bool isViewer = user.Role == "Viewer";
+
+            // Sales & Purchasing
+            btnSales.Visible          = isAdmin || PermissionHelper.CanEdit("SalesOrders");
+            btnPurchaseOrders.Visible = isAdmin || PermissionHelper.CanEdit("Parts");
+
+            // Products & Inventory
+            btnInventory.Visible      = isAdmin || isEditor;  // inventory managers need this
+            btnParts.Visible          = isAdmin || PermissionHelper.CanEdit("Parts");
+            btnBOM.Visible            = isAdmin || PermissionHelper.CanEdit("Parts");
+            btnProductSearch.Visible  = true;  // read-only, visible to all
+            btnLocations.Visible      = isAdmin || PermissionHelper.CanEdit("Inventory");
+            btnProductTypes.Visible   = isAdmin || PermissionHelper.CanEdit("Inventory");
+            btnAttributeLists.Visible = isAdmin || PermissionHelper.CanEdit("Inventory");
+            btnCycleCount.Visible     = isAdmin || PermissionHelper.CanEdit("CycleCount") || PermissionHelper.CanEdit("Inventory");
+            btnInventoryDash.Visible  = isAdmin || isEditor;
+            btnReorderReport.Visible  = isAdmin || isEditor;
+            btnUnverified.Visible     = isAdmin || PermissionHelper.CanEdit("Inventory");
+
+            // Manufacturing
+            btnManufacturing.Visible  = isAdmin || PermissionHelper.CanEdit("Manufacturing");
+
+            // Analytics & Reports
+            btnDashboard.Visible  = isAdmin || isEditor;
+            btnReports.Visible    = isAdmin || isEditor;
+            btnBreakeven.Visible  = isAdmin || isEditor;
+
+            // Data
+            btnImports.Visible = isAdmin || PermissionHelper.CanEdit("Inventory");
+            btnExport.Visible  = isAdmin || isEditor;
+
+            // Team & Administration
+            btnTaskManager.Visible = true;  // all roles can see and use tasks
+            btnManageUsers.Visible = isAdmin;
+            btnLoginLog.Visible    = isAdmin || PermissionHelper.CanEdit("Log");
+            btnActivityLog.Visible = isAdmin;
+
+            // Quick Dial (in header) — always visible
+            btnJane.Visible    = true;
+            btnOphelia.Visible = true;
         }
 
         private DateTime _lastActivity = DateTime.Now;
@@ -93,7 +135,8 @@ namespace JaneERP
                 _idleTimer.Stop();
                 AppLogger.Audit(_user.Username, "AutoLogout", $"Idle for {IdleTimeoutMinutes} minutes");
                 AppSession.ClearUser();
-                LoggedOut = true;
+                LoggedOut     = true;
+                SessionExpired = true;
                 Close();
             }
         }
@@ -150,6 +193,12 @@ namespace JaneERP
             frm.ShowDialog(this);
         }
 
+        private void btnAttributeLists_Click(object sender, EventArgs e)
+        {
+            using var frm = new FormAttributeLists();
+            frm.ShowDialog(this);
+        }
+
         private void btnParts_Click(object sender, EventArgs e)
         {
             using var frm = new FormPartsManager();
@@ -162,6 +211,14 @@ namespace JaneERP
             using var frm = new FormInventorySnapshot();
             frm.ShowDialog(this);
             Show();
+        }
+
+        private void btnUnverified_Click(object sender, EventArgs e)
+        {
+            using var frm = new FormUnverifiedItems();
+            frm.ShowDialog(this);
+            // Refresh unverified badge after user may have verified some items
+            System.Threading.Tasks.Task.Run(FetchBadgeCounts);
         }
 
         private void btnBOM_Click(object sender, EventArgs e)
@@ -232,6 +289,14 @@ namespace JaneERP
         {
             using var frm = new FormTaskManager();
             frm.ShowDialog(this);
+            // Refresh badges after visiting Tasks
+            System.Threading.Tasks.Task.Run(FetchBadgeCounts);
+        }
+
+        private void btnBreakeven_Click(object sender, EventArgs e)
+        {
+            using var frm = new FormBreakevenCalculator();
+            frm.ShowDialog(this);
         }
 
         private void btnCycleCount_Click(object sender, EventArgs e)
@@ -269,6 +334,71 @@ namespace JaneERP
             AppSession.ClearUser();
             LoggedOut = true;
             Close();
+        }
+
+        // ── Mention badge helpers ─────────────────────────────────────────────────
+
+        private void FetchBadgeCounts()
+        {
+            try
+            {
+                string username = AppSession.CurrentUser?.Username ?? _user.Username;
+
+                int mentions   = new TaskRepository().GetMentions(username, unreadOnly: true).Count;
+                int unverified = new Data.ProductRepository().GetUnverifiedCount();
+
+                bool changed = mentions != _mentionCount || unverified != _unverifiedCount;
+                _mentionCount    = mentions;
+                _unverifiedCount = unverified;
+
+                if (changed && IsHandleCreated && !IsDisposed)
+                    BeginInvoke(() =>
+                    {
+                        btnTaskManager.Invalidate();
+                        btnUnverified.Invalidate();
+                    });
+            }
+            catch { }
+        }
+
+        private void DrawMentionBadge(object? sender, PaintEventArgs e)
+        {
+            if (_mentionCount <= 0) return;
+            var g = e.Graphics;
+            g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+            string text   = _mentionCount > 99 ? "99+" : _mentionCount.ToString();
+            int badgeW    = _mentionCount > 9 ? 22 : 18;
+            var badgeRect = new Rectangle(btnTaskManager.Width - badgeW - 4, 4, badgeW, 18);
+            using var bgBrush = new SolidBrush(Theme.Danger);
+            g.FillEllipse(bgBrush, badgeRect);
+            using var tf = new Font("Segoe UI", 7F, FontStyle.Bold, GraphicsUnit.Point);
+            using var tb = new SolidBrush(Color.White);
+            var sf = new StringFormat
+            {
+                Alignment     = StringAlignment.Center,
+                LineAlignment = StringAlignment.Center
+            };
+            g.DrawString(text, tf, tb, badgeRect, sf);
+        }
+
+        private void DrawUnverifiedBadge(object? sender, PaintEventArgs e)
+        {
+            if (_unverifiedCount <= 0) return;
+            var g = e.Graphics;
+            g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+            string text   = _unverifiedCount > 99 ? "99+" : _unverifiedCount.ToString();
+            int badgeW    = _unverifiedCount > 9 ? 22 : 18;
+            var badgeRect = new Rectangle(btnUnverified.Width - badgeW - 4, 4, badgeW, 18);
+            using var bgBrush = new SolidBrush(Theme.Danger);
+            g.FillEllipse(bgBrush, badgeRect);
+            using var tf = new Font("Segoe UI", 7F, FontStyle.Bold, GraphicsUnit.Point);
+            using var tb = new SolidBrush(Color.White);
+            var sf = new StringFormat
+            {
+                Alignment     = StringAlignment.Center,
+                LineAlignment = StringAlignment.Center
+            };
+            g.DrawString(text, tf, tb, badgeRect, sf);
         }
     }
 }

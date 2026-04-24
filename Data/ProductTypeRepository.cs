@@ -51,6 +51,51 @@ namespace JaneERP.Data
                     INSERT INTO ProductTypes (TypeName) VALUES ('Package');
                 IF NOT EXISTS (SELECT 1 FROM ProductTypes WHERE TypeName = 'Standard')
                     INSERT INTO ProductTypes (TypeName) VALUES ('Standard');");
+
+            db.Execute(@"
+                IF NOT EXISTS (SELECT 1 FROM sysobjects WHERE name='AttributeDefinitions' AND xtype='U')
+                CREATE TABLE AttributeDefinitions (
+                    AttributeDefID INT IDENTITY(1,1) PRIMARY KEY,
+                    AttributeName  NVARCHAR(100) NOT NULL UNIQUE,
+                    AllowedValues  NVARCHAR(MAX) NULL
+                );");
+        }
+
+        // ── Attribute Definitions ─────────────────────────────────────────────────
+
+        public List<(int Id, string Name, string? Values)> GetAttributeDefinitions()
+        {
+            using IDbConnection db = new SqlConnection(_connectionString);
+            return db.Query("SELECT AttributeDefID, AttributeName, AllowedValues FROM AttributeDefinitions ORDER BY AttributeName")
+                     .Select(r => ((int)r.AttributeDefID, (string)r.AttributeName, (string?)r.AllowedValues))
+                     .ToList();
+        }
+
+        public void UpsertAttributeDefinition(string name, string? allowedValues)
+        {
+            using IDbConnection db = new SqlConnection(_connectionString);
+            db.Execute(@"
+                IF EXISTS (SELECT 1 FROM AttributeDefinitions WHERE AttributeName = @name)
+                    UPDATE AttributeDefinitions SET AllowedValues = @allowedValues WHERE AttributeName = @name
+                ELSE
+                    INSERT INTO AttributeDefinitions (AttributeName, AllowedValues) VALUES (@name, @allowedValues)",
+                new { name, allowedValues });
+        }
+
+        public void DeleteAttributeDefinition(int id)
+        {
+            using IDbConnection db = new SqlConnection(_connectionString);
+            db.Execute("DELETE FROM AttributeDefinitions WHERE AttributeDefID = @id", new { id });
+        }
+
+        public string[] GetAllowedValues(string attributeName)
+        {
+            using IDbConnection db = new SqlConnection(_connectionString);
+            var csv = db.QueryFirstOrDefault<string>(
+                "SELECT AllowedValues FROM AttributeDefinitions WHERE AttributeName = @attributeName",
+                new { attributeName });
+            if (string.IsNullOrWhiteSpace(csv)) return [];
+            return csv.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         }
 
         public List<ProductType> GetAll()

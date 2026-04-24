@@ -21,6 +21,15 @@ namespace JaneERP
             Theme.Apply(this);
             Theme.MakeBorderless(this);
             Theme.AddCloseButton(this);
+            Theme.MakeDraggable(this, pnlRight);
+
+            // Pre-fill last username if the setting is on
+            var cfg = AppSettings.Current;
+            if (cfg.RememberLastUsername && !string.IsNullOrWhiteSpace(cfg.LastUsername))
+            {
+                txtUsername.Text = cfg.LastUsername;
+                txtPassword.Focus();
+            }
             // Load images
             try
             {
@@ -98,17 +107,34 @@ namespace JaneERP
                     var fresh = _repo.GetByUsername(username);
                     if (fresh?.LockedUntil.HasValue == true && fresh.LockedUntil.Value > DateTime.Now)
                     {
-                        var remaining = (int)Math.Ceiling((fresh.LockedUntil.Value - DateTime.Now).TotalMinutes);
+                        var unlockAt  = fresh.LockedUntil.Value;
+                        var remaining = (int)Math.Ceiling((unlockAt - DateTime.Now).TotalMinutes);
+                        var cfg2      = AppSettings.Current;
+                        var contact   = new System.Text.StringBuilder();
+                        if (!string.IsNullOrWhiteSpace(cfg2.AdminPhone))
+                            contact.Append($"Phone: {cfg2.AdminPhone}");
+                        if (!string.IsNullOrWhiteSpace(cfg2.AdminEmail))
+                        {
+                            if (contact.Length > 0) contact.Append("  |  ");
+                            contact.Append($"Email: {cfg2.AdminEmail}");
+                        }
+                        var adminLine = contact.Length > 0
+                            ? $"\n\nAdmin contact: {contact}"
+                            : "\n\nContact an administrator if you need immediate access.";
                         MessageBox.Show(this,
-                            $"Account locked due to too many failed attempts.\nTry again in {remaining} minute(s).",
+                            $"This account has been locked after too many failed attempts.\n\n" +
+                            $"Locked until: {unlockAt:h:mm tt} ({remaining} minute{(remaining == 1 ? "" : "s")} remaining)" +
+                            adminLine,
                             "Account Locked", MessageBoxButtons.OK, MessageBoxIcon.Error);
                     }
                     else
                     {
-                        var attempts = fresh?.FailedLoginCount ?? 0;
-                        MessageBox.Show(this,
-                            $"Invalid username or password. ({attempts}/{UserRepository.MaxLoginAttempts} attempts)",
-                            "Login Failed", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                        var attempts  = fresh?.FailedLoginCount ?? 0;
+                        var remaining2 = UserRepository.MaxLoginAttempts - attempts;
+                        var msg = attempts == 0
+                            ? "Incorrect username or password."
+                            : $"Incorrect password — {remaining2} attempt{(remaining2 == 1 ? "" : "s")} remaining before lockout.";
+                        MessageBox.Show(this, msg, "Login Failed", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                     }
                     txtPassword.Clear();
                     txtPassword.Focus();
@@ -117,6 +143,15 @@ namespace JaneERP
 
                 AppSession.SetUser(user);
                 AppLogger.Audit(user.Username, "Login", $"Role={user.Role}");
+
+                // Remember last username if the setting is on
+                var cfgSave = AppSettings.Current;
+                if (cfgSave.RememberLastUsername)
+                {
+                    cfgSave.LastUsername = user.Username;
+                    cfgSave.Save();
+                }
+
                 LaunchMainMenu(user);
             }
             catch (Exception ex)
@@ -137,8 +172,12 @@ namespace JaneERP
                 // Return to login screen
                 txtUsername.Text = "";
                 txtPassword.Text = "";
-                txtUsername.Focus();
                 Show();
+                if (menu.SessionExpired)
+                    MessageBox.Show(this,
+                        "Your session has expired due to inactivity.\nPlease sign in again.",
+                        "Session Expired", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                txtUsername.Focus();
             }
             else
             {

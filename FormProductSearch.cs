@@ -86,8 +86,6 @@ namespace JaneERP
             pnlHeader.Resize += (_, _) =>
                 btnConfigure.Location = new Point(pnlHeader.Width - 196, 8);
 
-            Controls.Add(pnlHeader);
-
             // ── Search bar ────────────────────────────────────────────────────────
             var pnlSearch = new Panel { Dock = DockStyle.Top, Height = 40, Padding = new Padding(10, 8, 10, 0) };
 
@@ -104,24 +102,13 @@ namespace JaneERP
             btnClear.Click += (_, _) => { txtSearch.Clear(); };
             pnlSearch.Controls.Add(btnClear);
 
-            Controls.Add(pnlSearch);
-
             // ── Attribute filter-button row ───────────────────────────────────────
-            pnlFilterBtns.Dock      = DockStyle.Top;
-            pnlFilterBtns.Height    = 40;
-            pnlFilterBtns.Padding   = new Padding(10, 6, 10, 2);
+            pnlFilterBtns.Dock       = DockStyle.Top;
+            pnlFilterBtns.Height     = 40;
+            pnlFilterBtns.Padding    = new Padding(10, 6, 10, 2);
             pnlFilterBtns.AutoScroll = false;
 
-            var sepFilter = new Label
-            {
-                Text      = "",
-                Dock      = DockStyle.Top,
-                Height    = 1,
-                BackColor = Theme.Border
-            };
-
-            Controls.Add(pnlFilterBtns);
-            Controls.Add(sepFilter);
+            var sepFilter = new Label { Dock = DockStyle.Top, Height = 1, BackColor = Theme.Border, Text = "" };
 
             // ── Chip row (hidden when no attribute is expanded) ───────────────────
             pnlChips.Dock      = DockStyle.Top;
@@ -129,23 +116,13 @@ namespace JaneERP
             pnlChips.Padding   = new Padding(10, 4, 10, 4);
             pnlChips.BackColor = Theme.Background;
 
-            Controls.Add(pnlChips);
-
-            var sepChips = new Label
-            {
-                Text      = "",
-                Dock      = DockStyle.Top,
-                Height    = 1,
-                BackColor = Theme.Border
-            };
-            Controls.Add(sepChips);
+            var sepChips = new Label { Dock = DockStyle.Top, Height = 1, BackColor = Theme.Border, Text = "" };
 
             // ── Count label ───────────────────────────────────────────────────────
             lblCount.Dock      = DockStyle.Bottom;
             lblCount.Height    = 22;
             lblCount.TextAlign = ContentAlignment.MiddleLeft;
             lblCount.Padding   = new Padding(10, 0, 0, 0);
-            Controls.Add(lblCount);
 
             // ── Product grid ──────────────────────────────────────────────────────
             dgv.Dock                  = DockStyle.Fill;
@@ -168,11 +145,16 @@ namespace JaneERP
 
             dgv.CellDoubleClick += Dgv_CellDoubleClick;
 
-            Controls.Add(dgv);
-
-            // Re-order the docking layers (DockStyle.Top panels stack bottom-up in Controls)
-            // Ensure correct visual order by adding in reverse: grid (Fill), count (Bottom),
-            // then tops stack correctly because they were added last.
+            // ── Control ordering — DockStyle.Top stacks so LAST added = TOPMOST ──
+            // Add Fill/Bottom first, then Top panels in reverse visual order.
+            Controls.Add(lblCount);       // Bottom
+            Controls.Add(dgv);            // Fill
+            Controls.Add(sepChips);       // Top — sits just above the grid
+            Controls.Add(pnlChips);       // Top — collapsible chip row
+            Controls.Add(sepFilter);      // Top — separator above chips
+            Controls.Add(pnlFilterBtns);  // Top — attribute filter buttons
+            Controls.Add(pnlSearch);      // Top — search bar
+            Controls.Add(pnlHeader);      // Top — added last = topmost (title bar)
         }
 
         private static DataGridViewTextBoxColumn Col(

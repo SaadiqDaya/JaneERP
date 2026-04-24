@@ -317,7 +317,7 @@ namespace JaneERP
                 {
                     using var smtp   = new SmtpClient(cfg.SmtpServer, cfg.SmtpPort);
                     smtp.EnableSsl   = cfg.SmtpUseSsl;
-                    smtp.Credentials = new System.Net.NetworkCredential(cfg.SmtpUser, cfg.SmtpPassword);
+                    smtp.Credentials = new System.Net.NetworkCredential(cfg.SmtpUser, cfg.SmtpPasswordPlain);
                     using var msg    = new MailMessage(cfg.FromEmail, email, subject, bodyText);
                     smtp.Send(msg);
                 }

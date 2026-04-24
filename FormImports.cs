@@ -264,9 +264,28 @@ namespace JaneERP
                     }
                     else
                     {
-                        db.Execute(@"INSERT INTO Products (SKU, ProductName, RetailPrice, WholesalePrice, ReorderPoint, IsActive)
-                                     VALUES (@sku, @name, @retail, @wholesale, @reorder, 1)",
+                        int newId = db.QuerySingle<int>(@"
+                            INSERT INTO Products (SKU, ProductName, RetailPrice, WholesalePrice, ReorderPoint, IsActive)
+                            VALUES (@sku, @name, @retail, @wholesale, @reorder, 1);
+                            SELECT CAST(SCOPE_IDENTITY() AS INT);",
                             new { sku, name, retail, wholesale, reorder });
+
+                        // Every product must have a Part and a BOM entry
+                        int? partId = db.QueryFirstOrDefault<int?>(
+                            "SELECT PartID FROM Parts WHERE PartNumber = @sku", new { sku });
+                        if (partId == null)
+                        {
+                            partId = db.QuerySingle<int>(@"
+                                INSERT INTO Parts (PartNumber, PartName, UnitCost, CurrentStock, IsActive)
+                                VALUES (@sku, @name, 0, 0, 1);
+                                SELECT CAST(SCOPE_IDENTITY() AS INT);",
+                                new { sku, name });
+                        }
+                        db.Execute(@"
+                            IF NOT EXISTS (SELECT 1 FROM ProductParts WHERE ProductID = @newId AND PartID = @partId)
+                            INSERT INTO ProductParts (ProductID, PartID, Quantity) VALUES (@newId, @partId, 1);",
+                            new { newId, partId });
+
                         inserted++;
                     }
                 }

@@ -100,6 +100,26 @@ namespace JaneERP.Data
             db.Execute("UPDATE DiscountTiers SET IsActive = 0 WHERE TierID = @id", new { id });
         }
 
+        /// <summary>Assigns a discount tier to a customer (or clears it if tierId is null).</summary>
+        public void SetCustomerTier(int customerId, int? tierId)
+        {
+            using IDbConnection db = new SqlConnection(_connectionString);
+            db.Execute("UPDATE Customers SET TierID = @tierId WHERE CustomerID = @customerId",
+                new { tierId, customerId });
+        }
+
+        /// <summary>Returns all customers with their assigned tier name (or null if none).</summary>
+        public IEnumerable<dynamic> GetCustomersWithTiers()
+        {
+            using IDbConnection db = new SqlConnection(_connectionString);
+            return db.Query(@"
+                SELECT c.CustomerID, c.FullName, c.Email,
+                       dt.TierName, dt.DiscountPercent, c.TierID
+                FROM   Customers c
+                LEFT JOIN DiscountTiers dt ON dt.TierID = c.TierID
+                ORDER BY c.FullName").ToList();
+        }
+
         /// <summary>Returns the discount tier assigned to a customer, or null if none.</summary>
         public DiscountTier? GetTierForCustomer(int customerId)
         {

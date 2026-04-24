@@ -293,6 +293,19 @@ namespace JaneERP
 
             try
             {
+                // Stock by location breakdown
+                try
+                {
+                    var byLocation = _repo.GetStockByLocation(product.ProductID);
+                    if (byLocation.Count > 1) // only show breakdown if more than one location
+                    {
+                        dgvDetails.Rows.Add("── Stock by Location ──", "");
+                        foreach (var (loc, qty) in byLocation)
+                            AddRow($"  {loc}", qty.ToString());
+                    }
+                }
+                catch { /* location breakdown optional */ }
+
                 var attrs = _repo.GetAttributes(product.ProductID).ToList();
                 if (attrs.Any())
                 {

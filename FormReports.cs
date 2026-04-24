@@ -48,6 +48,15 @@ namespace JaneERP
         private Button    btnRefreshCycle   = new();
         private Button    btnExportCycle    = new();
 
+        // Tab 5 – Gross Profit
+        private TabPage      tabGP           = new();
+        private DataGridView dgvGP           = new();
+        private DateTimePicker dtpGPFrom     = new();
+        private DateTimePicker dtpGPTo       = new();
+        private Button       btnRefreshGP    = new();
+        private Button       btnExportGP     = new();
+        private Label        lblGPTotals     = new();
+
         public FormReports()
         {
             BuildUI();
@@ -77,11 +86,13 @@ namespace JaneERP
             BuildSalesTab();
             BuildCogsTab();
             BuildCycleTab();
+            BuildGPTab();
 
             tabMain.TabPages.Add(tabStock);
             tabMain.TabPages.Add(tabSales);
             tabMain.TabPages.Add(tabCogs);
             tabMain.TabPages.Add(tabCycle);
+            tabMain.TabPages.Add(tabGP);
         }
 
         // ── Tab helpers ─────────────────────────────────────────────────────────
@@ -435,6 +446,117 @@ namespace JaneERP
             }
         }
 
+        // ── Tab 5: Gross Profit ───────────────────────────────────────────────────
+
+        private void BuildGPTab()
+        {
+            tabGP.Text = "Gross Profit";
+
+            dgvGP = MakeGrid();
+
+            dtpGPFrom = new DateTimePicker { Size = new Size(130, 28), Format = DateTimePickerFormat.Short, Value = DateTime.Today.AddDays(-30) };
+            dtpGPTo   = new DateTimePicker { Size = new Size(130, 28), Format = DateTimePickerFormat.Short, Value = DateTime.Today.AddDays(1) };
+
+            btnRefreshGP = MakeBtn("Refresh");
+            btnExportGP  = MakeBtn("Export CSV");
+            btnRefreshGP.Click += (_, _) => LoadGP();
+            btnExportGP.Click  += (_, _) => ExportCsv(dgvGP, "GrossProfit.csv");
+
+            lblGPTotals = new Label { Text = "", AutoSize = true, Dock = DockStyle.Bottom, Padding = new Padding(8, 4, 8, 4) };
+
+            var toolbar = new Panel { Dock = DockStyle.Top, Height = 44, Padding = new Padding(8, 8, 8, 4) };
+            int x = 8;
+            var lf = new Label { Text = "From:", AutoSize = true }; lf.Location = new Point(x, 14); toolbar.Controls.Add(lf); x += 44;
+            dtpGPFrom.Location = new Point(x, 8); toolbar.Controls.Add(dtpGPFrom); x += 138;
+            var lt = new Label { Text = "To:", AutoSize = true }; lt.Location = new Point(x, 14); toolbar.Controls.Add(lt); x += 28;
+            dtpGPTo.Location = new Point(x, 8); toolbar.Controls.Add(dtpGPTo); x += 138;
+            btnRefreshGP.Location = new Point(x, 8); toolbar.Controls.Add(btnRefreshGP); x += 108;
+            btnExportGP.Location  = new Point(x, 8); toolbar.Controls.Add(btnExportGP);
+
+            var layout = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 3, ColumnCount = 1 };
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 44));
+            layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 30));
+            layout.Controls.Add(toolbar,    0, 0);
+            layout.Controls.Add(dgvGP,      0, 1);
+            layout.Controls.Add(lblGPTotals, 0, 2);
+
+            tabGP.Controls.Add(layout);
+        }
+
+        private void LoadGP()
+        {
+            try
+            {
+                using IDbConnection db = new SqlConnection(_connectionString);
+                var from = dtpGPFrom.Value.Date;
+                var to   = dtpGPTo.Value.Date.AddDays(1);
+
+                // Per-product gross profit: Revenue from sales minus average unit COGS from completed work orders.
+                // Unit COGS = total CostOfGoods / total Quantity across all completed WOs for the product.
+                var data = db.Query(@"
+                    SELECT
+                        p.SKU,
+                        p.ProductName                          AS Product,
+                        SUM(soi.Quantity)                      AS UnitsSold,
+                        SUM(soi.Quantity * soi.UnitPrice)      AS Revenue,
+                        ISNULL(
+                            SUM(soi.Quantity *
+                                ISNULL((
+                                    SELECT SUM(wo2.CostOfGoods) / NULLIF(SUM(wo2.Quantity), 0)
+                                    FROM   WorkOrders wo2
+                                    WHERE  wo2.ProductID = soi.ProductID
+                                      AND  wo2.Status    = 'Complete'
+                                      AND  wo2.CostOfGoods IS NOT NULL
+                                ), 0)
+                            ),
+                            0
+                        )                                      AS COGS,
+                        SUM(soi.Quantity * soi.UnitPrice)
+                        - ISNULL(
+                            SUM(soi.Quantity *
+                                ISNULL((
+                                    SELECT SUM(wo2.CostOfGoods) / NULLIF(SUM(wo2.Quantity), 0)
+                                    FROM   WorkOrders wo2
+                                    WHERE  wo2.ProductID = soi.ProductID
+                                      AND  wo2.Status    = 'Complete'
+                                      AND  wo2.CostOfGoods IS NOT NULL
+                                ), 0)
+                            ),
+                            0
+                        )                                      AS GrossProfit
+                    FROM  SalesOrderItems soi
+                    JOIN  Products    p  ON p.ProductID   = soi.ProductID
+                    JOIN  SalesOrders so ON so.SalesOrderID = soi.SalesOrderID
+                    WHERE so.OrderDate >= @from AND so.OrderDate < @to
+                    GROUP BY p.SKU, p.ProductName
+                    ORDER BY GrossProfit DESC",
+                    new { from, to }).ToList();
+
+                BindGrid(dgvGP, data, new[]
+                {
+                    ("SKU",         "SKU",          90),
+                    ("Product",     "Product",      200),
+                    ("UnitsSold",   "Units Sold",    80),
+                    ("Revenue",     "Revenue",      110),
+                    ("COGS",        "COGS",         110),
+                    ("GrossProfit", "Gross Profit", 120),
+                });
+
+                FormatDecimalColumns(dgvGP, "Revenue", "COGS", "GrossProfit");
+
+                decimal totalRev  = data.Sum(r => (decimal)(r.Revenue     ?? 0m));
+                decimal totalCogs = data.Sum(r => (decimal)(r.COGS        ?? 0m));
+                decimal totalGP   = data.Sum(r => (decimal)(r.GrossProfit ?? 0m));
+                decimal margin    = totalRev > 0 ? totalGP / totalRev * 100m : 0m;
+                lblGPTotals.Text  = $"Revenue: {totalRev:N2}   |   COGS: {totalCogs:N2}   |   Gross Profit: {totalGP:N2}   |   Margin: {margin:N1}%";
+            }
+            catch (Exception ex)
+            {
+                ShowError("Gross Profit", ex);
+            }
+        }
+
         // ── Refresh dispatcher ────────────────────────────────────────────────────
 
         private void RefreshCurrentTab()
@@ -445,6 +567,7 @@ namespace JaneERP
                 case 1: LoadSales(); break;
                 case 2: LoadCogs();  break;
                 case 3: LoadCycle(); break;
+                case 4: LoadGP();    break;
             }
         }
 

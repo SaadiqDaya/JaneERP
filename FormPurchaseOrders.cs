@@ -140,7 +140,7 @@ namespace JaneERP
             }
             if (col == "cTotal" && e.Value is decimal d)
             {
-                e.Value = $"R {d:N2}";
+                e.Value = $"${d:N2} CAD";
                 e.FormattingApplied = true;
             }
 

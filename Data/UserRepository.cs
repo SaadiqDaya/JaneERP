@@ -3,6 +3,7 @@ using System.Data;
 using Dapper;
 using JaneERP.Models;
 using JaneERP.Security;
+using JaneERP.Services;
 using Microsoft.Data.SqlClient;
 
 namespace JaneERP.Data
@@ -128,9 +129,11 @@ namespace JaneERP.Data
                 new { hash, salt, userId });
         }
 
-        public const int MaxLoginAttempts  = 5;
-        public const int LockoutMinutes   = 15;
-        public const int MinPasswordLength = 8;
+        /// <summary>Reads from AppSettings; falls back to 5 if not configured.</summary>
+        public static int MaxLoginAttempts  => Math.Max(1, AppSettings.Current.MaxLoginAttempts > 0 ? AppSettings.Current.MaxLoginAttempts : 5);
+        /// <summary>Reads from AppSettings; falls back to 15 minutes if not configured.</summary>
+        public static int LockoutMinutes    => Math.Max(1, AppSettings.Current.LockoutMinutes   > 0 ? AppSettings.Current.LockoutMinutes   : 15);
+        public const  int MinPasswordLength = 8;
 
         /// <summary>
         /// Returns the authenticated user, or null if credentials are invalid or account is locked.
@@ -158,33 +161,39 @@ namespace JaneERP.Data
                 // Increment failed count; lock if threshold reached
                 try
                 {
-                    var newCount = (user.FailedLoginCount) + 1;
+                    var now2     = DateTime.Now;   // single capture to avoid race
+                    var newCount = user.FailedLoginCount + 1;
                     DateTime? lockUntil = newCount >= MaxLoginAttempts
-                        ? DateTime.Now.AddMinutes(LockoutMinutes)
+                        ? now2.AddMinutes(LockoutMinutes)
                         : (DateTime?)null;
                     db.Execute(
                         "UPDATE Users SET FailedLoginCount = @c, LockedUntil = @lu WHERE UserId = @id",
                         new { c = newCount, lu = lockUntil, id = user.UserId });
+
+                    // Fire-and-forget email alert when the account actually becomes locked
+                    if (lockUntil.HasValue)
+                        _ = NotificationService.NotifyUserLockedAsync(user.Username, lockUntil.Value);
                 }
                 catch { /* column not yet migrated — ignore */ }
                 return null;
             }
 
             // Success — reset failed count and update last login
+            var now = DateTime.Now;
             try
             {
                 db.Execute(
                     "UPDATE Users SET LastLoginAt = @now, FailedLoginCount = 0, LockedUntil = NULL WHERE UserId = @id",
-                    new { now = DateTime.Now, id = user.UserId });
+                    new { now, id = user.UserId });
             }
             catch
             {
                 db.Execute(
                     "UPDATE Users SET LastLoginAt = @now WHERE UserId = @id",
-                    new { now = DateTime.Now, id = user.UserId });
+                    new { now, id = user.UserId });
             }
 
-            user.LastLoginAt  = DateTime.Now;
+            user.LastLoginAt  = now;
             user.PasswordHash = "";
             user.PasswordSalt = "";
             return user;

@@ -19,14 +19,22 @@ namespace JaneERP.Data
             db.Execute(@"
                 IF NOT EXISTS (SELECT 1 FROM sysobjects WHERE name='Parts' AND xtype='U')
                 CREATE TABLE Parts (
-                    PartID       INT IDENTITY(1,1) PRIMARY KEY,
-                    PartNumber   NVARCHAR(100) NOT NULL UNIQUE,
-                    PartName     NVARCHAR(200) NOT NULL,
-                    Description  NVARCHAR(500) NULL,
-                    UnitCost     DECIMAL(18,2) NOT NULL DEFAULT 0,
-                    CurrentStock INT           NOT NULL DEFAULT 0,
-                    IsActive     BIT           NOT NULL DEFAULT 1
+                    PartID           INT IDENTITY(1,1) PRIMARY KEY,
+                    PartNumber       NVARCHAR(100) NOT NULL UNIQUE,
+                    PartName         NVARCHAR(200) NOT NULL,
+                    Description      NVARCHAR(500) NULL,
+                    UnitCost         DECIMAL(18,2) NOT NULL DEFAULT 0,
+                    CurrentStock     INT           NOT NULL DEFAULT 0,
+                    IsActive         BIT           NOT NULL DEFAULT 1,
+                    DefaultVendorID  INT           NULL REFERENCES Vendors(VendorID)
                 );
+
+                IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('Parts') AND name='DefaultVendorID')
+                    ALTER TABLE Parts ADD DefaultVendorID INT NULL REFERENCES Vendors(VendorID);
+                IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('Parts') AND name='IsAutoCreated')
+                    ALTER TABLE Parts ADD IsAutoCreated BIT NOT NULL DEFAULT 0;
+                IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('Parts') AND name='IsVerified')
+                    ALTER TABLE Parts ADD IsVerified BIT NOT NULL DEFAULT 0;
 
                 IF NOT EXISTS (SELECT 1 FROM sysobjects WHERE name='ProductParts' AND xtype='U')
                 CREATE TABLE ProductParts (
@@ -34,29 +42,46 @@ namespace JaneERP.Data
                     PartID    INT NOT NULL REFERENCES Parts(PartID)       ON DELETE CASCADE,
                     Quantity  INT NOT NULL DEFAULT 1,
                     PRIMARY KEY (ProductID, PartID)
+                );
+
+                IF NOT EXISTS (SELECT 1 FROM sysobjects WHERE name='BomLabourCosts' AND xtype='U')
+                CREATE TABLE BomLabourCosts (
+                    LabourCostID INT IDENTITY(1,1) PRIMARY KEY,
+                    ProductID    INT           NOT NULL REFERENCES Products(ProductID) ON DELETE CASCADE,
+                    Description  NVARCHAR(100) NOT NULL DEFAULT 'Labour',
+                    HourlyRate   DECIMAL(18,2) NOT NULL DEFAULT 0,
+                    Hours        DECIMAL(10,2) NOT NULL DEFAULT 1
                 );");
         }
 
         public List<Part> GetAll(bool includeInactive = false)
         {
             using IDbConnection db = new SqlConnection(_connectionString);
-            string filter = includeInactive ? "1=1" : "IsActive = 1";
-            return db.Query<Part>(
-                $"SELECT * FROM Parts WHERE {filter} ORDER BY PartNumber").ToList();
+            string filter = includeInactive ? "1=1" : "p.IsActive = 1";
+            return db.Query<Part>($@"
+                SELECT p.*, v.VendorName AS DefaultVendorName
+                FROM Parts p
+                LEFT JOIN Vendors v ON v.VendorID = p.DefaultVendorID
+                WHERE {filter}
+                ORDER BY p.PartNumber").ToList();
         }
 
         public Part? GetById(int id)
         {
             using IDbConnection db = new SqlConnection(_connectionString);
-            return db.QueryFirstOrDefault<Part>("SELECT * FROM Parts WHERE PartID = @id", new { id });
+            return db.QueryFirstOrDefault<Part>(@"
+                SELECT p.*, v.VendorName AS DefaultVendorName
+                FROM Parts p
+                LEFT JOIN Vendors v ON v.VendorID = p.DefaultVendorID
+                WHERE p.PartID = @id", new { id });
         }
 
         public int Add(Part part)
         {
             using IDbConnection db = new SqlConnection(_connectionString);
             return db.QuerySingle<int>(@"
-                INSERT INTO Parts (PartNumber, PartName, Description, UnitCost, CurrentStock, IsActive)
-                VALUES (@PartNumber, @PartName, @Description, @UnitCost, @CurrentStock, @IsActive);
+                INSERT INTO Parts (PartNumber, PartName, Description, UnitCost, CurrentStock, IsActive, DefaultVendorID)
+                VALUES (@PartNumber, @PartName, @Description, @UnitCost, @CurrentStock, @IsActive, @DefaultVendorID);
                 SELECT CAST(SCOPE_IDENTITY() AS INT);", part);
         }
 
@@ -65,11 +90,12 @@ namespace JaneERP.Data
             using IDbConnection db = new SqlConnection(_connectionString);
             db.Execute(@"
                 UPDATE Parts
-                SET PartNumber   = @PartNumber,
-                    PartName     = @PartName,
-                    Description  = @Description,
-                    UnitCost     = @UnitCost,
-                    IsActive     = @IsActive
+                SET PartNumber      = @PartNumber,
+                    PartName        = @PartName,
+                    Description     = @Description,
+                    UnitCost        = @UnitCost,
+                    IsActive        = @IsActive,
+                    DefaultVendorID = @DefaultVendorID
                 WHERE PartID = @PartID", part);
         }
 
@@ -107,6 +133,35 @@ namespace JaneERP.Data
                     db.Execute("INSERT INTO ProductParts (ProductID, PartID, Quantity) VALUES (@productId, @partId, @qty)",
                         new { productId, partId, qty }, tx);
 
+                tx.Commit();
+            }
+            catch { tx.Rollback(); throw; }
+        }
+
+        // ── BOM Labour Costs ─────────────────────────────────────────────────────
+
+        public List<BomLabourCost> GetLabourCosts(int productId)
+        {
+            using IDbConnection db = new SqlConnection(_connectionString);
+            return db.Query<BomLabourCost>(
+                "SELECT * FROM BomLabourCosts WHERE ProductID = @productId ORDER BY LabourCostID",
+                new { productId }).ToList();
+        }
+
+        public void SetLabourCosts(int productId, IEnumerable<BomLabourCost> costs)
+        {
+            using var db = new SqlConnection(_connectionString);
+            db.Open();
+            using var tx = db.BeginTransaction();
+            try
+            {
+                db.Execute("DELETE FROM BomLabourCosts WHERE ProductID = @productId",
+                    new { productId }, tx);
+                foreach (var c in costs.Where(c => c.HourlyRate > 0 || c.Hours > 0))
+                    db.Execute(@"
+                        INSERT INTO BomLabourCosts (ProductID, Description, HourlyRate, Hours)
+                        VALUES (@ProductID, @Description, @HourlyRate, @Hours)",
+                        new { ProductID = productId, c.Description, c.HourlyRate, c.Hours }, tx);
                 tx.Commit();
             }
             catch { tx.Rollback(); throw; }

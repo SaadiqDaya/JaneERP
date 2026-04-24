@@ -57,6 +57,7 @@ namespace JaneERP
             dgv.Columns.Add(new DataGridViewTextBoxColumn  { HeaderText = "Bin Code",    DataPropertyName = "BinCode",     Width = 110, ReadOnly = true });
             dgv.Columns.Add(new DataGridViewTextBoxColumn  { HeaderText = "Description", DataPropertyName = "Description", AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill, ReadOnly = true });
             dgv.Columns.Add(new DataGridViewTextBoxColumn  { HeaderText = "Capacity",    DataPropertyName = "Capacity",    Width = 80,  ReadOnly = true });
+            dgv.Columns.Add(new DataGridViewTextBoxColumn  { HeaderText = "Shelf Spots", DataPropertyName = "ShelfSpots",  Width = 85,  ReadOnly = true });
             dgv.Columns.Add(new DataGridViewCheckBoxColumn { HeaderText = "Active",      DataPropertyName = "IsActive",    Width = 60 });
             dgv.AllowUserToAddRows    = false;
             dgv.AllowUserToDeleteRows = false;
@@ -195,6 +196,7 @@ namespace JaneERP
         private TextBox       txtCode        = new();
         private TextBox       txtDescription = new();
         private NumericUpDown nudCapacity    = new();
+        private NumericUpDown nudShelfSpots  = new();
         private CheckBox      chkActive      = new();
         private Button        btnOK          = new();
         private Button        btnCancel      = new();
@@ -213,7 +215,7 @@ namespace JaneERP
         private void BuildUI()
         {
             Text          = _original.BinID == 0 ? "Add Bin" : "Edit Bin";
-            ClientSize    = new Size(380, 300);
+            ClientSize    = new Size(420, 360);
             StartPosition = FormStartPosition.CenterParent;
 
             int y = 12;
@@ -255,6 +257,23 @@ namespace JaneERP
             Controls.Add(nudCapacity);
             y += 40;
 
+            Controls.Add(new Label { Text = "Shelf Spots (0 = unset):", AutoSize = true, Location = new Point(12, y) });
+            y += 20;
+            nudShelfSpots.Location = new Point(12, y);
+            nudShelfSpots.Size     = new Size(100, 23);
+            nudShelfSpots.Minimum  = 0;
+            nudShelfSpots.Maximum  = 999;
+            nudShelfSpots.Value    = _original.ShelfSpots ?? 0;
+            Controls.Add(new Label
+            {
+                Text      = "← how many shelf spots this bin uses",
+                AutoSize  = true,
+                ForeColor = Theme.TextSecondary,
+                Location  = new Point(120, y + 3)
+            });
+            Controls.Add(nudShelfSpots);
+            y += 40;
+
             chkActive.Text     = "Active";
             chkActive.Checked  = _original.IsActive;
             chkActive.AutoSize = true;
@@ -293,6 +312,7 @@ namespace JaneERP
                 BinCode     = code,
                 Description = string.IsNullOrWhiteSpace(txtDescription.Text) ? null : txtDescription.Text.Trim(),
                 Capacity    = nudCapacity.Value > 0 ? (int?)nudCapacity.Value : null,
+                ShelfSpots  = nudShelfSpots.Value > 0 ? (int?)nudShelfSpots.Value : null,
                 IsActive    = chkActive.Checked
             };
 

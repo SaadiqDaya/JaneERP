@@ -1,4 +1,5 @@
 using JaneERP.Security;
+using JaneERP.Services;
 
 namespace JaneERP
 {
@@ -17,9 +18,11 @@ namespace JaneERP
         private Label        lblFilter   = new();
 
         // Mentions panel
-        private Label        lblMentions     = new();
-        private DataGridView dgvMentions     = new();
-        private Button       btnClearMentions = new();
+        private Label        lblMentions          = new();
+        private DataGridView dgvMentions          = new();
+        private Button       btnClearMentions     = new();
+        private Button       btnClearSelected     = new();
+        private System.Windows.Forms.Timer _mentionsTimer = new() { Interval = 5000 };
 
         public FormTaskManager()
         {
@@ -31,6 +34,9 @@ namespace JaneERP
             try { _repo.EnsureSchema(); } catch (Exception ex) { JaneERP.Logging.AppLogger.Info($"[FormTaskManager] EnsureSchema: {ex.Message}"); }
             LoadTasks();
             LoadMentions();
+            _mentionsTimer.Tick += (_, _) => { if (!IsDisposed && IsHandleCreated) BeginInvoke(LoadMentions); };
+            _mentionsTimer.Start();
+            FormClosed += (_, _) => _mentionsTimer.Stop();
         }
 
         private void BuildUI()
@@ -122,6 +128,12 @@ namespace JaneERP
             btnClearMentions.Click   += BtnClearMentions_Click;
             Controls.Add(btnClearMentions);
 
+            btnClearSelected.Text     = "Clear Selected";
+            btnClearSelected.Size     = new Size(100, 22);
+            btnClearSelected.Location = new Point(288, 480);
+            btnClearSelected.Click   += BtnClearSelected_Click;
+            Controls.Add(btnClearSelected);
+
             dgvMentions.AutoGenerateColumns = false;
             dgvMentions.Columns.Add(new DataGridViewTextBoxColumn { Name = "colMTask",   HeaderText = "Task",         DataPropertyName = "TaskTitle",    Width = 220 });
             dgvMentions.Columns.Add(new DataGridViewTextBoxColumn { Name = "colMBy",     HeaderText = "Mentioned By", DataPropertyName = "MentionedBy",  Width = 130 });
@@ -210,10 +222,29 @@ namespace JaneERP
 
             using var detail = new FormTaskDetail(_repo, task);
             detail.ShowDialog(this);
-
-            try { _repo.MarkMentionRead(mention.MentionID); } catch { }
-            LoadMentions();
+            // Don't auto-clear — user must explicitly click "Clear Selected" or "Clear All"
             if (detail.Changed) LoadTasks();
+        }
+
+        private void BtnClearSelected_Click(object? sender, EventArgs e)
+        {
+            var selected = dgvMentions.SelectedRows
+                .Cast<DataGridViewRow>()
+                .Select(r => r.DataBoundItem as TaskMention)
+                .Where(m => m != null)
+                .ToList();
+
+            if (selected.Count == 0) return;
+            try
+            {
+                foreach (var m in selected)
+                    _repo.MarkMentionRead(m!.MentionID);
+                LoadMentions();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
         }
 
         private void BtnClearMentions_Click(object? sender, EventArgs e)
@@ -478,6 +509,15 @@ namespace JaneERP
                     // Parse @mentions in the description and save to TaskMentions
                     if (!string.IsNullOrWhiteSpace(task.Description))
                         SaveDescriptionMentions(taskId, task.Description, task.CreatedBy);
+                    // Notify assignee (fire-and-forget; skip if assigning to yourself)
+                    if (!string.IsNullOrEmpty(task.AssignedTo) &&
+                        !task.AssignedTo.Equals(task.CreatedBy, StringComparison.OrdinalIgnoreCase))
+                    {
+                        var emails = _repo.GetUserEmails(new List<string> { task.AssignedTo });
+                        var email = emails.FirstOrDefault().Email;
+                        if (!string.IsNullOrWhiteSpace(email))
+                            _ = NotificationService.NotifyTaskAssignedAsync(email, task.CreatedBy, task.Title);
+                    }
                 }
                 catch (Exception ex)
                 {

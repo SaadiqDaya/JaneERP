@@ -3,24 +3,25 @@ using JaneERP.Models;
 
 namespace JaneERP
 {
-    /// <summary>CRUD for Parts and BOM management.</summary>
+    /// <summary>CRUD for Parts.</summary>
     public class FormPartsManager : Form
     {
-        private readonly PartRepository _repo = new();
+        private readonly PartRepository   _repo        = new();
+        private readonly VendorRepository _vendorRepo  = new();
 
-        private DataGridView dgvParts   = new();
-        private Label        lblEdit    = new();
-        private TextBox      txtPartNum = new();
-        private TextBox      txtName    = new();
-        private TextBox      txtDesc    = new();
-        private TextBox      txtCost    = new();
-        private NumericUpDown nudStock  = new();
-        private CheckBox     chkActive  = new();
-        private Button       btnSave    = new();
-        private Button       btnNew     = new();
-        private Button       btnBOM     = new();
-        private Button       btnClose   = new();
-        private Label        lblCount   = new();
+        private DataGridView  dgvParts   = new();
+        private Label         lblEdit    = new();
+        private TextBox       txtPartNum = new();
+        private TextBox       txtName    = new();
+        private TextBox       txtDesc    = new();
+        private TextBox       txtCost    = new();
+        private NumericUpDown nudStock   = new();
+        private ComboBox      cboVendor  = new();
+        private CheckBox      chkActive  = new();
+        private Button        btnSave    = new();
+        private Button        btnNew     = new();
+        private Button        btnClose   = new();
+        private Label         lblCount   = new();
 
         private Part? _editing;
 
@@ -86,6 +87,14 @@ namespace JaneERP
             Controls.Add(nudStock);
             y += 34;
 
+            Controls.Add(new Label { AutoSize = true, Location = new Point(x, y), Text = "Default Vendor:" });
+            y += 20;
+            cboVendor.Location     = new Point(x, y);
+            cboVendor.Size         = new Size(350, 23);
+            cboVendor.DropDownStyle = ComboBoxStyle.DropDownList;
+            Controls.Add(cboVendor);
+            y += 34;
+
             chkActive.AutoSize = true;
             chkActive.Location = new Point(x, y);
             chkActive.Text     = "Active";
@@ -110,13 +119,6 @@ namespace JaneERP
             btnNew.Text     = "+ Add New Part";
             btnNew.Click   += BtnNew_Click;
             Controls.Add(btnNew);
-            y += 42;
-
-            btnBOM.Location = new Point(x, y);
-            btnBOM.Size     = new Size(200, 32);
-            btnBOM.Text     = "Edit BOM for Selected Product…";
-            btnBOM.Click   += BtnBOM_Click;
-            Controls.Add(btnBOM);
 
             btnClose.Anchor   = AnchorStyles.Bottom | AnchorStyles.Right;
             btnClose.Location = new Point(796, 516);
@@ -145,6 +147,7 @@ namespace JaneERP
             txtDesc.Enabled    = enabled;
             txtCost.Enabled    = enabled;
             nudStock.Enabled   = enabled;
+            cboVendor.Enabled  = enabled;
             chkActive.Enabled  = enabled;
             btnSave.Enabled    = enabled;
         }
@@ -153,6 +156,13 @@ namespace JaneERP
         {
             try
             {
+                // Populate vendor dropdown
+                var vendors = _vendorRepo.GetAll().ToList();
+                cboVendor.DataSource    = new[] { new Models.Vendor { VendorID = 0, VendorName = "(none)" } }
+                    .Concat(vendors).ToList();
+                cboVendor.DisplayMember = "VendorName";
+                cboVendor.ValueMember   = "VendorID";
+
                 var parts = _repo.GetAll(includeInactive: true);
                 dgvParts.DataSource = parts.ToList();
                 lblCount.Text = $"{parts.Count()} part(s)";
@@ -176,6 +186,7 @@ namespace JaneERP
             txtDesc.Text      = part.Description ?? "";
             txtCost.Text      = part.UnitCost.ToString("G");
             nudStock.Value    = Math.Min(part.CurrentStock, (int)nudStock.Maximum);
+            cboVendor.SelectedValue = part.DefaultVendorID ?? 0;
             chkActive.Checked = part.IsActive;
             SetEditEnabled(true);
         }
@@ -190,6 +201,7 @@ namespace JaneERP
             }
 
             if (!decimal.TryParse(txtCost.Text, out decimal cost)) cost = 0;
+            int? vendorId = cboVendor.SelectedValue is int v && v != 0 ? v : null;
 
             try
             {
@@ -197,21 +209,23 @@ namespace JaneERP
                 {
                     _repo.Add(new Part
                     {
-                        PartNumber   = txtPartNum.Text.Trim(),
-                        PartName     = txtName.Text.Trim(),
-                        Description  = string.IsNullOrWhiteSpace(txtDesc.Text) ? null : txtDesc.Text.Trim(),
-                        UnitCost     = cost,
-                        CurrentStock = (int)nudStock.Value,
-                        IsActive     = chkActive.Checked
+                        PartNumber      = txtPartNum.Text.Trim(),
+                        PartName        = txtName.Text.Trim(),
+                        Description     = string.IsNullOrWhiteSpace(txtDesc.Text) ? null : txtDesc.Text.Trim(),
+                        UnitCost        = cost,
+                        CurrentStock    = (int)nudStock.Value,
+                        IsActive        = chkActive.Checked,
+                        DefaultVendorID = vendorId
                     });
                 }
                 else
                 {
-                    _editing.PartNumber  = txtPartNum.Text.Trim();
-                    _editing.PartName    = txtName.Text.Trim();
-                    _editing.Description = string.IsNullOrWhiteSpace(txtDesc.Text) ? null : txtDesc.Text.Trim();
-                    _editing.UnitCost    = cost;
-                    _editing.IsActive    = chkActive.Checked;
+                    _editing.PartNumber      = txtPartNum.Text.Trim();
+                    _editing.PartName        = txtName.Text.Trim();
+                    _editing.Description     = string.IsNullOrWhiteSpace(txtDesc.Text) ? null : txtDesc.Text.Trim();
+                    _editing.UnitCost        = cost;
+                    _editing.IsActive        = chkActive.Checked;
+                    _editing.DefaultVendorID = vendorId;
                     _repo.Update(_editing);
                 }
 
@@ -242,16 +256,6 @@ namespace JaneERP
             txtPartNum.Focus();
         }
 
-        private void BtnBOM_Click(object? sender, EventArgs e)
-        {
-            // Open a BOM editor for a chosen product
-            var pRepo  = new ProductRepository();
-            var picker = new FormProductPicker(pRepo);
-            if (picker.ShowDialog(this) != DialogResult.OK || picker.SelectedProduct == null) return;
-
-            using var bom = new FormBomEditor(picker.SelectedProduct, _repo);
-            bom.ShowDialog(this);
-        }
     }
 
     // ── BOM Editor dialog ─────────────────────────────────────────────────────────
@@ -260,10 +264,12 @@ namespace JaneERP
     {
         private readonly Product        _product;
         private readonly PartRepository _repo;
-        private DataGridView dgv     = new();
-        private Button btnSave       = new();
-        private Button btnCancel     = new();
-        private Button btnAddPart    = new();
+        private DataGridView dgv        = new();
+        private DataGridView dgvLabour  = new();
+        private Button btnSave          = new();
+        private Button btnCancel        = new();
+        private Button btnAddPart       = new();
+        private Button btnAddLabour     = new();
 
         public FormBomEditor(Product product, PartRepository repo)
         {
@@ -278,17 +284,22 @@ namespace JaneERP
         private void BuildUI()
         {
             Text            = $"BOM — {_product.ProductName}";
-            ClientSize      = new Size(560, 480);
-            FormBorderStyle = FormBorderStyle.FixedDialog;
+            ClientSize      = new Size(580, 620);
+            MinimumSize     = new Size(560, 580);
+            FormBorderStyle = FormBorderStyle.None;
             StartPosition   = FormStartPosition.CenterParent;
-            MaximizeBox     = false;
 
             var lbl = new Label { Text = $"Bill of Materials: {_product.ProductName}", Font = new Font("Segoe UI", 10F, FontStyle.Bold),
                 ForeColor = Theme.Gold, AutoSize = true, Location = new Point(12, 12) };
             Controls.Add(lbl);
 
-            dgv.Location          = new Point(12, 40);
-            dgv.Size              = new Size(536, 360);
+            // ── Parts section ─────────────────────────────────────────────────
+            Controls.Add(new Label { Text = "PARTS", Location = new Point(12, 38), AutoSize = true,
+                Font = new Font("Segoe UI", 8F, FontStyle.Bold), ForeColor = Theme.TextMuted });
+
+            dgv.Location          = new Point(12, 56);
+            dgv.Size              = new Size(556, 220);
+            dgv.Anchor            = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
             dgv.AllowUserToAddRows    = false;
             dgv.AllowUserToDeleteRows = true;
             dgv.SelectionMode     = DataGridViewSelectionMode.FullRowSelect;
@@ -300,22 +311,62 @@ namespace JaneERP
             Controls.Add(dgv);
 
             btnAddPart.Text     = "+ Add Part";
-            btnAddPart.Location = new Point(12, 408);
-            btnAddPart.Size     = new Size(110, 30);
+            btnAddPart.Location = new Point(12, 284);
+            btnAddPart.Size     = new Size(110, 28);
             btnAddPart.Click   += BtnAddPart_Click;
             Controls.Add(btnAddPart);
 
+            // ── Labour section ────────────────────────────────────────────────
+            Controls.Add(new Label { Text = "LABOUR COSTS", Location = new Point(12, 322), AutoSize = true,
+                Font = new Font("Segoe UI", 8F, FontStyle.Bold), ForeColor = Theme.TextMuted });
+
+            dgvLabour.Location          = new Point(12, 340);
+            dgvLabour.Size              = new Size(556, 180);
+            dgvLabour.Anchor            = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
+            dgvLabour.AllowUserToAddRows    = false;
+            dgvLabour.AllowUserToDeleteRows = true;
+            dgvLabour.SelectionMode         = DataGridViewSelectionMode.FullRowSelect;
+            dgvLabour.AutoGenerateColumns   = false;
+            dgvLabour.Columns.Add(new DataGridViewTextBoxColumn { Name = "colDesc",   HeaderText = "Description", AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill });
+            dgvLabour.Columns.Add(new DataGridViewTextBoxColumn { Name = "colRate",   HeaderText = "Rate/hr ($)", Width = 100 });
+            dgvLabour.Columns.Add(new DataGridViewTextBoxColumn { Name = "colHours",  HeaderText = "Hours",       Width = 70  });
+            dgvLabour.Columns.Add(new DataGridViewTextBoxColumn { Name = "colTotal",  HeaderText = "Total ($)",   Width = 90, ReadOnly = true });
+            dgvLabour.CellEndEdit += (_, _) => RefreshLabourTotals();
+            Controls.Add(dgvLabour);
+
+            btnAddLabour.Text     = "+ Add Labour";
+            btnAddLabour.Location = new Point(12, 528);
+            btnAddLabour.Size     = new Size(120, 28);
+            btnAddLabour.Click   += (_, _) =>
+            {
+                int idx = dgvLabour.Rows.Add("Labour", "0", "1", "$0.00");
+                dgvLabour.Rows[idx].Tag = 0; // LabourCostID = 0 (new)
+            };
+            Controls.Add(btnAddLabour);
+
             btnSave.Text     = "Save BOM";
-            btnSave.Location = new Point(360, 408);
+            btnSave.Location = new Point(380, 576);
             btnSave.Size     = new Size(90, 30);
             btnSave.Click   += BtnSave_Click;
             Controls.Add(btnSave);
 
             btnCancel.Text     = "Cancel";
-            btnCancel.Location = new Point(458, 408);
+            btnCancel.Location = new Point(478, 576);
             btnCancel.Size     = new Size(90, 30);
             btnCancel.Click   += (_, _) => Close();
             Controls.Add(btnCancel);
+
+            SizeChanged += (_, _) => RepositionBottom();
+            Load        += (_, _) => RepositionBottom();
+        }
+
+        private void RepositionBottom()
+        {
+            int bottom = ClientSize.Height - 8;
+            btnCancel.Location   = new Point(ClientSize.Width - 8 - btnCancel.Width, bottom - btnCancel.Height);
+            btnSave.Location     = new Point(btnCancel.Left - btnSave.Width - 8, bottom - btnSave.Height);
+            btnAddLabour.Location = new Point(12, bottom - btnSave.Height - dgvLabour.Height - 32);
+            dgvLabour.Location   = new Point(12, btnAddLabour.Bottom + 4);
         }
 
         private void LoadBom()
@@ -324,17 +375,34 @@ namespace JaneERP
             var bom = _repo.GetBom(_product.ProductID);
             foreach (var e in bom)
                 dgv.Rows.Add(e.PartID, e.PartNumber, e.PartName, e.Quantity);
+
+            dgvLabour.Rows.Clear();
+            var labour = _repo.GetLabourCosts(_product.ProductID);
+            foreach (var lc in labour)
+            {
+                int idx = dgvLabour.Rows.Add(lc.Description, lc.HourlyRate.ToString("F2"), lc.Hours.ToString("F2"), $"${lc.TotalCost:F2}");
+                dgvLabour.Rows[idx].Tag = lc.LabourCostID;
+            }
+        }
+
+        private void RefreshLabourTotals()
+        {
+            foreach (DataGridViewRow row in dgvLabour.Rows)
+            {
+                if (row.IsNewRow) continue;
+                decimal.TryParse(row.Cells["colRate"].Value?.ToString(), out decimal rate);
+                decimal.TryParse(row.Cells["colHours"].Value?.ToString(), out decimal hours);
+                row.Cells["colTotal"].Value = $"${rate * hours:F2}";
+            }
         }
 
         private void BtnAddPart_Click(object? sender, EventArgs e)
         {
-            // Simple picker from all parts
             var allParts = _repo.GetAll();
             using var dlg = new FormPartPicker(allParts);
             if (dlg.ShowDialog(this) != DialogResult.OK || dlg.SelectedPart == null) return;
 
             var p = dlg.SelectedPart;
-            // Check if already added
             foreach (DataGridViewRow row in dgv.Rows)
                 if (row.Cells["colPartID"].Value?.ToString() == p.PartID.ToString()) return;
 
@@ -352,9 +420,26 @@ namespace JaneERP
                 entries.Add((pid, Math.Max(1, qty)));
             }
 
+            var labourCosts = new List<BomLabourCost>();
+            foreach (DataGridViewRow row in dgvLabour.Rows)
+            {
+                if (row.IsNewRow) continue;
+                string desc = row.Cells["colDesc"].Value?.ToString() ?? "Labour";
+                decimal.TryParse(row.Cells["colRate"].Value?.ToString(), out decimal rate);
+                decimal.TryParse(row.Cells["colHours"].Value?.ToString(), out decimal hours);
+                labourCosts.Add(new BomLabourCost
+                {
+                    ProductID   = _product.ProductID,
+                    Description = string.IsNullOrWhiteSpace(desc) ? "Labour" : desc,
+                    HourlyRate  = rate,
+                    Hours       = hours > 0 ? hours : 1
+                });
+            }
+
             try
             {
                 _repo.SetBom(_product.ProductID, entries);
+                _repo.SetLabourCosts(_product.ProductID, labourCosts);
                 MessageBox.Show(this, "BOM saved.", "Saved", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 Close();
             }

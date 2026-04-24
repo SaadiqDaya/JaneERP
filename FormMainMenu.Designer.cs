@@ -27,6 +27,7 @@ namespace JaneERP
         private Button btnCycleCount;
         private Button btnLocations;
         private Button btnProductTypes;
+        private Button btnAttributeLists;
         private Button btnManageUsers;
         private Button btnLoginLog;
         private Button btnActivityLog;
@@ -34,8 +35,10 @@ namespace JaneERP
         private Button btnReports;
         private Button btnReorderReport;
         private Button btnInventoryDash;
+        private Button btnUnverified;
         private Button btnExport;
         private Button btnImports;
+        private Button btnBreakeven;
         private Button btnJane;
         private Button btnOphelia;
         private Button btnExitApp;
@@ -66,7 +69,7 @@ namespace JaneERP
             btnExitApp.Click += (_, _) => Application.Exit();
 
             // ── Build icon buttons ─────────────────────────────────────────────
-            btnInventory      = MakeIconButton("\U0001F4E6", "Products",        btnInventory_Click);
+            btnInventory      = MakeIconButton("\U0001F4E6", "Inventory Manager", btnInventory_Click);
             btnParts          = MakeIconButton("\U0001F527", "Parts",           btnParts_Click);
             btnBOM            = MakeIconButton("\U0001F4CB", "BOM",             btnBOM_Click);
             btnSales          = MakeIconButton("\U0001F6D2", "Sales",           btnSales_Click);
@@ -77,6 +80,7 @@ namespace JaneERP
             btnCycleCount     = MakeIconButton("\U0001F504", "Cycle Count",     btnCycleCount_Click);
             btnLocations      = MakeIconButton("\U0001F4CD", "Locations",       btnLocations_Click);
             btnProductTypes   = MakeIconButton("\U0001F3F7", "Types",           btnProductTypes_Click);
+            btnAttributeLists = MakeIconButton("\U0001F4CB", "Attr Lists",      btnAttributeLists_Click);
             btnManageUsers    = MakeIconButton("\U0001F464", "Users",           btnManageUsers_Click);
             btnLoginLog       = MakeIconButton("\U0001F4DD", "Login Log",       btnLoginLog_Click);
             btnActivityLog    = MakeIconButton("\U0001F4DC", "Audit Log",       btnActivityLog_Click);
@@ -84,13 +88,15 @@ namespace JaneERP
             btnReports        = MakeIconButton("\U0001F4C8", "Reports",         btnReports_Click);
             btnReorderReport  = MakeIconButton("\u26A0",     "Reorder",         btnReorderReport_Click);
             btnInventoryDash  = MakeIconButton("\U0001F4CA", "Inventory",       btnInventoryDash_Click);
+            btnUnverified     = MakeIconButton("\u26A0",     "Unverified",      btnUnverified_Click);
             btnExport         = MakeIconButton("\U0001F4BE", "Exports",         btnExport_Click);
             btnImports        = MakeIconButton("\U0001F4E5", "Imports",         btnImports_Click);
+            btnBreakeven      = MakeIconButton("\U0001F4B9", "Breakeven",       btnBreakeven_Click);
             btnJane           = MakeIconButton("\U0001F4DE", "Call Jane",       btnJane_Click);
             btnOphelia        = MakeIconButton("\U0001F4F1", "Call Ophelia",    btnOphelia_Click);
 
             // ── Tooltips ──────────────────────────────────────────────────────
-            toolTip1.SetToolTip(btnInventory,      "Browse and manage product inventory");
+            toolTip1.SetToolTip(btnInventory,      "Inventory Manager — browse and manage products");
             toolTip1.SetToolTip(btnParts,          "Manage raw material parts and BOM components");
             toolTip1.SetToolTip(btnBOM,            "Edit Bill of Materials for products");
             toolTip1.SetToolTip(btnSales,          "View and manage Shopify & manual sales orders");
@@ -100,6 +106,7 @@ namespace JaneERP
             toolTip1.SetToolTip(btnCycleCount,     "Schedule and record stock cycle counts");
             toolTip1.SetToolTip(btnLocations,      "Manage warehouse storage locations");
             toolTip1.SetToolTip(btnProductTypes,   "Define product categories and required attributes");
+            toolTip1.SetToolTip(btnAttributeLists, "Define allowed values for product attribute names");
             toolTip1.SetToolTip(btnManageUsers,    "Add, edit and manage user accounts");
             toolTip1.SetToolTip(btnLoginLog,       "View login history and failed attempts");
             toolTip1.SetToolTip(btnActivityLog,    "Full audit trail of all system changes");
@@ -107,9 +114,11 @@ namespace JaneERP
             toolTip1.SetToolTip(btnReports,        "Stock, sales, COGS and cycle count reports");
             toolTip1.SetToolTip(btnReorderReport,  "Products and parts that need reordering");
             toolTip1.SetToolTip(btnInventoryDash,  "Inventory health snapshot");
+            toolTip1.SetToolTip(btnUnverified,     "Review auto-created products and parts");
             toolTip1.SetToolTip(btnSettings,       "Configure theme, logo, colors and app settings");
             toolTip1.SetToolTip(btnExport,         "Export ERP data to CSV files");
             toolTip1.SetToolTip(btnImports,        "Import data from CSV files into the ERP");
+            toolTip1.SetToolTip(btnBreakeven,      "Breakeven & margin calculator");
             toolTip1.SetToolTip(btnJane,           "Dial Jane directly from this screen");
             toolTip1.SetToolTip(btnOphelia,        "Dial Ophelia directly from this screen");
             toolTip1.SetToolTip(btnProductSearch,  "Explore products with custom attribute filters");
@@ -179,17 +188,44 @@ namespace JaneERP
             btnLogout.Click    += btnLogout_Click;
             btnLogout.Cursor    = Cursors.Hand;
 
+            // Quick Dial — compact link buttons in the header
+            btnJane.FlatStyle = FlatStyle.Flat;
+            btnJane.FlatAppearance.BorderColor        = Theme.Border;
+            btnJane.FlatAppearance.BorderSize         = 1;
+            btnJane.FlatAppearance.MouseOverBackColor = Color.FromArgb(30, 15, 50);
+            btnJane.Font      = new Font("Segoe UI", 8.5F);
+            btnJane.ForeColor = Theme.TextSecondary;
+            btnJane.BackColor = Color.Transparent;
+            btnJane.Size      = new Size(82, 24);
+            btnJane.Text      = "\U0001F4DE Jane";
+            btnJane.Cursor    = Cursors.Hand;
+
+            btnOphelia.FlatStyle = FlatStyle.Flat;
+            btnOphelia.FlatAppearance.BorderColor        = Theme.Border;
+            btnOphelia.FlatAppearance.BorderSize         = 1;
+            btnOphelia.FlatAppearance.MouseOverBackColor = Color.FromArgb(30, 15, 50);
+            btnOphelia.Font      = new Font("Segoe UI", 8.5F);
+            btnOphelia.ForeColor = Theme.TextSecondary;
+            btnOphelia.BackColor = Color.Transparent;
+            btnOphelia.Size      = new Size(96, 24);
+            btnOphelia.Text      = "\U0001F4F1 Ophelia";
+            btnOphelia.Cursor    = Cursors.Hand;
+
             pnlHeader.Controls.Add(pbLogo);
             pnlHeader.Controls.Add(lblAppName);
             pnlHeader.Controls.Add(lblWelcome);
             pnlHeader.Controls.Add(btnSettings);
             pnlHeader.Controls.Add(btnLogout);
+            pnlHeader.Controls.Add(btnJane);
+            pnlHeader.Controls.Add(btnOphelia);
 
             // Header right-side button positioning
             void PositionHeaderButtons()
             {
                 btnLogout.Location   = new Point(pnlHeader.Width - btnLogout.Width - 12, 19);
                 btnSettings.Location = new Point(btnLogout.Left - btnSettings.Width - 8, 19);
+                btnOphelia.Location  = new Point(btnSettings.Left - btnOphelia.Width - 10, 21);
+                btnJane.Location     = new Point(btnOphelia.Left - btnJane.Width - 4, 21);
             }
             pnlHeader.Resize += (_, _) => PositionHeaderButtons();
             Load             += (_, _) => PositionHeaderButtons();
@@ -264,9 +300,14 @@ namespace JaneERP
             pnlGrid.Controls.Add(btnParts);
             pnlGrid.Controls.Add(btnBOM);
             pnlGrid.Controls.Add(btnProductSearch);
-            pnlGrid.Controls.Add(btnCycleCount);
             pnlGrid.Controls.Add(btnLocations);
             pnlGrid.Controls.Add(btnProductTypes);
+            pnlGrid.Controls.Add(btnAttributeLists);
+            // Inventory management tools — moved from Manufacturing
+            pnlGrid.Controls.Add(btnCycleCount);
+            pnlGrid.Controls.Add(btnInventoryDash);
+            pnlGrid.Controls.Add(btnReorderReport);
+            pnlGrid.Controls.Add(btnUnverified);
             var sp2 = GrpSpacer(); pnlGrid.Controls.Add(sp2); pnlGrid.SetFlowBreak(sp2, true);
 
             // ── Section: Manufacturing ───────────────────────────────────────
@@ -274,8 +315,6 @@ namespace JaneERP
             pnlGrid.Controls.Add(hdrMfg);
             pnlGrid.SetFlowBreak(hdrMfg, true);
             pnlGrid.Controls.Add(btnManufacturing);
-            pnlGrid.Controls.Add(btnReorderReport);
-            pnlGrid.Controls.Add(btnInventoryDash);
             var sp3 = GrpSpacer(); pnlGrid.Controls.Add(sp3); pnlGrid.SetFlowBreak(sp3, true);
 
             // ── Section: Analytics & Reports ─────────────────────────────────
@@ -284,9 +323,16 @@ namespace JaneERP
             pnlGrid.SetFlowBreak(hdrAnalytics, true);
             pnlGrid.Controls.Add(btnDashboard);
             pnlGrid.Controls.Add(btnReports);
+            pnlGrid.Controls.Add(btnBreakeven);
+            var sp4 = GrpSpacer(); pnlGrid.Controls.Add(sp4); pnlGrid.SetFlowBreak(sp4, true);
+
+            // ── Section: Data ─────────────────────────────────────────────────
+            var hdrData = GrpHdr("Data");
+            pnlGrid.Controls.Add(hdrData);
+            pnlGrid.SetFlowBreak(hdrData, true);
             pnlGrid.Controls.Add(btnExport);
             pnlGrid.Controls.Add(btnImports);
-            var sp4 = GrpSpacer(); pnlGrid.Controls.Add(sp4); pnlGrid.SetFlowBreak(sp4, true);
+            var sp4b = GrpSpacer(); pnlGrid.Controls.Add(sp4b); pnlGrid.SetFlowBreak(sp4b, true);
 
             // ── Section: Team & Administration ───────────────────────────────
             var hdrAdmin = GrpHdr("Team & Administration");
@@ -297,13 +343,6 @@ namespace JaneERP
             pnlGrid.Controls.Add(btnLoginLog);
             pnlGrid.Controls.Add(btnActivityLog);
             var sp5 = GrpSpacer(); pnlGrid.Controls.Add(sp5); pnlGrid.SetFlowBreak(sp5, true);
-
-            // ── Section: Quick Dial ──────────────────────────────────────────
-            var hdrDial = GrpHdr("Quick Dial");
-            pnlGrid.Controls.Add(hdrDial);
-            pnlGrid.SetFlowBreak(hdrDial, true);
-            pnlGrid.Controls.Add(btnJane);
-            pnlGrid.Controls.Add(btnOphelia);
 
             pnlGrid.Controls.Add(btnExitApp);
             pnlGrid.Controls.Add(lblSelectDept);
