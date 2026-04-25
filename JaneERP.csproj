@@ -8,6 +8,12 @@
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
 
+  <!-- Exclude the test project subfolder from the main build -->
+  <ItemGroup>
+    <Compile Remove="JaneERP.Tests\**" />
+    <None Include="JaneERP.Tests\**" />
+  </ItemGroup>
+
   <ItemGroup>
     <PackageReference Include="CsvHelper" Version="33.1.0" />
     <PackageReference Include="Dapper" Version="2.1.72" />

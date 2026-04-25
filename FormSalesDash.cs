@@ -465,7 +465,12 @@ namespace JaneERP
 
                 var progress = new Progress<string>(s => lblStatus.Text = s);
 
-                var orders = await client.GetOrdersAsync(store, token, from, to, minAmount, maxAmount, progress).ConfigureAwait(false);
+                var orders = await client.GetOrdersAsync(
+                    store, token,
+                    createdAtMin: from, createdAtMax: to,
+                    updatedAtMin: null,
+                    amountMin: minAmount, amountMax: maxAmount,
+                    progress: progress).ConfigureAwait(false);
 
                 // Tag orders with the current store before caching
                 foreach (var o in orders) o.StoreDomain = store;
