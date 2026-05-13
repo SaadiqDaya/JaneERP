@@ -1,6 +1,6 @@
 # JaneERP — Standard Operating Procedure (SOP)
 
-**Version:** 1.0  
+**Version:** 1.1  
 **Last Updated:** May 2026  
 **Applies To:** All JaneERP users
 
@@ -102,9 +102,9 @@ The main menu is divided into sections. Buttons may be hidden based on your role
 |---|---|
 | **Sales** | Sales Dashboard, Create Order, Customers |
 | **Purchasing** | Purchase Orders, Vendors, Reorder Report |
-| **Inventory** | Inventory Snapshot, Cycle Count, Adjust Stock, Stock Transfer, Locations |
+| **Inventory** | Inventory Snapshot, Cycle Count, Adjust Stock, Stock Transfer, Locations, Backorder Dashboard, Expiry Dashboard |
 | **Products** | Products, Parts, Product Types, Attributes |
-| **Manufacturing** | Manufacturing Dashboard, Work Orders |
+| **Manufacturing** | Manufacturing Dashboard, Work Orders, Batch Cooking |
 | **Analytics** | KPI Dashboard, Reports, Breakeven Calculator |
 | **Team** | Task Manager, Activity Log |
 | **Admin** | User Management, Settings, Login Log |
@@ -172,6 +172,26 @@ Discount tiers allow you to apply automatic discounts to specific customers (e.g
 - Exchange rates are configured by your administrator in Settings.
 - The system will display the equivalent home currency total for reference.
 - Reports and financial summaries convert all orders back to home currency.
+
+### 5.5 Creating a Return (RMA)
+
+Use this when a customer returns goods from a completed order.
+
+1. From the Main Menu, click **Customers**.
+2. Search for the customer and open their record.
+3. Select the order you are creating a return against.
+4. Click **Create Return**.
+5. The return form shows all items from the original order.
+6. For each item being returned, enter the **Return Qty**.
+7. Set the **Condition** for each returned item:
+   - **Resalable** — can be restocked
+   - **Damaged** — write-off or quarantine
+   - **Destroy** — to be disposed of
+8. Enter a **Reason** for the return (required).
+9. Add any **Notes** (optional).
+10. Click **Submit Return**.
+
+The return is created with status **Pending Approval**. An administrator must review and approve it before stock adjustments are made.
 
 ---
 
@@ -299,6 +319,27 @@ New products added to the system that have not yet been physically verified will
 2. Review each item.
 3. Once you have confirmed the product and its initial stock count, click **Mark as Verified**.
 
+### 7.6 Backorder Dashboard
+
+The Backorder Dashboard shows open sales orders that could not be fully fulfilled due to insufficient stock.
+
+1. Click **Backorder Dashboard** from the Main Menu.
+2. The list shows each backordered item: order number, customer, product, backordered quantity, and the date the backorder was created.
+3. When stock becomes available, select the relevant rows and click **Fulfil** to allocate stock and progress the order.
+
+> Review the backorder dashboard regularly to ensure customers are not waiting unnecessarily.
+
+### 7.7 Expiry Dashboard
+
+The Expiry Dashboard tracks products that are approaching or past their expiry date.
+
+1. Click **Expiry Dashboard** from the Main Menu.
+2. The dashboard shows products grouped by expiry status:
+   - **Expired** — past their expiry date (action required)
+   - **Expiring Soon** — within 30 days (monitor closely)
+   - **OK** — more than 30 days remaining
+3. Use this screen to identify stock that should be prioritised for sale or written off.
+
 ---
 
 ## 8. Products & Parts
@@ -313,7 +354,7 @@ New products added to the system that have not yet been physically verified will
    - **Retail Price** — selling price to end customers
    - **Wholesale Price** — selling price to trade customers
    - **Reorder Point** — minimum quantity before a restock alert is triggered
-4. Fill in optional fields as needed (description, product type, attributes).
+4. Fill in optional fields as needed (description, product type, vendor, **Unit of Measure**, attributes).
 5. Click **Save**.
 
 ### 8.2 Searching for a Product
@@ -336,7 +377,7 @@ These are used to organise the product catalogue. Only Admins and Editors can ad
 
 Parts are the components used to build finished products (e.g., raw materials, packaging).
 
-- **Parts Manager** — create and manage parts records.
+- **Parts Manager** — create and manage parts records. Each part can have a **Unit of Measure** (e.g., kg, L, each) set to match how it is measured and consumed.
 - **BOM Explorer** — view and edit the Bill of Materials for each product (what components are used, and in what quantities).
 
 Parts are consumed when a manufacturing work order is completed.
@@ -377,6 +418,38 @@ The system will:
 - Add the produced quantity to inventory.
 - Record the cost of goods for use in profit reports.
 - Mark the work order as completed.
+
+### 9.4 Batch Cooking
+
+Batch Cooking allows you to combine multiple work orders into a single cook session, aggregate the ingredient list, and export production documentation.
+
+**Starting a Batch Cook Session:**
+
+1. Click **Batch Cooking** from the Main Menu (Manufacturing section).
+2. The left panel shows all open work orders eligible for cooking.
+3. **Tick the checkbox** next to each work order you want to include in this batch.
+4. The right panel automatically updates to show the **aggregated ingredient list** — all parts required across the selected work orders, summed together, with on-hand quantities shown.
+5. Review the ingredient list. Rows marked ✓ indicate sufficient stock on hand.
+6. Enter a **Session Name** (optional) to identify this cook run.
+7. Click **▶ Start Cook Session**.
+
+**During a Cook Session (FormCookSession):**
+
+Once started, the cook session screen opens. Here you work through each ingredient per work order:
+
+1. The session shows each work order and its required ingredients.
+2. As each ingredient batch is prepared, tick it off in the grid.
+3. When all ingredients for a work order are done, you can mark it complete individually.
+4. Once all work orders in the session are finished, click **Complete Session**.
+
+**Exporting Production Documents:**
+
+Before or after starting a session, you can export:
+
+- **📄 Export Traveller CSV** — a batch traveller sheet listing all selected work orders, products, quantities, and aggregated ingredients. Use this as the physical document that travels with the batch through production.
+- **🏷 Export Labels CSV** — a label sheet with one row per unit to be produced. Import into a label printer to generate product labels for the batch.
+
+> Export the Traveller CSV before starting production so the team has a physical checklist to follow.
 
 ---
 
@@ -512,6 +585,7 @@ Click **Settings** from the Main Menu to configure:
 | SMTP Email | Configure email settings for system notifications |
 | Admin Contact | Set the admin name/phone shown on the login screen |
 | Remember Username | Enable/disable the remember username option |
+| Units of Measure | Manage the list of units (kg, L, each, etc.) available for products and parts |
 
 ### 12.3 Viewing Logs
 

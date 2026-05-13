@@ -19,5 +19,8 @@ namespace JaneERP.Interfaces
         List<ExpenseCategory> GetAllCategories();
         void                  AddCategory(string name);
         void                  ToggleCategory(int categoryId);
+
+        // ── Credit notes (read-only; written by ReturnRepository) ────────────────
+        List<CustomerCredit> GetCreditNoteRows(DateTime from, DateTime to);
     }
 }

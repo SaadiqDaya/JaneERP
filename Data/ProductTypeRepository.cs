@@ -60,27 +60,86 @@ namespace JaneERP.Data
                     AttributeName  NVARCHAR(100) NOT NULL UNIQUE,
                     AllowedValues  NVARCHAR(MAX) NULL
                 );");
+
+            // ── Migrations: add Category / DataType / Unit if missing ─────────────
+            db.Execute(@"
+                IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('AttributeDefinitions') AND name = 'Category')
+                    ALTER TABLE AttributeDefinitions ADD Category NVARCHAR(20) NOT NULL DEFAULT 'General';
+                IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('AttributeDefinitions') AND name = 'DataType')
+                    ALTER TABLE AttributeDefinitions ADD DataType NVARCHAR(20) NOT NULL DEFAULT 'Text';
+                IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('AttributeDefinitions') AND name = 'Unit')
+                    ALTER TABLE AttributeDefinitions ADD Unit NVARCHAR(20) NULL;");
+
+            // ── Seed standard manufacturing & marketing attributes ────────────────
+            SeedAttributeDefinitions(db);
+        }
+
+        private static void SeedAttributeDefinitions(IDbConnection db)
+        {
+            var seeds = new[]
+            {
+                // Manufacturing — used for batch calculations
+                ("SizeML",           "Manufacturing", "Number", "ml",     (string?)null),
+                ("VGPercent",        "Manufacturing", "Number", "%",      (string?)null),
+                ("NicStrengthMgMl",  "Manufacturing", "Number", "mg/ml",  (string?)null),
+                ("NicType",          "Manufacturing", "List",   (string?)null, "FreeBase,Salt"),
+                // Marketing — display and labelling
+                ("Size",             "Marketing",     "List",   (string?)null, "10ml,30ml,60ml,120ml,250ml,500ml,1L"),
+                ("Brand",            "Marketing",     "Text",   (string?)null, (string?)null),
+                ("Nicotine",         "Marketing",     "List",   (string?)null, "0mg,3mg,6mg,12mg,18mg,50mg"),
+                ("VG",               "Marketing",     "Text",   (string?)null, "50VG,60VG,70VG"),
+                ("BottleType",       "Marketing",     "List",   (string?)null, "10ml Plastic,30ml Plastic,30ml Glass,60ml Plastic,120ml Plastic"),
+                ("Version",          "Marketing",     "Text",   (string?)null, (string?)null),
+                ("Concentrate",      "Marketing",     "Text",   (string?)null, (string?)null),
+                ("Note",             "Marketing",     "Text",   (string?)null, (string?)null),
+            };
+            foreach (var (name, cat, dtype, unit, vals) in seeds)
+            {
+                db.Execute(@"
+                    IF NOT EXISTS (SELECT 1 FROM AttributeDefinitions WHERE AttributeName = @name)
+                        INSERT INTO AttributeDefinitions (AttributeName, Category, DataType, Unit, AllowedValues)
+                        VALUES (@name, @cat, @dtype, @unit, @vals)",
+                    new { name, cat, dtype, unit, vals });
+            }
         }
 
         // ── Attribute Definitions ─────────────────────────────────────────────────
 
-        public List<(int Id, string Name, string? Values)> GetAttributeDefinitions()
+        public List<AttributeDefinition> GetAttributeDefinitions()
         {
             using IDbConnection db = new SqlConnection(_connectionString);
-            return db.Query("SELECT AttributeDefID, AttributeName, AllowedValues FROM AttributeDefinitions ORDER BY AttributeName")
-                     .Select(r => ((int)r.AttributeDefID, (string)r.AttributeName, (string?)r.AllowedValues))
-                     .ToList();
+            return db.Query(@"
+                SELECT AttributeDefID, AttributeName, Category, DataType, Unit, AllowedValues
+                FROM   AttributeDefinitions
+                ORDER  BY Category, AttributeName")
+                .Select(r => new AttributeDefinition
+                {
+                    Id            = (int)r.AttributeDefID,
+                    Name          = (string)r.AttributeName,
+                    Category      = (string)(r.Category ?? "General"),
+                    DataType      = (string)(r.DataType  ?? "Text"),
+                    Unit          = (string?)r.Unit,
+                    AllowedValues = (string?)r.AllowedValues
+                })
+                .ToList();
         }
 
-        public void UpsertAttributeDefinition(string name, string? allowedValues)
+        public void UpsertAttributeDefinition(string name, string? allowedValues,
+            string category = "General", string dataType = "Text", string? unit = null)
         {
             using IDbConnection db = new SqlConnection(_connectionString);
             db.Execute(@"
                 IF EXISTS (SELECT 1 FROM AttributeDefinitions WHERE AttributeName = @name)
-                    UPDATE AttributeDefinitions SET AllowedValues = @allowedValues WHERE AttributeName = @name
+                    UPDATE AttributeDefinitions
+                    SET    AllowedValues = @allowedValues,
+                           Category     = @category,
+                           DataType     = @dataType,
+                           Unit         = @unit
+                    WHERE  AttributeName = @name
                 ELSE
-                    INSERT INTO AttributeDefinitions (AttributeName, AllowedValues) VALUES (@name, @allowedValues)",
-                new { name, allowedValues });
+                    INSERT INTO AttributeDefinitions (AttributeName, AllowedValues, Category, DataType, Unit)
+                    VALUES (@name, @allowedValues, @category, @dataType, @unit)",
+                new { name, allowedValues, category, dataType, unit });
         }
 
         public void DeleteAttributeDefinition(int id)

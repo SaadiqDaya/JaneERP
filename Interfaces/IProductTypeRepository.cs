@@ -4,8 +4,9 @@ namespace JaneERP.Interfaces
 {
     public interface IProductTypeRepository
     {
-        List<(int Id, string Name, string? Values)> GetAttributeDefinitions();
-        void         UpsertAttributeDefinition(string name, string? allowedValues);
+        List<AttributeDefinition> GetAttributeDefinitions();
+        void UpsertAttributeDefinition(string name, string? allowedValues,
+            string category = "General", string dataType = "Text", string? unit = null);
         void         DeleteAttributeDefinition(int id);
         string[]     GetAllowedValues(string attributeName);
         List<ProductType> GetAll();

@@ -19,6 +19,7 @@ namespace JaneERP
         private Button                   btnNew       = new();
         private Button                   btnDelete    = new();
         private Button                   btnAttrLists = new();
+        private Button                   btnImport    = new();
         private Button                   btnClose     = new();
         private Label                    lblEdit   = new();
 
@@ -146,16 +147,22 @@ namespace JaneERP
             btnDelete.Click   += BtnDelete_Click;
             Controls.Add(btnDelete);
 
-            btnAttrLists.Location = new Point(x + 350, y);
+            btnAttrLists.Location = new Point(x + 240, y);
             btnAttrLists.Size     = new Size(130, 30);
             btnAttrLists.Text     = "Attribute Lists →";
             btnAttrLists.Click   += (_, _) =>
             {
                 using var f = new FormAttributeLists();
                 f.ShowDialog(this);
-                LoadAttributeNames(); // refresh dropdown after any changes
+                LoadAttributeNames();
             };
             Controls.Add(btnAttrLists);
+
+            btnImport.Location = new Point(x + 378, y);
+            btnImport.Size     = new Size(100, 30);
+            btnImport.Text     = "Import CSV";
+            btnImport.Click   += BtnImport_Click;
+            Controls.Add(btnImport);
 
             btnClose.Anchor   = AnchorStyles.Bottom | AnchorStyles.Right;
             btnClose.Location = new Point(754, 498);
@@ -312,6 +319,117 @@ namespace JaneERP
                 MessageBox.Show(this, "Delete failed: " + ex.Message, "Error",
                     MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
+        }
+
+        /// <summary>
+        /// Import product type → attribute assignments from a CSV.
+        /// Required columns (header row): TypeName, AttributeName, IsRequired
+        ///   • TypeName     — creates the type if it does not already exist
+        ///   • AttributeName — the attribute to assign to the type
+        ///   • IsRequired    — true/false/yes/no/1/0  (default: true if blank)
+        /// Example:
+        ///   TypeName,AttributeName,IsRequired
+        ///   Juice,SizeML,true
+        ///   Juice,VGPercent,true
+        ///   Juice,Brand,false
+        /// </summary>
+        private void BtnImport_Click(object? sender, EventArgs e)
+        {
+            using var dlg = new OpenFileDialog
+            {
+                Title  = "Import Product Type Attribute Assignments",
+                Filter = "CSV Files (*.csv)|*.csv"
+            };
+            if (dlg.ShowDialog(this) != DialogResult.OK) return;
+
+            try
+            {
+                var lines = File.ReadAllLines(dlg.FileName);
+                if (lines.Length < 2)
+                {
+                    MessageBox.Show(this, "File appears empty or has no data rows.", "Import",
+                        MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
+
+                var headers = lines[0].Split(',')
+                    .Select(h => h.Trim().Trim('"').ToLowerInvariant()).ToArray();
+                int iType = Array.IndexOf(headers, "typename");
+                int iAttr = Array.IndexOf(headers, "attributename");
+                int iReq  = Array.IndexOf(headers, "isrequired");
+
+                if (iType < 0 || iAttr < 0)
+                {
+                    MessageBox.Show(this,
+                        "Columns 'TypeName' and 'AttributeName' are required in the header.\n" +
+                        "Expected: TypeName, AttributeName, IsRequired",
+                        "Import Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    return;
+                }
+
+                // Group rows by TypeName
+                var byType = new Dictionary<string, List<Models.ProductTypeAttr>>(StringComparer.OrdinalIgnoreCase);
+                int skipped = 0;
+                foreach (var raw in lines.Skip(1))
+                {
+                    if (string.IsNullOrWhiteSpace(raw)) { skipped++; continue; }
+                    var cols     = raw.Split(',');
+                    string tname = GetImportCol(cols, iType);
+                    string aname = GetImportCol(cols, iAttr);
+                    if (string.IsNullOrWhiteSpace(tname) || string.IsNullOrWhiteSpace(aname)) { skipped++; continue; }
+
+                    string reqRaw = GetImportCol(cols, iReq, "true").ToLowerInvariant();
+                    bool   isReq  = reqRaw is "true" or "yes" or "1";
+
+                    if (!byType.TryGetValue(tname, out var list))
+                        byType[tname] = list = new List<Models.ProductTypeAttr>();
+                    list.Add(new Models.ProductTypeAttr(aname, isReq));
+                }
+
+                // Upsert each type
+                var existingTypes = _repo.GetAll();
+                int typesSaved = 0;
+                foreach (var (typeName, attrs) in byType)
+                {
+                    var existing = existingTypes.FirstOrDefault(t =>
+                        t.TypeName.Equals(typeName, StringComparison.OrdinalIgnoreCase));
+                    if (existing == null)
+                    {
+                        _repo.Add(typeName, attrs);
+                    }
+                    else
+                    {
+                        // Merge: keep existing attrs + add new ones from CSV (no duplicates)
+                        var merged = existing.AllAttributes.ToList();
+                        foreach (var a in attrs)
+                        {
+                            if (!merged.Any(m => m.AttributeName.Equals(a.AttributeName, StringComparison.OrdinalIgnoreCase)))
+                                merged.Add(a);
+                        }
+                        existing.AllAttributes = merged;
+                        _repo.Update(existing);
+                    }
+                    typesSaved++;
+                }
+
+                LoadTypes();
+                LoadAttributeNames();
+                MessageBox.Show(this,
+                    $"Import complete.\n{typesSaved} type(s) updated. {skipped} row(s) skipped.",
+                    "Import Complete", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, $"Import failed: {ex.Message}", "Error",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        private static string GetImportCol(string[] cols, int idx, string defaultVal = "")
+        {
+            if (idx < 0 || idx >= cols.Length) return defaultVal;
+            var v = cols[idx].Trim().Trim('"');
+            return string.IsNullOrWhiteSpace(v) ? defaultVal : v;
         }
     }
 }

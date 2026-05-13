@@ -1,7 +1,7 @@
 using System.Configuration;
 using Dapper;
 using JaneERP.Interfaces;
-using JaneERP.Models;
+using JaneERP.Models;   // AccountingModels + ReturnModels (CustomerCredit) — same namespace
 using Microsoft.Data.SqlClient;
 
 namespace JaneERP.Data
@@ -71,7 +71,25 @@ namespace JaneERP.Data
                 FROM   Expenses
                 WHERE  ExpenseDate >= @from AND ExpenseDate <= @to", new { from, to });
 
-            return new AccountingSummary { Revenue = revenue, Cogs = cogs, Expenses = expenses };
+            // Credit notes issued in period reduce effective revenue
+            decimal creditNotes = 0m;
+            try
+            {
+                creditNotes = db.ExecuteScalar<decimal>(@"
+                    SELECT ISNULL(SUM(Amount), 0)
+                    FROM   CustomerCredits
+                    WHERE  CreatedAt >= @from AND CreatedAt <= @to",
+                    new { from, to });
+            }
+            catch { /* table may not exist on older databases — safe to ignore */ }
+
+            return new AccountingSummary
+            {
+                Revenue     = revenue,
+                CreditNotes = creditNotes,
+                Cogs        = cogs,
+                Expenses    = expenses
+            };
         }
 
         public List<ExpenseRow> GetExpenseRows(DateTime from, DateTime to)
@@ -131,6 +149,26 @@ namespace JaneERP.Data
             using var db = new SqlConnection(_cs);
             db.Execute("UPDATE ExpenseCategories SET IsActive = 1 - IsActive WHERE CategoryID = @categoryId",
                 new { categoryId });
+        }
+
+        public List<CustomerCredit> GetCreditNoteRows(DateTime from, DateTime to)
+        {
+            using var db = new SqlConnection(_cs);
+            try
+            {
+                return db.Query<CustomerCredit>(@"
+                    SELECT cc.CreditID, cc.CustomerID,
+                           ISNULL(c.FullName, c.Email) AS CustomerName,
+                           cc.ReturnID, cc.Amount, cc.CreditType, cc.Notes,
+                           cc.IsRedeemed, cc.RedeemedAt, cc.RedeemedOnOrderID,
+                           cc.CreatedBy, cc.CreatedAt
+                    FROM   CustomerCredits cc
+                    JOIN   Customers c ON c.CustomerID = cc.CustomerID
+                    WHERE  cc.CreatedAt >= @from AND cc.CreatedAt <= @to
+                    ORDER  BY cc.CreatedAt DESC",
+                    new { from, to }).ToList();
+            }
+            catch { return []; }
         }
     }
 }
