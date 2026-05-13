@@ -1,6 +1,8 @@
 using System.Configuration;
 using Dapper;
 using JaneERP.Data;
+using JaneERP.Infrastructure;
+using JaneERP.Interfaces;
 using JaneERP.Logging;
 using JaneERP.Models;
 using JaneERP.Security;
@@ -131,8 +133,8 @@ namespace JaneERP
         {
             try
             {
-                _products  = new ProductRepository().GetProducts(false).ToList();
-                _locations = new LocationRepository().GetAll().ToList();
+                _products  = AppServices.Get<IProductRepository>().GetProducts(false).ToList();
+                _locations = AppServices.Get<ILocationRepository>().GetAll().ToList();
 
                 // Build display strings for products
                 cboProduct.DisplayMember = "ProductName";

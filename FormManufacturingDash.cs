@@ -1,4 +1,6 @@
 using JaneERP.Data;
+using JaneERP.Infrastructure;
+using JaneERP.Interfaces;
 using JaneERP.Manufacturing;
 using JaneERP.Models;
 using JaneERP.Security;
@@ -11,8 +13,8 @@ namespace JaneERP
     /// </summary>
     public class FormManufacturingDash : Form
     {
-        private readonly ManufacturingRepository _moRepo = new();
-        private readonly ProductRepository       _pRepo  = new();
+        private readonly IManufacturingRepository _moRepo = AppServices.Get<IManufacturingRepository>();
+        private readonly IProductRepository       _pRepo  = AppServices.Get<IProductRepository>();
 
         private DataGridView dgvMOs     = new();
         private DataGridView dgvWOs     = new();
@@ -146,8 +148,8 @@ namespace JaneERP
 
     internal class FormNewMO : Form
     {
-        private readonly ProductRepository       _pRepo;
-        private readonly ManufacturingRepository _moRepo;
+        private readonly IProductRepository       _pRepo;
+        private readonly IManufacturingRepository _moRepo;
 
         private TextBox      txtNotes     = new();
         private DataGridView dgvLines     = new();
@@ -155,7 +157,7 @@ namespace JaneERP
         private Button       btnCancel    = new();
         private Button       btnAddLine   = new();
 
-        public FormNewMO(ProductRepository pRepo, ManufacturingRepository moRepo)
+        public FormNewMO(IProductRepository pRepo, IManufacturingRepository moRepo)
         {
             _pRepo  = pRepo;
             _moRepo = moRepo;
@@ -228,7 +230,7 @@ namespace JaneERP
             if (picker.ShowDialog(this) != DialogResult.OK || picker.SelectedProduct == null) return;
 
             var p   = picker.SelectedProduct;
-            var bom = new PartRepository().GetBom(p.ProductID);
+            var bom = AppServices.Get<IPartRepository>().GetBom(p.ProductID);
             if (bom.Count == 0)
             {
                 MessageBox.Show(this,
@@ -284,11 +286,11 @@ namespace JaneERP
 
     internal class FormProductPicker : Form
     {
-        private readonly ProductRepository _repo;
+        private readonly IProductRepository _repo;
         private DataGridView dgv = new();
         public Product? SelectedProduct { get; private set; }
 
-        public FormProductPicker(ProductRepository repo)
+        public FormProductPicker(IProductRepository repo)
         {
             _repo = repo;
             Text            = "Select Product";

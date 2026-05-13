@@ -7,6 +7,8 @@ using System.Linq;
 using System.Text;
 using System.Windows.Forms;
 using JaneERP.Data;
+using JaneERP.Infrastructure;
+using JaneERP.Interfaces;
 using JaneERP.Logging;
 using JaneERP.Models;
 using JaneERP.Security;
@@ -84,7 +86,7 @@ namespace JaneERP
                     var col   = dgvAttributes.Columns["colProperty"] as DataGridViewComboBoxColumn;
                     if (col != null)
                     {
-                        var attrs = new ProductRepository().GetAttributes(product.ProductID);
+                        var attrs = AppServices.Get<IProductRepository>().GetAttributes(product.ProductID);
                         foreach (var attr in attrs)
                         {
                             if (!col.Items.Contains(attr.AttributeName))
@@ -157,7 +159,7 @@ namespace JaneERP
             if (_allProductsForPkg.Count > 0) return;
             try
             {
-                _allProductsForPkg = new ProductRepository().GetProducts().ToList();
+                _allProductsForPkg = AppServices.Get<IProductRepository>().GetProducts().ToList();
                 var col = dgvPackageComponents.Columns["colPkgSKU"] as DataGridViewComboBoxColumn;
                 if (col == null) return;
                 col.Items.Clear();
@@ -249,7 +251,7 @@ namespace JaneERP
         {
             try
             {
-                var locations = new LocationRepository().GetAll().ToList();
+                var locations = AppServices.Get<ILocationRepository>().GetAll().ToList();
                 cboDefaultLocation.DataSource    = locations;
                 cboDefaultLocation.DisplayMember = "LocationName";
                 cboDefaultLocation.ValueMember   = "LocationID";
@@ -262,7 +264,7 @@ namespace JaneERP
         {
             try
             {
-                var vendors = new VendorRepository().GetAll().ToList();
+                var vendors = AppServices.Get<IVendorRepository>().GetAll().ToList();
                 cboVendor.Items.Clear();
                 // Sentinel object for "(None)" — VendorID 0 means no vendor selected
                 cboVendor.Items.Add(new Vendor { VendorID = 0, VendorName = "(None)" });
@@ -277,7 +279,7 @@ namespace JaneERP
         {
             try
             {
-                var names = new ProductRepository().GetAllAttributeNames().ToList();
+                var names = AppServices.Get<IProductRepository>().GetAllAttributeNames().ToList();
                 var col   = dgvAttributes.Columns["colProperty"] as DataGridViewComboBoxColumn;
                 if (col == null) return;
                 col.Items.Clear();
@@ -305,7 +307,7 @@ namespace JaneERP
         private void btnManageBOM_Click(object sender, EventArgs e)
         {
             if (_editingProduct is null) return;
-            var partRepo = new PartRepository();
+            var partRepo = AppServices.Get<IPartRepository>();
             using var bomEditor = new FormBomEditor(_editingProduct, partRepo);
             bomEditor.ShowDialog(this);
         }
@@ -418,7 +420,7 @@ namespace JaneERP
 
             try
             {
-                var repo = new ProductRepository();
+                var repo = AppServices.Get<IProductRepository>();
 
                 if (_editingProduct is not null)
                 {
@@ -472,7 +474,7 @@ namespace JaneERP
                         // Reload to get the new ProductID, then save package components
                         try
                         {
-                            var savedProduct = new ProductRepository().GetProducts()
+                            var savedProduct = AppServices.Get<IProductRepository>().GetProducts()
                                 .FirstOrDefault(p => p.SKU == newProduct.SKU);
                             if (savedProduct != null)
                                 SavePackageComponents(savedProduct.ProductID);
@@ -487,11 +489,11 @@ namespace JaneERP
                         // Auto-open BOM editor for newly created non-Package products
                         try
                         {
-                            var savedProduct = new ProductRepository().GetProducts()
+                            var savedProduct = AppServices.Get<IProductRepository>().GetProducts()
                                 .FirstOrDefault(p => p.SKU == newProduct.SKU);
                             if (savedProduct != null)
                             {
-                                var partRepo = new PartRepository();
+                                var partRepo = AppServices.Get<IPartRepository>();
                                 using var bomEditor = new FormBomEditor(savedProduct, partRepo);
                                 bomEditor.ShowDialog(this);
 

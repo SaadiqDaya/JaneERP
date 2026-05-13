@@ -192,6 +192,19 @@ public class VerifyRequest
     public int    ActualQty  { get; set; }
 }
 
+// ── Picking ───────────────────────────────────────────────────────────────────
+
+public class PickListItem
+{
+    public int     SalesOrderItemID { get; set; }
+    public int     ProductID        { get; set; }
+    public string  SKU              { get; set; } = "";
+    public string  Title            { get; set; } = "";
+    public int     QuantityNeeded   { get; set; }
+    public int     TotalStock       { get; set; }
+    public string? PrimaryLocation  { get; set; }
+}
+
 // ── Locations ─────────────────────────────────────────────────────────────────
 
 public class LocationItem
@@ -199,3 +212,56 @@ public class LocationItem
     public int    LocationID   { get; set; }
     public string LocationName { get; set; } = "";
 }
+
+// ── Stock adjust / history ────────────────────────────────────────────────────
+
+public class StockAdjustRequest
+{
+    public int    Qty    { get; set; }
+    public string Reason { get; set; } = "";
+}
+
+public class StockTransaction
+{
+    public int      TransactionID   { get; set; }
+    public int      QuantityChange  { get; set; }
+    public string   TransactionType { get; set; } = "";
+    public string?  Notes           { get; set; }
+    public DateTime TransactionDate { get; set; }
+    public string?  LocationName    { get; set; }
+}
+
+// ── Customers ─────────────────────────────────────────────────────────────────
+
+public class CustomerListItem
+{
+    public int     CustomerID { get; set; }
+    public string  FullName   { get; set; } = "";
+    public string  Email      { get; set; } = "";
+    public int     OrderCount { get; set; }
+    public decimal TotalSpent { get; set; }
+}
+
+public class CustomerDetail : CustomerListItem
+{
+    public List<OrderListItem> RecentOrders { get; set; } = [];
+}
+
+// ── Work orders ───────────────────────────────────────────────────────────────
+
+public class WorkOrderItem
+{
+    public int      WorkOrderID  { get; set; }
+    public int      MOID         { get; set; }
+    public string   MONumber     { get; set; } = "";
+    public string   ProductName  { get; set; } = "";
+    public string   SKU          { get; set; } = "";
+    public int      Quantity     { get; set; }
+    public int      CompletedQty { get; set; }
+    public string   Status       { get; set; } = "";
+    public string?  AssignedTo   { get; set; }
+    public DateTime? CompletedAt { get; set; }
+    public string?  Notes        { get; set; }
+}
+
+public record UpdateNotesRequest(string? Notes);

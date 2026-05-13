@@ -72,4 +72,67 @@ public class ApiProductRepository
         using var db = Connect();
         return db.ExecuteScalar<int>("SELECT COUNT(*) FROM Products WHERE IsActive = 1");
     }
+
+    public (List<ProductSearchResult> Items, int Total) GetLowStock(int page, int pageSize = 40)
+    {
+        using var db = Connect();
+        var offset = (page - 1) * pageSize;
+
+        var total = db.ExecuteScalar<int>(@"
+            SELECT COUNT(*) FROM Products p
+            WHERE  p.IsActive = 1 AND p.ReorderPoint > 0
+              AND  ISNULL((SELECT SUM(QuantityChange) FROM InventoryTransactions WHERE ProductID = p.ProductID), 0) <= p.ReorderPoint");
+
+        var items = db.Query<ProductSearchResult>(@"
+            SELECT  p.ProductID, p.SKU, p.ProductName,
+                    ISNULL((SELECT SUM(QuantityChange) FROM InventoryTransactions WHERE ProductID = p.ProductID), 0) AS CurrentStock,
+                    p.RetailPrice, p.ReorderPoint, 1 AS IsLowStock
+            FROM    Products p
+            WHERE   p.IsActive = 1 AND p.ReorderPoint > 0
+              AND   ISNULL((SELECT SUM(QuantityChange) FROM InventoryTransactions WHERE ProductID = p.ProductID), 0) <= p.ReorderPoint
+            ORDER   BY p.ProductName
+            OFFSET  @offset ROWS FETCH NEXT @pageSize ROWS ONLY",
+            new { offset, pageSize }).ToList();
+
+        return (items, total);
+    }
+
+    public void AdjustStock(int productId, int qty, string reason, string username)
+    {
+        using var db = Connect();
+        db.Execute(@"
+            INSERT INTO InventoryTransactions
+                (ProductID, QuantityChange, TransactionType, Notes, TransactionDate)
+            VALUES
+                (@productId, @qty, 'Adjustment', @notes, GETDATE())",
+            new { productId, qty, notes = $"Manual adjustment by {username}: {reason}" });
+    }
+
+    public (List<StockTransaction> Items, int Total, string ProductName, string SKU) GetTransactionHistory(
+        int productId, int page, int pageSize = 30)
+    {
+        using var db = Connect();
+        var offset = (page - 1) * pageSize;
+
+        var total = db.ExecuteScalar<int>(
+            "SELECT COUNT(*) FROM InventoryTransactions WHERE ProductID = @productId",
+            new { productId });
+
+        var items = db.Query<StockTransaction>(@"
+            SELECT  t.TransactionID, t.QuantityChange, t.TransactionType,
+                    t.Notes, t.TransactionDate,
+                    ISNULL(l.LocationName, '') AS LocationName
+            FROM    InventoryTransactions t
+            LEFT JOIN Locations l ON l.LocationID = t.LocationID
+            WHERE   t.ProductID = @productId
+            ORDER   BY t.TransactionDate DESC
+            OFFSET  @offset ROWS FETCH NEXT @pageSize ROWS ONLY",
+            new { productId, offset, pageSize }).ToList();
+
+        var prod = db.QueryFirstOrDefault(
+            "SELECT ProductName, SKU FROM Products WHERE ProductID = @productId",
+            new { productId });
+
+        return (items, total, (string?)prod?.ProductName ?? "", (string?)prod?.SKU ?? "");
+    }
 }

@@ -1,4 +1,6 @@
 using JaneERP.Data;
+using JaneERP.Infrastructure;
+using JaneERP.Interfaces;
 
 namespace JaneERP
 {
@@ -259,7 +261,7 @@ namespace JaneERP
             btnGenerate.Enabled = false;
             try
             {
-                new LocationRepository().BulkAddLocations(names);
+                AppServices.Get<ILocationRepository>().BulkAddLocations(names);
                 MessageBox.Show(this,
                     $"{names.Count:N0} location(s) generated successfully.\nExisting names were skipped.",
                     "Done", MessageBoxButtons.OK, MessageBoxIcon.Information);

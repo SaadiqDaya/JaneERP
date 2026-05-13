@@ -1,4 +1,5 @@
 using JaneERP.Data;
+using JaneERP.Infrastructure;
 using JaneERP.Logging;
 using JaneERP.Manufacturing;
 using JaneERP.Services;
@@ -106,6 +107,9 @@ namespace JaneERP
                     AppLogger.Audit("system", "OverduePONotifyFailed", ex.Message);
                 }
             });
+
+            // ── Build DI container (after schema, before login) ───────────────────────
+            ServiceRegistration.Build();
 
             Application.AddMessageFilter(new JaneERP.Security.GlobalActivityFilter());
             Application.Run(new FormAppLogin());

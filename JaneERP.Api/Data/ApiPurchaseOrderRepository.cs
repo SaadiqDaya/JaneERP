@@ -42,18 +42,46 @@ public class ApiPurchaseOrderRepository
     public PurchaseOrderDetail? GetOrderDetail(int poid)
     {
         using var db = Connect();
-        var po = db.QueryFirstOrDefault<PurchaseOrderDetail>(@"
-            SELECT  po.POID, po.PONumber, s.SupplierName,
-                    po.Status, po.OrderDate, po.ExpectedDate,
-                    po.TotalCost, po.ShippingCost, po.CreatedBy, po.Notes,
-                    CASE WHEN po.ExpectedDate IS NOT NULL
-                              AND po.ExpectedDate < GETDATE()
-                              AND po.Status NOT IN ('Received', 'Cancelled')
-                         THEN 1 ELSE 0 END AS IsOverdue
-            FROM    PurchaseOrders po
-            JOIN    Suppliers s ON s.SupplierID = po.SupplierID
-            WHERE   po.POID = @poid",
-            new { poid });
+
+        // Try with all optional columns (post-migration); fall back to safe query if columns missing
+        PurchaseOrderDetail? po;
+        try
+        {
+            po = db.QueryFirstOrDefault<PurchaseOrderDetail>(@"
+                SELECT  po.POID, po.PONumber, s.SupplierName,
+                        po.Status, po.OrderDate, po.ExpectedDate,
+                        po.TotalCost,
+                        po.ShippingCost,
+                        ISNULL(po.CreatedBy, '') AS CreatedBy,
+                        ISNULL(po.Notes,     '') AS Notes,
+                        CASE WHEN po.ExpectedDate IS NOT NULL
+                                  AND po.ExpectedDate < GETDATE()
+                                  AND po.Status NOT IN ('Received', 'Cancelled')
+                             THEN 1 ELSE 0 END AS IsOverdue
+                FROM    PurchaseOrders po
+                JOIN    Suppliers s ON s.SupplierID = po.SupplierID
+                WHERE   po.POID = @poid",
+                new { poid });
+        }
+        catch
+        {
+            // One or more optional columns don't exist yet — query with safe defaults
+            po = db.QueryFirstOrDefault<PurchaseOrderDetail>(@"
+                SELECT  po.POID, po.PONumber, s.SupplierName,
+                        po.Status, po.OrderDate, po.ExpectedDate,
+                        po.TotalCost,
+                        0  AS ShippingCost,
+                        '' AS CreatedBy,
+                        '' AS Notes,
+                        CASE WHEN po.ExpectedDate IS NOT NULL
+                                  AND po.ExpectedDate < GETDATE()
+                                  AND po.Status NOT IN ('Received', 'Cancelled')
+                             THEN 1 ELSE 0 END AS IsOverdue
+                FROM    PurchaseOrders po
+                JOIN    Suppliers s ON s.SupplierID = po.SupplierID
+                WHERE   po.POID = @poid",
+                new { poid });
+        }
 
         if (po == null) return null;
 
@@ -157,6 +185,70 @@ public class ApiPurchaseOrderRepository
             WHERE  ExpectedDate IS NOT NULL
               AND  ExpectedDate < GETDATE()
               AND  Status NOT IN ('Received', 'Cancelled')");
+    }
+
+    public int DuplicatePO(int sourcePoid, string createdBy)
+    {
+        using var db = new SqlConnection(_ctx.ConnectionString);
+        db.Open();
+        using var tx = db.BeginTransaction();
+        try
+        {
+            var source = db.QueryFirstOrDefault(
+                "SELECT SupplierID, ISNULL(ShippingCost,0) AS ShippingCost, Notes FROM PurchaseOrders WHERE POID = @poid",
+                new { poid = sourcePoid }, tx)
+                ?? throw new InvalidOperationException("PO not found");
+
+            var sourceItems = db.Query<PoLineItem>(
+                "SELECT PartID, ProductID, SKU, ItemName, QuantityOrdered, UnitCost FROM PurchaseOrderItems WHERE POID = @poid",
+                new { poid = sourcePoid }, tx).ToList();
+
+            // Insert draft PO with temp number
+            var newPoid = db.QuerySingle<int>(@"
+                INSERT INTO PurchaseOrders
+                    (PONumber, SupplierID, Status, OrderDate, TotalCost, ShippingCost, Notes, CreatedBy, CreatedAt)
+                VALUES
+                    ('TEMP', @supplierId, 'Draft', GETDATE(), 0, @shippingCost, @notes, @createdBy, GETDATE());
+                SELECT CAST(SCOPE_IDENTITY() AS INT);",
+                new
+                {
+                    supplierId   = (int)source.SupplierID,
+                    shippingCost = (decimal)source.ShippingCost,
+                    notes        = (string?)source.Notes,
+                    createdBy
+                }, tx);
+
+            // Use POID as PONumber — always unique
+            db.Execute("UPDATE PurchaseOrders SET PONumber = @num WHERE POID = @poid",
+                new { num = newPoid.ToString(), poid = newPoid }, tx);
+
+            decimal total = 0;
+            foreach (var item in sourceItems)
+            {
+                db.Execute(@"
+                    INSERT INTO PurchaseOrderItems
+                        (POID, PartID, ProductID, SKU, ItemName, QuantityOrdered, QuantityReceived, UnitCost)
+                    VALUES (@poid, @partId, @productId, @sku, @itemName, @qty, 0, @cost)",
+                    new
+                    {
+                        poid      = newPoid,
+                        partId    = item.PartID,
+                        productId = item.ProductID,
+                        sku       = item.SKU,
+                        itemName  = item.ItemName,
+                        qty       = item.QuantityOrdered,
+                        cost      = item.UnitCost
+                    }, tx);
+                total += item.QuantityOrdered * item.UnitCost;
+            }
+
+            db.Execute("UPDATE PurchaseOrders SET TotalCost = @total WHERE POID = @poid",
+                new { total, poid = newPoid }, tx);
+
+            tx.Commit();
+            return newPoid;
+        }
+        catch { tx.Rollback(); throw; }
     }
 
     public List<PoSummary> GetPosToReceive()

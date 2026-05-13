@@ -9,6 +9,8 @@ using System.Reflection;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using JaneERP.Data;
+using JaneERP.Infrastructure;
+using JaneERP.Interfaces;
 using JaneERP.Logging;
 using JaneERP.Models;
 using JaneERP.Security;
@@ -295,7 +297,7 @@ namespace JaneERP
                 Dictionary<long, (int id, string status)> erpInfo;
                 try
                 {
-                    var svc = new ShopifySyncService();
+                    var svc = AppServices.Get<IShopifySyncService>();
                     syncedIds = svc.GetSyncedOrderIds();
                     // Get ERP status for synced orders
                     var erpOrders = svc.GetErpOrders("Shopify");
@@ -558,7 +560,7 @@ namespace JaneERP
                     var domainToName = _allStores.ToDictionary(
                         s => s.StoreDomain, s => s.StoreName, StringComparer.OrdinalIgnoreCase);
                     HashSet<long> syncedIds;
-                    try { syncedIds = new ShopifySyncService().GetSyncedOrderIds(); }
+                    try { syncedIds = AppServices.Get<IShopifySyncService>().GetSyncedOrderIds(); }
                     catch { syncedIds = new HashSet<long>(); }
 
                     foreach (var o in orders)
@@ -835,7 +837,7 @@ namespace JaneERP
             btnFetch.Enabled      = false;
             lblStatus.Text        = $"Syncing 0/{orders.Count}...";
 
-            var syncService  = new ShopifySyncService();
+            var syncService  = AppServices.Get<IShopifySyncService>();
             var store        = NormalizeStoreInput(_store);
             bool allStoresMode = string.IsNullOrEmpty(_store);
 

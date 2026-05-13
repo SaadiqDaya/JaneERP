@@ -2,6 +2,8 @@ using System.Configuration;
 using System.Linq;
 using Dapper;
 using JaneERP.Data;
+using JaneERP.Infrastructure;
+using JaneERP.Interfaces;
 using JaneERP.Models;
 using Microsoft.Data.SqlClient;
 
@@ -301,7 +303,7 @@ namespace JaneERP
 
             try
             {
-                var repo    = new ProductRepository();
+                var repo    = AppServices.Get<IProductRepository>();
                 var product = repo.GetProducts().FirstOrDefault(p => p.ProductID == productId);
                 if (product == null) return;
                 product.Attributes = repo.GetAttributes(productId).ToList();
@@ -323,7 +325,7 @@ namespace JaneERP
 
             try
             {
-                var repo = new PartRepository();
+                var repo = AppServices.Get<IPartRepository>();
                 var part = repo.GetById(partId);
                 if (part == null) return;
 
@@ -420,10 +422,10 @@ namespace JaneERP
 
     internal class FormEditPart : Form
     {
-        private readonly Part           _part;
-        private readonly PartRepository _repo;
+        private readonly Part            _part;
+        private readonly IPartRepository _repo;
 
-        public FormEditPart(Part part, PartRepository repo)
+        public FormEditPart(Part part, IPartRepository repo)
         {
             _part = part;
             _repo = repo;
@@ -584,7 +586,7 @@ namespace JaneERP
         {
             try
             {
-                _types = new ProductTypeRepository().GetAll();
+                _types = AppServices.Get<IProductTypeRepository>().GetAll();
                 cboType.Items.Clear();
                 cboType.Items.Add(new ProductType { ProductTypeID = 0, TypeName = "(no change)" });
                 foreach (var t in _types) cboType.Items.Add(t);

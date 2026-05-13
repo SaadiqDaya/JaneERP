@@ -4,20 +4,24 @@ const App = (() => {
   const appEl  = document.getElementById('app');
   const navEl  = document.getElementById('bottom-nav');
 
-  // Pages that don't need auth
   const PUBLIC_PAGES = ['login'];
 
   // All page scripts load before app.js (see index.html script order)
   const PAGES = {
-    'login':          LoginPage,
-    'dashboard':      DashboardPage,
-    'inventory':      InventoryPage,
-    'orders':         OrdersPage,
-    'orders/new':     NewOrderPage,
-    'orders/detail':  OrderDetailPage,
-    'po':             PurchaseOrdersPage,
-    'po/detail':      PoDetailPage,
-    'cycle-count':    CycleCountPage,
+    'login':               LoginPage,
+    'dashboard':           DashboardPage,
+    'inventory':           InventoryPage,
+    'inventory/history':   InventoryHistoryPage,
+    'orders':              OrdersPage,
+    'orders/new':          NewOrderPage,
+    'orders/detail':       OrderDetailPage,
+    'po':                  PurchaseOrdersPage,
+    'po/detail':           PoDetailPage,
+    'cycle-count':         CycleCountPage,
+    'customers':           CustomersPage,
+    'customers/detail':    CustomerDetailPage,
+    'work-orders':         WorkOrdersPage,
+    'work-orders/detail':  WorkOrderDetailPage,
   };
 
   function currentHash() {
@@ -29,38 +33,40 @@ const App = (() => {
   }
 
   function render() {
-    const hash  = currentHash();
+    const hash   = currentHash();
     const isAuth = Api.isLoggedIn();
 
-    // Redirect logic
-    if (!isAuth && !PUBLIC_PAGES.includes(hash)) {
-      navigate('login');
-      return;
-    }
-    if (isAuth && hash === 'login') {
-      navigate('dashboard');
-      return;
-    }
+    if (!isAuth && !PUBLIC_PAGES.includes(hash)) { navigate('login'); return; }
+    if (isAuth && hash === 'login')               { navigate('dashboard'); return; }
 
-    // Handle detail routes like orders/123
     let pageKey = hash;
     let param   = null;
-    const detailMatch = hash.match(/^(.+?)\/(\d+)$/);
-    if (detailMatch && !PAGES[hash]) {
-      pageKey = detailMatch[1] + '/detail';
-      param   = parseInt(detailMatch[2], 10);
-    }
 
-    // Special route: po/detail
+    // Explicit detail routes — each pattern is unambiguous
     if (hash.startsWith('po/') && hash !== 'po') {
       pageKey = 'po/detail';
       param   = parseInt(hash.split('/')[1], 10);
+    } else if (hash.startsWith('customers/') && hash !== 'customers') {
+      pageKey = 'customers/detail';
+      param   = parseInt(hash.split('/')[1], 10);
+    } else if (hash.startsWith('work-orders/') && hash !== 'work-orders') {
+      pageKey = 'work-orders/detail';
+      param   = parseInt(hash.split('/')[1], 10);
+    } else if (hash.startsWith('inventory/history/')) {
+      pageKey = 'inventory/history';
+      param   = parseInt(hash.split('/')[2], 10);
+    } else {
+      // Generic: orders/123 → orders/detail
+      const m = hash.match(/^(.+?)\/(\d+)$/);
+      if (m && !PAGES[hash]) {
+        pageKey = m[1] + '/detail';
+        param   = parseInt(m[2], 10);
+      }
     }
 
-    const pageFn = PAGES[pageKey] || PAGES[hash];
+    const pageFn = PAGES[pageKey];
     if (!pageFn) { navigate(isAuth ? 'dashboard' : 'login'); return; }
 
-    // Show/hide nav
     if (PUBLIC_PAGES.includes(hash)) {
       navEl.classList.add('hidden');
     } else {
@@ -68,19 +74,17 @@ const App = (() => {
       updateNavActive(hash);
     }
 
-    // Render page
     appEl.innerHTML = '';
     pageFn.render(appEl, param);
   }
 
   function updateNavActive(hash) {
-    const root = hash.split('/')[0];
     navEl.querySelectorAll('.nav-item').forEach(el => {
-      el.classList.toggle('active', el.dataset.page === root);
+      const page = el.dataset.page;
+      el.classList.toggle('active', hash === page || hash.startsWith(page + '/'));
     });
   }
 
-  // Toast notifications
   function toast(msg, type = '') {
     const container = document.getElementById('toast-container');
     const el = document.createElement('div');
@@ -90,7 +94,6 @@ const App = (() => {
     setTimeout(() => el.remove(), 3000);
   }
 
-  // Format helpers
   function fmt$  (n)  { return '$' + (n ?? 0).toFixed(2); }
   function fmtDate(d) { if (!d) return '—'; const dt = new Date(d); return dt.toLocaleDateString('en-CA', { month:'short', day:'numeric', year:'numeric' }); }
   function fmtDateShort(d) { if (!d) return '—'; const dt = new Date(d); return dt.toLocaleDateString('en-CA', { month:'short', day:'numeric' }); }
@@ -101,6 +104,7 @@ const App = (() => {
       'Complete': 'badge-complete', 'Sent': 'badge-sent',
       'PartiallyReceived': 'badge-partial', 'Received': 'badge-received',
       'Cancelled': 'badge-draft',
+      'Pending': 'badge-draft', 'InProgress': 'badge-wip', 'Completed': 'badge-complete',
     };
     return `<span class="badge ${map[status] || 'badge-draft'}">${status}</span>`;
   }
@@ -113,12 +117,9 @@ const App = (() => {
     return Array(n).fill('<div class="skeleton skeleton-card"></div>').join('');
   }
 
-  // Init
   window.addEventListener('hashchange', render);
   window.addEventListener('load', () => {
-    if (navigator.serviceWorker) {
-      navigator.serviceWorker.register('/sw.js').catch(() => {});
-    }
+    if (navigator.serviceWorker) navigator.serviceWorker.register('/sw.js').catch(() => {});
     render();
   });
 

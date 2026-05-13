@@ -1,4 +1,6 @@
 using JaneERP.Data;
+using JaneERP.Infrastructure;
+using JaneERP.Interfaces;
 using JaneERP.Models;
 
 namespace JaneERP
@@ -8,8 +10,8 @@ namespace JaneERP
     {
         private readonly SupplierRepository _repo;
         private readonly PurchaseOrder?     _viewOnly;
-        private readonly PartRepository     _partRepo    = new();
-        private readonly ProductRepository  _productRepo = new();
+        private readonly IPartRepository    _partRepo    = AppServices.Get<IPartRepository>();
+        private readonly IProductRepository _productRepo = AppServices.Get<IProductRepository>();
 
         // Supplier dropdown
         private ComboBox  cboSupplier    = new();
@@ -543,8 +545,8 @@ namespace JaneERP
         private List<Part>    _parts;
         private List<Product> _products;
 
-        private readonly PartRepository    _partRepo    = new();
-        private readonly ProductRepository _productRepo = new();
+        private readonly IPartRepository    _partRepo    = AppServices.Get<IPartRepository>();
+        private readonly IProductRepository _productRepo = AppServices.Get<IProductRepository>();
 
         private TextBox      txtSearch   = new();
         private ComboBox     cboCategory = new();

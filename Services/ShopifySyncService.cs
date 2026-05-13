@@ -126,6 +126,16 @@ namespace JaneERP.Services
             Quantity      INT NOT NULL,
             CreatedAt     DATETIME NOT NULL DEFAULT GETDATE()
         )");
+            // Fulfillment workflow columns — picking, packing, shipping
+            Migrate(db, "IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('SalesOrders') AND name='PackedBy') ALTER TABLE SalesOrders ADD PackedBy NVARCHAR(100) NULL");
+            Migrate(db, "IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('SalesOrders') AND name='PackedAt') ALTER TABLE SalesOrders ADD PackedAt DATETIME NULL");
+            Migrate(db, "IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('SalesOrders') AND name='TrackingNumber') ALTER TABLE SalesOrders ADD TrackingNumber NVARCHAR(100) NULL");
+            Migrate(db, "IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('SalesOrders') AND name='Carrier') ALTER TABLE SalesOrders ADD Carrier NVARCHAR(100) NULL");
+            Migrate(db, "IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('SalesOrders') AND name='ShippedBy') ALTER TABLE SalesOrders ADD ShippedBy NVARCHAR(100) NULL");
+            Migrate(db, "IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('SalesOrders') AND name='ShippedAt') ALTER TABLE SalesOrders ADD ShippedAt DATETIME NULL");
+            Migrate(db, "IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('SalesOrderItems') AND name='PickedQty') ALTER TABLE SalesOrderItems ADD PickedQty INT NOT NULL DEFAULT 0");
+            Migrate(db, "IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('SalesOrderItems') AND name='PickedBy') ALTER TABLE SalesOrderItems ADD PickedBy NVARCHAR(100) NULL");
+            Migrate(db, "IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('SalesOrderItems') AND name='PickedAt') ALTER TABLE SalesOrderItems ADD PickedAt DATETIME NULL");
         }
 
         private static void Migrate(IDbConnection db, string sql)
@@ -195,9 +205,11 @@ namespace JaneERP.Services
                     "UPDATE SalesOrders SET Status = @s WHERE SalesOrderID = @id",
                     new { s = newStatus, id = salesOrderId }, tx);
 
-                // Release stock reservations when moving to Complete or back to Draft
+                // Release stock reservations when completing or reverting to Draft from any active status
+                var activeStatuses = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                    { "Live", "Picking", "Packing", "Shipped", "WIP" };
                 if (newStatus == "Complete" ||
-                    (newStatus == "Draft" && (currentStatus == "Live" || currentStatus == "WIP")))
+                    (newStatus == "Draft" && activeStatuses.Contains(currentStatus)))
                 {
                     db.Execute("DELETE FROM StockReservations WHERE SalesOrderID = @id",
                         new { id = salesOrderId }, tx);
@@ -745,5 +757,126 @@ namespace JaneERP.Services
                 throw;
             }
         }
+
+        // ── Fulfillment: Picking / Packing / Shipping ─────────────────────────────
+
+        /// <summary>
+        /// Returns orders in the given statuses, including picking progress counts.
+        /// Used by FormPickingDash and FormPackingDash.
+        /// </summary>
+        public List<Models.FulfillmentOrder> GetFulfillmentOrders(params string[] statuses)
+        {
+            using IDbConnection db = new SqlConnection(_connectionString);
+            return db.Query<Models.FulfillmentOrder>(@"
+                SELECT so.SalesOrderID,
+                       so.OrderNumber,
+                       c.FullName                    AS CustomerName,
+                       c.Email                       AS ContactEmail,
+                       so.TotalPrice,
+                       ISNULL(so.Currency, 'CAD')    AS Currency,
+                       so.Status,
+                       so.Notes,
+                       so.TrackingNumber,
+                       so.Carrier,
+                       so.ShippedAt,
+                       so.ShippedBy,
+                       so.PackedAt,
+                       so.PackedBy,
+                       (SELECT COUNT(*)
+                        FROM   SalesOrderItems soi
+                        WHERE  soi.SalesOrderID = so.SalesOrderID)                      AS ItemCount,
+                       (SELECT COUNT(*)
+                        FROM   SalesOrderItems soi
+                        WHERE  soi.SalesOrderID = so.SalesOrderID
+                          AND  ISNULL(soi.PickedQty, 0) >= soi.Quantity)                AS PickedCount
+                FROM   SalesOrders so
+                JOIN   Customers   c ON c.CustomerID = so.CustomerID
+                WHERE  so.Status IN @statuses
+                ORDER  BY so.OrderDate ASC",
+                new { statuses }).ToList();
+        }
+
+        /// <summary>
+        /// Returns line items for a sales order with picking progress and the
+        /// location(s) from which the item should be picked (from StockReservations).
+        /// </summary>
+        public List<Models.SalesOrderItem> GetOrderItemsWithPicking(int salesOrderId)
+        {
+            using IDbConnection db = new SqlConnection(_connectionString);
+            return db.Query<Models.SalesOrderItem>(@"
+                SELECT soi.SalesOrderItemID,
+                       soi.SalesOrderID,
+                       soi.ProductID,
+                       soi.SKU,
+                       soi.Title,
+                       soi.Quantity,
+                       soi.UnitPrice,
+                       ISNULL(soi.PickedQty, 0)           AS PickedQty,
+                       soi.PickedBy,
+                       soi.PickedAt,
+                       ISNULL(res.PickLocations, '—')      AS PickLocation
+                FROM   SalesOrderItems soi
+                OUTER APPLY (
+                    SELECT STRING_AGG(ISNULL(l.LocationName, 'Default'), ', ') AS PickLocations
+                    FROM   StockReservations sr
+                    LEFT JOIN Locations l ON l.LocationID = sr.LocationID
+                    WHERE  sr.SalesOrderID = soi.SalesOrderID
+                      AND  sr.ProductID   = soi.ProductID
+                ) res
+                WHERE  soi.SalesOrderID = @id
+                ORDER  BY soi.SalesOrderItemID",
+                new { id = salesOrderId }).ToList();
+        }
+
+        /// <summary>Updates the picked quantity for a single line item.</summary>
+        public void UpdatePickedQty(int salesOrderItemId, int pickedQty, string pickedBy)
+        {
+            using IDbConnection db = new SqlConnection(_connectionString);
+            db.Execute(@"
+                UPDATE SalesOrderItems
+                SET    PickedQty = @pickedQty,
+                       PickedBy  = @pickedBy,
+                       PickedAt  = GETDATE()
+                WHERE  SalesOrderItemID = @id",
+                new { pickedQty, pickedBy, id = salesOrderItemId });
+        }
+
+        /// <summary>
+        /// Records shipment details, stamps ShippedAt/ShippedBy, moves the order to
+        /// Shipped, and releases any remaining stock reservations.
+        /// </summary>
+        public void RecordShipment(int salesOrderId, string? trackingNumber, string? carrier)
+        {
+            using var db = new SqlConnection(_connectionString);
+            db.Open();
+            using var tx = db.BeginTransaction();
+            try
+            {
+                string shippedBy = Security.AppSession.CurrentUser?.Username ?? "system";
+                db.Execute(@"
+                    UPDATE SalesOrders
+                    SET    Status         = 'Shipped',
+                           TrackingNumber = @trackingNumber,
+                           Carrier        = @carrier,
+                           ShippedAt      = GETDATE(),
+                           ShippedBy      = @shippedBy
+                    WHERE  SalesOrderID = @id",
+                    new { trackingNumber, carrier, shippedBy, id = salesOrderId }, tx);
+
+                db.Execute("DELETE FROM StockReservations WHERE SalesOrderID = @id",
+                    new { id = salesOrderId }, tx);
+
+                tx.Commit();
+                AppLogger.Audit(shippedBy, "OrderShipped",
+                    $"OrderID={salesOrderId} Tracking={trackingNumber} Carrier={carrier}");
+            }
+            catch { tx.Rollback(); throw; }
+        }
+
+        /// <summary>
+        /// Deducts inventory and moves the order to Complete.
+        /// Delegates to UpdateOrderStatus so the existing deduction + audit logic runs once.
+        /// </summary>
+        public bool MarkComplete(int salesOrderId) => UpdateOrderStatus(salesOrderId, "Complete");
     }
 }

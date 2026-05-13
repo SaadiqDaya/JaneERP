@@ -4,6 +4,8 @@ using System.Globalization;
 using System.Text;
 using Dapper;
 using JaneERP.Data;
+using JaneERP.Infrastructure;
+using JaneERP.Interfaces;
 using JaneERP.Models;
 using Microsoft.Data.SqlClient;
 
@@ -300,8 +302,7 @@ namespace JaneERP
             if (path == null) return;
             try
             {
-                var repo = new PartRepository();
-                repo.EnsureSchema();
+                var repo = AppServices.Get<IPartRepository>();
                 var rows = ReadCsv(path);
                 int inserted = 0, updated = 0, skipped = 0;
                 using var db = OpenDb();
@@ -340,8 +341,7 @@ namespace JaneERP
             if (path == null) return;
             try
             {
-                var repo = new DiscountTierRepository();
-                repo.EnsureSchema();
+                var repo = AppServices.Get<IDiscountTierRepository>();
                 var rows = ReadCsv(path);
                 int inserted = 0, updated = 0, skipped = 0;
                 using var db = OpenDb();

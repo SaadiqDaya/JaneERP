@@ -90,6 +90,14 @@ const OrderDetailPage = (() => {
             <svg viewBox="0 0 24 24"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
           </button>
           <h1>Order Detail</h1>
+          <div class="header-actions">
+            <button class="btn-icon" id="edit-notes-btn" title="Edit notes">
+              <svg viewBox="0 0 24 24"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
+            </button>
+            <button class="btn-icon" id="print-btn" title="Print packing slip">
+              <svg viewBox="0 0 24 24"><path d="M19 8H5c-1.66 0-3 1.34-3 3v6h4v4h12v-4h4v-6c0-1.66-1.34-3-3-3zm-3 11H8v-5h8v5zm3-7c-.55 0-1-.45-1-1s.45-1 1-1 1 .45 1 1-.45 1-1 1zm-1-9H6v4h12V3z"/></svg>
+            </button>
+          </div>
         </div>
         <div class="content" id="order-detail-content">
           ${App.skeletonCards(3)}
@@ -105,6 +113,7 @@ const OrderDetailPage = (() => {
     try {
       const o = await Api.get(`/api/orders/${orderId}`);
       const subtotal = o.items.reduce((s, i) => s + i.quantity * i.unitPrice, 0);
+      const canPick  = ['Live', 'WIP'].includes(o.status);
 
       contentEl.innerHTML = `
         <!-- Status & Customer -->
@@ -121,7 +130,9 @@ const OrderDetailPage = (() => {
             <div style="font-weight:600;">${o.customerName}</div>
             <div class="text-muted text-small">${o.customerEmail}</div>
           </div>
-          ${o.notes ? `<div class="text-small mt-8" style="color:var(--text-2)">${o.notes}</div>` : ''}
+              <div id="order-notes-display">
+            ${o.notes ? `<div class="text-small mt-8" style="color:var(--text-2)">${o.notes}</div>` : ''}
+          </div>
         </div>
 
         <!-- Line Items -->
@@ -145,7 +156,26 @@ const OrderDetailPage = (() => {
           </div>
         </div>
 
-        <!-- Change Status -->
+        <!-- Pick & Pack (shown for Live and WIP orders) -->
+        ${canPick ? `
+        <div class="card" id="pick-section">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+            <div style="font-weight:700;font-size:14px;">
+              ${o.status === 'Live' ? 'Ready to Pick' : 'Picking in Progress'}
+            </div>
+            ${o.status === 'Live' ? `
+              <button class="btn btn-outline" style="padding:7px 14px;font-size:13px;" id="begin-picking-btn">
+                Start Picking
+              </button>` : ''}
+          </div>
+          <div id="pick-list-content" style="color:var(--text-2);font-size:13px;">Loading pick list…</div>
+          <button class="btn btn-success btn-full mt-12" id="complete-order-btn" disabled>
+            ✓ Mark as Complete
+          </button>
+        </div>` : ''}
+
+        <!-- Status buttons (for non-pick statuses) -->
+        ${!canPick ? `
         <div class="card">
           <div style="font-weight:700;font-size:14px;margin-bottom:10px;">Update Status</div>
           <div style="display:flex;gap:8px;flex-wrap:wrap;" id="status-btns">
@@ -156,9 +186,16 @@ const OrderDetailPage = (() => {
                 ${s}
               </button>`).join('')}
           </div>
-        </div>`;
+        </div>` : ''}`;
 
-      document.querySelectorAll('#status-btns button:not([disabled])').forEach(btn => {
+      // Edit notes button
+      document.getElementById('edit-notes-btn')?.addEventListener('click', () => openNotesEditor(orderId, o.notes));
+
+      // Print packing slip
+      document.getElementById('print-btn')?.addEventListener('click', () => printPackingSlip(o));
+
+      // Bind non-pick status buttons
+      document.querySelectorAll('#status-btns button:not([disabled])')?.forEach(btn => {
         btn.addEventListener('click', async () => {
           try {
             await Api.patch(`/api/orders/${orderId}/status`, { status: btn.dataset.status });
@@ -169,9 +206,216 @@ const OrderDetailPage = (() => {
           }
         });
       });
+
+      // Load pick list for Live / WIP orders
+      if (canPick) {
+        document.getElementById('begin-picking-btn')?.addEventListener('click', async () => {
+          try {
+            await Api.patch(`/api/orders/${orderId}/status`, { status: 'WIP' });
+            App.toast('Picking started', 'success');
+            await loadDetail(orderId);
+          } catch (err) { App.toast(err.message, 'error'); }
+        });
+
+        await loadPickList(orderId);
+      }
     } catch (err) {
       contentEl.innerHTML = `<div class="empty-state"><p>${err.message}</p></div>`;
     }
+  }
+
+  async function loadPickList(orderId) {
+    const listEl   = document.getElementById('pick-list-content');
+    const complBtn = document.getElementById('complete-order-btn');
+    if (!listEl) return;
+
+    try {
+      const items = await Api.get(`/api/orders/${orderId}/pick-list`);
+
+      if (items.length === 0) {
+        listEl.innerHTML = '<p class="text-muted text-small">No items on this order.</p>';
+        return;
+      }
+
+      listEl.innerHTML = items.map((item, idx) => `
+        <label style="display:flex;align-items:flex-start;gap:12px;padding:12px 0;
+                      border-bottom:1px solid var(--border);cursor:pointer;"
+               for="pick-cb-${idx}">
+          <input type="checkbox" id="pick-cb-${idx}" class="pick-cb"
+                 style="width:20px;height:20px;margin-top:2px;flex-shrink:0;cursor:pointer;">
+          <div style="flex:1;min-width:0;">
+            <div style="font-size:14px;font-weight:600;">${item.title || item.sKU}</div>
+            <div style="font-size:12px;color:var(--text-2);">${item.sKU}</div>
+            <div style="display:flex;gap:10px;margin-top:4px;flex-wrap:wrap;">
+              <span style="font-size:12px;background:var(--primary-lt);color:var(--primary-dk);
+                           padding:2px 8px;border-radius:6px;font-weight:600;">
+                Qty: ${item.quantityNeeded}
+              </span>
+              ${item.primaryLocation ? `
+              <span style="font-size:12px;background:var(--bg);padding:2px 8px;
+                           border-radius:6px;color:var(--text-2);font-weight:500;">
+                📍 ${item.primaryLocation}
+              </span>` : ''}
+              ${item.totalStock < item.quantityNeeded ? `
+              <span style="font-size:12px;background:var(--danger-lt);color:var(--danger);
+                           padding:2px 8px;border-radius:6px;font-weight:600;">
+                ⚠ Low stock (${item.totalStock} avail)
+              </span>` : ''}
+            </div>
+          </div>
+        </label>`).join('');
+
+      // Enable Complete button when all items are checked
+      function updateCompleteBtn() {
+        const all = document.querySelectorAll('.pick-cb');
+        const allChecked = all.length > 0 && [...all].every(cb => cb.checked);
+        if (complBtn) complBtn.disabled = !allChecked;
+      }
+
+      document.querySelectorAll('.pick-cb').forEach(cb => {
+        cb.addEventListener('change', updateCompleteBtn);
+      });
+
+      complBtn?.addEventListener('click', async () => {
+        complBtn.disabled  = true;
+        complBtn.textContent = 'Completing…';
+        try {
+          await Api.patch(`/api/orders/${orderId}/status`, { status: 'Complete' });
+          App.toast('Order completed! Inventory updated.', 'success');
+          await loadDetail(orderId);
+        } catch (err) {
+          App.toast(err.message, 'error');
+          complBtn.disabled    = false;
+          complBtn.textContent = '✓ Mark as Complete';
+        }
+      });
+    } catch (err) {
+      if (listEl) listEl.innerHTML = `<p class="text-danger text-small">${err.message}</p>`;
+    }
+  }
+
+  function openNotesEditor(orderId, currentNotes) {
+    const overlay = document.createElement('div');
+    overlay.className = 'sheet-overlay';
+    overlay.innerHTML = `
+      <div class="sheet">
+        <div class="sheet-handle"></div>
+        <h2 style="font-size:16px;font-weight:700;margin-bottom:14px;">Order Notes</h2>
+        <div class="form-group">
+          <textarea id="notes-input" class="form-control" rows="5"
+                    placeholder="Add notes…">${currentNotes || ''}</textarea>
+        </div>
+        <button class="btn btn-primary btn-full" id="save-notes-btn">Save Notes</button>
+        <button class="btn btn-outline btn-full mt-8" id="cancel-notes-btn">Cancel</button>
+      </div>`;
+    document.body.appendChild(overlay);
+    overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+    document.getElementById('cancel-notes-btn').addEventListener('click', () => overlay.remove());
+    document.getElementById('save-notes-btn').addEventListener('click', async () => {
+      const notes = document.getElementById('notes-input').value.trim() || null;
+      const btn   = document.getElementById('save-notes-btn');
+      btn.disabled = true; btn.textContent = 'Saving…';
+      try {
+        await Api.patch(`/api/orders/${orderId}/notes`, { notes });
+        overlay.remove();
+        App.toast('Notes saved', 'success');
+        // Refresh notes display without full reload
+        const display = document.getElementById('order-notes-display');
+        if (display) display.innerHTML = notes
+          ? `<div class="text-small mt-8" style="color:var(--text-2)">${notes}</div>`
+          : '';
+      } catch (err) {
+        App.toast(err.message, 'error');
+        btn.disabled = false; btn.textContent = 'Save Notes';
+      }
+    });
+  }
+
+  function printPackingSlip(o) {
+    const subtotal = o.items.reduce((s, i) => s + i.quantity * i.unitPrice, 0);
+    const win = window.open('', '_blank', 'width=800,height=600');
+    win.document.write(`<!DOCTYPE html>
+<html>
+<head>
+  <title>Packing Slip #${o.orderNumber}</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: Arial, sans-serif; padding: 24px; font-size: 13px; color: #111; }
+    .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px; }
+    .header h1 { font-size: 22px; }
+    .header .meta { text-align: right; font-size: 12px; color: #555; }
+    .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 20px; padding: 14px; background: #f5f5f5; border-radius: 6px; }
+    .info-label { font-size: 11px; color: #666; margin-bottom: 2px; }
+    .info-val { font-weight: 700; font-size: 13px; }
+    table { width: 100%; border-collapse: collapse; margin-bottom: 16px; }
+    th { text-align: left; padding: 8px 10px; border-bottom: 2px solid #222; font-size: 12px; text-transform: uppercase; }
+    td { padding: 9px 10px; border-bottom: 1px solid #e0e0e0; font-size: 13px; }
+    tr:last-child td { border-bottom: none; }
+    .totals { margin-left: auto; width: 220px; }
+    .total-row { display: flex; justify-content: space-between; padding: 4px 0; font-size: 13px; }
+    .grand { font-weight: 800; font-size: 15px; border-top: 2px solid #222; padding-top: 8px; margin-top: 4px; }
+    .notes { margin-top: 20px; padding: 12px; background: #f9f9f9; border-left: 3px solid #2563eb; font-size: 12px; color: #444; }
+    @media print { body { padding: 12px; } }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div>
+      <h1>Packing Slip</h1>
+      <div style="font-size:15px;font-weight:700;margin-top:4px;">Order #${o.orderNumber}</div>
+    </div>
+    <div class="meta">
+      <div>${new Date(o.orderDate).toLocaleDateString('en-CA', { year:'numeric', month:'long', day:'numeric' })}</div>
+      <div style="margin-top:4px;">${App.statusBadge ? '' : o.status}</div>
+    </div>
+  </div>
+
+  <div class="info-grid">
+    <div>
+      <div class="info-label">Customer</div>
+      <div class="info-val">${o.customerName}</div>
+      <div style="font-size:12px;color:#555;margin-top:2px;">${o.customerEmail}</div>
+    </div>
+    <div>
+      <div class="info-label">Order Type</div>
+      <div class="info-val">${o.orderType}</div>
+    </div>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Item</th>
+        <th>SKU</th>
+        <th style="text-align:center;">Qty</th>
+        <th style="text-align:right;">Unit Price</th>
+        <th style="text-align:right;">Total</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${o.items.map(item => `
+      <tr>
+        <td>${item.title || item.sKU}</td>
+        <td style="color:#666;">${item.sKU}</td>
+        <td style="text-align:center;font-weight:700;">${item.quantity}</td>
+        <td style="text-align:right;">\$${item.unitPrice.toFixed(2)}</td>
+        <td style="text-align:right;font-weight:700;">\$${(item.quantity * item.unitPrice).toFixed(2)}</td>
+      </tr>`).join('')}
+    </tbody>
+  </table>
+
+  <div class="totals">
+    <div class="total-row"><span>Subtotal</span><span>\$${subtotal.toFixed(2)}</span></div>
+    ${o.shippingCost > 0 ? `<div class="total-row"><span>Shipping</span><span>\$${o.shippingCost.toFixed(2)}</span></div>` : ''}
+    <div class="total-row grand"><span>Total</span><span>\$${o.totalPrice.toFixed(2)}</span></div>
+  </div>
+
+  ${o.notes ? `<div class="notes"><strong>Notes:</strong> ${o.notes}</div>` : ''}
+
+  <script>window.onload = () => { window.print(); }<\/script>
+</body>
+</html>`);
+    win.document.close();
   }
 
   return { render };

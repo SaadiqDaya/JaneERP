@@ -57,7 +57,17 @@ public class OrdersController : ControllerBase
         if (!validStatuses.Contains(req.Status))
             return BadRequest(new { error = $"Status must be one of: {string.Join(", ", validStatuses)}" });
 
-        var updated = _repo.UpdateOrderStatus(id, req.Status);
+        var updated = _repo.UpdateOrderStatus(id, req.Status, _ctx.Username);
+        return updated ? Ok(new { success = true }) : NotFound();
+    }
+
+    [HttpGet("{id:int}/pick-list")]
+    public IActionResult GetPickList(int id) => Ok(_repo.GetPickList(id));
+
+    [HttpPatch("{id:int}/notes")]
+    public IActionResult UpdateNotes(int id, [FromBody] UpdateNotesRequest req)
+    {
+        var updated = _repo.UpdateNotes(id, req.Notes);
         return updated ? Ok(new { success = true }) : NotFound();
     }
 }

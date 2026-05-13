@@ -27,9 +27,9 @@
 
   <!-- Bottom navigation (hidden until logged in) -->
   <nav id="bottom-nav" class="bottom-nav hidden">
-    <a href="#/dashboard"  class="nav-item" data-page="dashboard">
+    <a href="#/dashboard" class="nav-item" data-page="dashboard">
       <svg viewBox="0 0 24 24"><path d="M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z"/></svg>
-      <span>Dashboard</span>
+      <span>Dash</span>
     </a>
     <a href="#/orders" class="nav-item" data-page="orders">
       <svg viewBox="0 0 24 24"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-7 14l-5-5 1.41-1.41L12 14.17l7.59-7.59L21 8l-9 9z"/></svg>
@@ -42,6 +42,14 @@
     <a href="#/po" class="nav-item" data-page="po">
       <svg viewBox="0 0 24 24"><path d="M20 8h-3V4H3c-1.1 0-2 .9-2 2v11h2c0 1.66 1.34 3 3 3s3-1.34 3-3h6c0 1.66 1.34 3 3 3s3-1.34 3-3h2v-5l-3-4zM6 18.5c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zm13.5-9l1.96 2.5H17V9.5h2.5zm-1.5 9c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5z"/></svg>
       <span>POs</span>
+    </a>
+    <a href="#/customers" class="nav-item" data-page="customers">
+      <svg viewBox="0 0 24 24"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>
+      <span>Customers</span>
+    </a>
+    <a href="#/work-orders" class="nav-item" data-page="work-orders">
+      <svg viewBox="0 0 24 24"><path d="M22 9V7h-2V5c0-1.1-.9-2-2-2H4c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2v-2h2v-2h-2v-2h2v-2h-2V9h2zm-4 10H4V5h14v14zM6 13h5v4H6zm6-6h4v3h-4zM6 7h5v5H6zm6 4h4v6h-4z"/></svg>
+      <span>Work</span>
     </a>
     <a href="#/cycle-count" class="nav-item" data-page="cycle-count">
       <svg viewBox="0 0 24 24"><path d="M9 11H7v2h2v-2zm4 0h-2v2h2v-2zm4 0h-2v2h2v-2zm2-7h-1V2h-2v2H8V2H6v2H5c-1.11 0-1.99.9-1.99 2L3 20c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 16H5V9h14v11z"/></svg>
@@ -59,6 +67,8 @@
   <script src="/js/pages/inventory.js"></script>
   <script src="/js/pages/orders.js"></script>
   <script src="/js/pages/purchaseorders.js"></script>
+  <script src="/js/pages/customers.js"></script>
+  <script src="/js/pages/workorders.js"></script>
   <script src="/js/app.js"></script>
 </body>
 </html>

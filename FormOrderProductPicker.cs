@@ -1,4 +1,6 @@
 using JaneERP.Data;
+using JaneERP.Infrastructure;
+using JaneERP.Interfaces;
 using JaneERP.Models;
 
 namespace JaneERP
@@ -45,19 +47,19 @@ namespace JaneERP
 
         private static List<Product> LoadProducts()
         {
-            try { return new ProductRepository().GetProducts().ToList(); }
+            try { return AppServices.Get<IProductRepository>().GetProducts().ToList(); }
             catch { return new List<Product>(); }
         }
 
         private static List<ProductType> LoadProductTypes()
         {
-            try { return new ProductTypeRepository().GetAll().ToList(); }
+            try { return AppServices.Get<IProductTypeRepository>().GetAll().ToList(); }
             catch { return new List<ProductType>(); }
         }
 
         private static List<ProductAttribute> LoadAttributes(IEnumerable<int> productIds)
         {
-            try { return new ProductRepository().GetProductAttributes(productIds).ToList(); }
+            try { return AppServices.Get<IProductRepository>().GetProductAttributes(productIds).ToList(); }
             catch { return new List<ProductAttribute>(); }
         }
 

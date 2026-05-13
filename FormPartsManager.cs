@@ -1,4 +1,5 @@
 using JaneERP.Data;
+using JaneERP.Interfaces;
 using JaneERP.Models;
 
 namespace JaneERP
@@ -262,8 +263,8 @@ namespace JaneERP
 
     internal class FormBomEditor : Form
     {
-        private readonly Product        _product;
-        private readonly PartRepository _repo;
+        private readonly Product          _product;
+        private readonly IPartRepository  _repo;
         private DataGridView dgv        = new();
         private DataGridView dgvLabour  = new();
         private Button btnSave          = new();
@@ -271,7 +272,7 @@ namespace JaneERP
         private Button btnAddPart       = new();
         private Button btnAddLabour     = new();
 
-        public FormBomEditor(Product product, PartRepository repo)
+        public FormBomEditor(Product product, IPartRepository repo)
         {
             _product = product;
             _repo    = repo;

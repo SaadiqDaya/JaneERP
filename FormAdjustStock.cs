@@ -1,4 +1,6 @@
 using JaneERP.Data;
+using JaneERP.Infrastructure;
+using JaneERP.Interfaces;
 using JaneERP.Logging;
 using JaneERP.Models;
 using JaneERP.Security;
@@ -47,7 +49,7 @@ namespace JaneERP
         {
             try
             {
-                var locations = new LocationRepository().GetAll();
+                var locations = AppServices.Get<ILocationRepository>().GetAll();
                 cboLocation.DataSource    = locations.ToList();
                 cboLocation.DisplayMember = "LocationName";
                 cboLocation.ValueMember   = "LocationID";
@@ -101,7 +103,7 @@ namespace JaneERP
             {
                 int change = rdoAdd.Checked ? qty : -qty;
 
-                new ProductRepository().AddTransaction(new InventoryTransaction
+                AppServices.Get<IProductRepository>().AddTransaction(new InventoryTransaction
                 {
                     ProductID       = _product.ProductID,
                     QuantityChange  = change,

@@ -1,4 +1,6 @@
 using JaneERP.Data;
+using JaneERP.Infrastructure;
+using JaneERP.Interfaces;
 using JaneERP.Models;
 using JaneERP.Services;
 
@@ -66,7 +68,7 @@ namespace JaneERP
 
         private static List<Customer> LoadCustomers()
         {
-            try { return new ShopifySyncService().GetAllCustomers(); }
+            try { return AppServices.Get<IShopifySyncService>().GetAllCustomers(); }
             catch { return new List<Customer>(); }
         }
 
@@ -627,7 +629,7 @@ namespace JaneERP
 
             try
             {
-                new ShopifySyncService().CreateManualOrder(
+                AppServices.Get<IShopifySyncService>().CreateManualOrder(
                     email,
                     string.IsNullOrWhiteSpace(txtName.Text) ? null : txtName.Text.Trim(),
                     dtpDate.Value.Date,

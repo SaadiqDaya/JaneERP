@@ -1,6 +1,8 @@
 using System.Configuration;
 using Dapper;
 using JaneERP.Data;
+using JaneERP.Infrastructure;
+using JaneERP.Interfaces;
 using JaneERP.Models;
 using Microsoft.Data.SqlClient;
 
@@ -194,7 +196,7 @@ namespace JaneERP
         {
             try
             {
-                _all = new ProductRepository().GetProducts(false).ToList();
+                _all = AppServices.Get<IProductRepository>().GetProducts(false).ToList();
                 UpdateFilterButtonHighlight();
                 ApplyFilter();
             }

@@ -145,13 +145,109 @@ public class ApiOrderRepository
         catch { tx.Rollback(); throw; }
     }
 
-    public bool UpdateOrderStatus(int salesOrderId, string newStatus)
+    /// <summary>
+    /// Updates order status, replicating the desktop app's inventory logic:
+    /// - Complete: deducts inventory via InventoryTransactions (if not already done)
+    /// - Draft (from Live/WIP): releases StockReservations
+    /// </summary>
+    public bool UpdateOrderStatus(int salesOrderId, string newStatus, string username)
+    {
+        using var db = new SqlConnection(_ctx.ConnectionString);
+        db.Open();
+        using var tx = db.BeginTransaction();
+        try
+        {
+            var order = db.QueryFirstOrDefault(
+                "SELECT SalesOrderID, Status, InventoryAffected FROM SalesOrders WHERE SalesOrderID = @id",
+                new { id = salesOrderId }, tx);
+
+            if (order == null) { tx.Rollback(); return false; }
+
+            string currentStatus = (string)order.Status;
+            bool   wasAffected   = false;
+            try { wasAffected = (bool)order.InventoryAffected; } catch { }
+
+            db.Execute("UPDATE SalesOrders SET Status = @s WHERE SalesOrderID = @id",
+                new { s = newStatus, id = salesOrderId }, tx);
+
+            // Deduct inventory when completing (mirrors desktop app behaviour)
+            if (newStatus == "Complete" && !wasAffected)
+            {
+                var items = db.Query<(int ProductID, string SKU, int Quantity)>(@"
+                    SELECT ProductID, SKU, Quantity FROM SalesOrderItems WHERE SalesOrderID = @id",
+                    new { id = salesOrderId }, tx).ToList();
+
+                foreach (var item in items)
+                {
+                    db.Execute(@"
+                        INSERT INTO InventoryTransactions
+                            (ProductID, QuantityChange, TransactionType, Notes, TransactionDate)
+                        VALUES (@pid, @qty, 'Sale', @notes, GETDATE())",
+                        new
+                        {
+                            pid   = item.ProductID,
+                            qty   = -item.Quantity,
+                            notes = $"Packed by {username} via mobile (SO #{salesOrderId})"
+                        }, tx);
+                }
+
+                try
+                {
+                    db.Execute(
+                        "UPDATE SalesOrders SET InventoryAffected = 1 WHERE SalesOrderID = @id",
+                        new { id = salesOrderId }, tx);
+                }
+                catch { /* InventoryAffected column may not exist on older DBs */ }
+            }
+
+            // Release stock reservations when completing or reverting to Draft
+            if (newStatus == "Complete" ||
+                (newStatus == "Draft" && (currentStatus == "Live" || currentStatus == "WIP")))
+            {
+                try
+                {
+                    db.Execute("DELETE FROM StockReservations WHERE SalesOrderID = @id",
+                        new { id = salesOrderId }, tx);
+                }
+                catch { /* StockReservations table may not exist */ }
+            }
+
+            tx.Commit();
+            return true;
+        }
+        catch { tx.Rollback(); throw; }
+    }
+
+    /// <summary>
+    /// Returns pick list: order items with their stock quantities and primary pick location.
+    /// </summary>
+    public List<PickListItem> GetPickList(int salesOrderId)
     {
         using var db = Connect();
-        var rows = db.Execute(
-            "UPDATE SalesOrders SET Status = @s WHERE SalesOrderID = @id",
-            new { s = newStatus, id = salesOrderId });
-        return rows > 0;
+        return db.Query<PickListItem>(@"
+            SELECT  soi.SalesOrderItemID,
+                    soi.ProductID,
+                    soi.SKU,
+                    soi.Title,
+                    soi.Quantity AS QuantityNeeded,
+                    ISNULL((
+                        SELECT SUM(QuantityChange)
+                        FROM   InventoryTransactions
+                        WHERE  ProductID = soi.ProductID
+                    ), 0) AS TotalStock,
+                    (
+                        SELECT TOP 1 ISNULL(l.LocationName, 'Unassigned')
+                        FROM   InventoryTransactions it2
+                        LEFT JOIN Locations l ON l.LocationID = it2.LocationID
+                        WHERE  it2.ProductID = soi.ProductID
+                        GROUP  BY l.LocationID, l.LocationName
+                        HAVING SUM(it2.QuantityChange) > 0
+                        ORDER  BY SUM(it2.QuantityChange) DESC
+                    ) AS PrimaryLocation
+            FROM    SalesOrderItems soi
+            WHERE   soi.SalesOrderID = @salesOrderId
+            ORDER   BY soi.SalesOrderItemID",
+            new { salesOrderId }).ToList();
     }
 
     public decimal GetSalesTotal(int days)
@@ -163,6 +259,14 @@ public class ApiOrderRepository
             WHERE  OrderDate >= DATEADD(DAY, -@days, GETDATE())
               AND  Status NOT IN ('Draft')",
             new { days });
+    }
+
+    public bool UpdateNotes(int salesOrderId, string? notes)
+    {
+        using var db = Connect();
+        return db.Execute(
+            "UPDATE SalesOrders SET Notes = @notes WHERE SalesOrderID = @salesOrderId",
+            new { notes, salesOrderId }) > 0;
     }
 
     public int GetOrdersToPackCount()

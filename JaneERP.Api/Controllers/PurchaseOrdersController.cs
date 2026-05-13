@@ -40,4 +40,11 @@ public class PurchaseOrdersController : ControllerBase
         _repo.ReceiveItems(id, req.Items, _ctx.Username);
         return Ok(new { success = true });
     }
+
+    [HttpPost("{id:int}/duplicate")]
+    public IActionResult Duplicate(int id)
+    {
+        var newId = _repo.DuplicatePO(id, _ctx.Username);
+        return Ok(new { poid = newId });
+    }
 }

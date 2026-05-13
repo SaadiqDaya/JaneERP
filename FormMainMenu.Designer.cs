@@ -20,6 +20,8 @@ namespace JaneERP
         private Button btnParts;
         private Button btnBOM;
         private Button btnSales;
+        private Button btnPickingDash;
+        private Button btnPackingDash;
         private Button btnPurchaseOrders;
         private Button btnManufacturing;
         private Button btnWorkOrders;
@@ -78,6 +80,8 @@ namespace JaneERP
             btnParts          = MakeIconButton("\U0001F527", "Parts",           btnParts_Click);
             btnBOM            = MakeIconButton("\U0001F4CB", "BOM",             btnBOM_Click);
             btnSales          = MakeIconButton("\U0001F6D2", "Sales",           btnSales_Click);
+            btnPickingDash    = MakeIconButton("\U0001F4CB", "Picking",         btnPickingDash_Click);
+            btnPackingDash    = MakeIconButton("\U0001F4E6", "Packing",         btnPackingDash_Click);
             btnPurchaseOrders = MakeIconButton("\U0001F69B", "Purchase",        btnPurchaseOrders_Click);
             btnManufacturing  = MakeIconButton("\U0001F3ED", "Mfg",             btnManufacturing_Click);
             btnWorkOrders     = MakeIconButton("\U0001F6E0", "Work Orders",     btnWorkOrders_Click);
@@ -114,6 +118,8 @@ namespace JaneERP
             toolTip1.SetToolTip(btnParts,          "Manage raw material parts and BOM components");
             toolTip1.SetToolTip(btnBOM,            "Edit Bill of Materials for products");
             toolTip1.SetToolTip(btnSales,          "View and manage Shopify & manual sales orders");
+            toolTip1.SetToolTip(btnPickingDash,    "Pick inventory for Live orders — mark items collected");
+            toolTip1.SetToolTip(btnPackingDash,    "Pack and ship orders — enter tracking and mark complete");
             toolTip1.SetToolTip(btnPurchaseOrders, "Create and manage supplier purchase orders");
             toolTip1.SetToolTip(btnManufacturing,  "Work orders and production management");
             toolTip1.SetToolTip(btnWorkOrders,     "Process open work orders directly");
@@ -309,6 +315,8 @@ namespace JaneERP
             pnlGrid.Controls.Add(hdrSales);
             pnlGrid.SetFlowBreak(hdrSales, true);
             pnlGrid.Controls.Add(btnSales);
+            pnlGrid.Controls.Add(btnPickingDash);
+            pnlGrid.Controls.Add(btnPackingDash);
             pnlGrid.Controls.Add(btnPurchaseOrders);
             pnlGrid.Controls.Add(btnCustomers);
             pnlGrid.Controls.Add(btnVendors);

@@ -1,3 +1,5 @@
+using JaneERP.Infrastructure;
+using JaneERP.Interfaces;
 using JaneERP.Logging;
 using JaneERP.Models;
 using JaneERP.Security;
@@ -82,6 +84,8 @@ namespace JaneERP
 
             // Sales & Purchasing
             btnSales.Visible          = isAdmin || PermissionHelper.CanEdit("SalesOrders");
+            btnPickingDash.Visible    = isAdmin || PermissionHelper.CanEdit("SalesOrders");
+            btnPackingDash.Visible    = isAdmin || PermissionHelper.CanEdit("SalesOrders");
             btnPurchaseOrders.Visible = isAdmin || PermissionHelper.CanEdit("Parts");
             btnCustomers.Visible      = isAdmin || isEditor;
             btnVendors.Visible        = isAdmin || PermissionHelper.CanEdit("Parts");
@@ -162,6 +166,22 @@ namespace JaneERP
             Hide();
             var stores = new Data.StoreRepository().GetAll().ToList();
             using var frm = new FormSalesDash(stores);
+            frm.ShowDialog(this);
+            Show();
+        }
+
+        private void btnPickingDash_Click(object sender, EventArgs e)
+        {
+            Hide();
+            using var frm = new FormPickingDash();
+            frm.ShowDialog(this);
+            Show();
+        }
+
+        private void btnPackingDash_Click(object sender, EventArgs e)
+        {
+            Hide();
+            using var frm = new FormPackingDash();
             frm.ShowDialog(this);
             Show();
         }
@@ -369,9 +389,9 @@ namespace JaneERP
             {
                 string username = AppSession.CurrentUser?.Username ?? _user.Username;
 
-                int mentions      = new TaskRepository().GetMentions(username, unreadOnly: true).Count;
-                int unverified    = new Data.ProductRepository().GetUnverifiedCount();
-                int cycleOverdue  = new Data.CycleCountRepository().GetOverdueCount();
+                int mentions      = AppServices.Get<ITaskRepository>().GetMentions(username, unreadOnly: true).Count;
+                int unverified    = AppServices.Get<IProductRepository>().GetUnverifiedCount();
+                int cycleOverdue  = AppServices.Get<ICycleCountRepository>().GetOverdueCount();
 
                 bool changed = mentions    != _mentionCount
                             || unverified  != _unverifiedCount

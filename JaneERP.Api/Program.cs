@@ -5,6 +5,7 @@ using JaneERP.Api.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 
+
 var builder = WebApplication.CreateBuilder(args);
 
 // ── Services ──────────────────────────────────────────────────────────────────
@@ -45,6 +46,8 @@ builder.Services.AddScoped<ApiOrderRepository>();
 builder.Services.AddScoped<ApiPurchaseOrderRepository>();
 builder.Services.AddScoped<ApiCycleCountRepository>();
 builder.Services.AddScoped<ApiLocationRepository>();
+builder.Services.AddScoped<ApiCustomerRepository>();
+builder.Services.AddScoped<ApiWorkOrderRepository>();
 
 // Services
 builder.Services.AddSingleton<JwtService>();
@@ -67,5 +70,8 @@ app.MapControllers();
 
 // SPA fallback: any non-API route serves index.html (supports browser refresh)
 app.MapFallbackToFile("index.html");
+
+// Ensure optional DB columns exist before serving any requests
+ApiSchemaBootstrap.Run(app.Configuration);
 
 app.Run();

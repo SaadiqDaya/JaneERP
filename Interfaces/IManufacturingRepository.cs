@@ -16,5 +16,7 @@ namespace JaneERP.Interfaces
         void                      AssignWorkOrder(int workOrderId, string? assignedTo);
         List<NegativePartInfo>    GetNegativePartsForWorkOrder(int workOrderId);
         Dictionary<int, int>      GetReservedPartsQty();
+        List<Models.ReservationLine> GetWOReservationItems(int workOrderId);
+        void                      SaveWOReservations(int workOrderId, IEnumerable<Models.ReservationLine> lines);
     }
 }

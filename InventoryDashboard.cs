@@ -1,6 +1,8 @@
 using CsvHelper;
 using CsvHelper.Configuration;
 using JaneERP.Data;
+using JaneERP.Infrastructure;
+using JaneERP.Interfaces;
 using JaneERP.Logging;
 using JaneERP.Models;
 using JaneERP.Security;
@@ -25,8 +27,8 @@ namespace JaneERP
         private DataGridView _dgvStockByLocation = null!;
 
         // Class-level repos — avoid creating a new instance on every selection change
-        private readonly ProductRepository _repo    = new();
-        private readonly Data.PartRepository _partRepo = new();
+        private readonly IProductRepository  _repo    = AppServices.Get<IProductRepository>();
+        private readonly IPartRepository     _partRepo = AppServices.Get<IPartRepository>();
 
         // 200 ms debounce so rapid keyboard/arrow navigation doesn't hammer the DB
         private readonly System.Windows.Forms.Timer _selectionDebounce =
@@ -294,7 +296,7 @@ namespace JaneERP
 
         private void LoadProducts()
         {
-            _allProducts = new ProductRepository().GetProducts(chkShowInactive.Checked).ToList();
+            _allProducts = _repo.GetProducts(chkShowInactive.Checked).ToList();
             ApplyInventoryFilters();
             UpdateInventorySummary();
         }
@@ -578,7 +580,7 @@ namespace JaneERP
             var product = GetSelectedProduct();
             if (product is null) return;
 
-            var repo = new ProductRepository();
+            var repo = _repo;
 
             if (chkShowInactive.Checked)
             {
@@ -706,7 +708,7 @@ namespace JaneERP
                     return;
                 }
 
-                var (ins, upd) = new ProductRepository().UpsertProducts(products);
+                var (ins, upd) = _repo.UpsertProducts(products);
                 LoadProducts();
 
                 string msg = $"Import complete: {ins} new, {upd} updated.";
@@ -735,11 +737,10 @@ namespace JaneERP
 
             try
             {
-                var repo         = new ProductRepository();
-                var typeRepo     = new Data.ProductTypeRepository();
-                var products     = repo.GetProducts(chkShowInactive.Checked).ToList();
+                var typeRepo     = AppServices.Get<IProductTypeRepository>();
+                var products     = _repo.GetProducts(chkShowInactive.Checked).ToList();
                 var typeMap      = typeRepo.GetAll().ToDictionary(t => t.ProductTypeID, t => t.TypeName);
-                var allAttrNames = repo.GetAllAttributeNames().ToList();
+                var allAttrNames = _repo.GetAllAttributeNames().ToList();
 
                 using var writer = new StreamWriter(dlg.FileName, false, System.Text.Encoding.UTF8);
 
@@ -752,7 +753,7 @@ namespace JaneERP
                 // Rows
                 foreach (var p in products)
                 {
-                    var attrs    = repo.GetAttributes(p.ProductID)
+                    var attrs    = _repo.GetAttributes(p.ProductID)
                                        .ToDictionary(a => a.AttributeName, a => a.AttributeValue ?? "",
                                                      StringComparer.OrdinalIgnoreCase);
                     var typeName = (p.ProductTypeID.HasValue && typeMap.TryGetValue(p.ProductTypeID.Value, out var tn))

@@ -170,7 +170,11 @@ const PoDetailPage = (() => {
             Receive Items
           </button>
           <button class="btn btn-outline btn-full mt-8" id="receive-all-btn">Set All to Max</button>
-        ` : ''}`;
+        ` : ''}
+        <button class="btn btn-outline btn-full mt-8" id="duplicate-po-btn">
+          <svg viewBox="0 0 24 24" style="width:18px;height:18px;fill:currentColor;"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>
+          Duplicate as New Draft PO
+        </button>`;
 
       if (canReceive) {
         document.getElementById('receive-all-btn')?.addEventListener('click', () => {
@@ -201,6 +205,18 @@ const PoDetailPage = (() => {
           }
         });
       }
+      document.getElementById('duplicate-po-btn')?.addEventListener('click', async () => {
+        const btn = document.getElementById('duplicate-po-btn');
+        btn.disabled = true; btn.textContent = 'Duplicating…';
+        try {
+          const res = await Api.post(`/api/purchase-orders/${poId}/duplicate`, {});
+          App.toast('New draft PO created!', 'success');
+          App.navigate(`po/${res.poid}`);
+        } catch (err) {
+          App.toast(err.message, 'error');
+          btn.disabled = false; btn.textContent = 'Duplicate as New Draft PO';
+        }
+      });
     } catch (err) {
       contentEl.innerHTML = `<div class="empty-state"><p>${err.message}</p></div>`;
     }

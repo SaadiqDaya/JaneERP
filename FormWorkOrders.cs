@@ -1,4 +1,5 @@
-using JaneERP.Manufacturing;
+using JaneERP.Infrastructure;
+using JaneERP.Interfaces;
 using JaneERP.Models;
 using JaneERP.Logging;
 using JaneERP.Security;
@@ -8,7 +9,7 @@ namespace JaneERP
     /// <summary>Lists open Work Orders and allows marking them complete (with optional stock update).</summary>
     public class FormWorkOrders : Form
     {
-        private readonly ManufacturingRepository _moRepo = new();
+        private readonly IManufacturingRepository _moRepo = AppServices.Get<IManufacturingRepository>();
 
         private DataGridView   dgvWOs      = new();
         private TextBox        txtNotes    = new();
@@ -215,27 +216,20 @@ namespace JaneERP
                 if (warn != DialogResult.Yes) return;
             }
 
-            // Single confirmation for all selected WOs
-            string summary = wos.Count == 1
-                ? $"WO #{wos[0].WorkOrderID} — {wos[0].ProductName} × {wos[0].Quantity}"
-                : $"{wos.Count} work orders:\n" + string.Join("\n", wos.Select(w => $"  • WO #{w.WorkOrderID} {w.ProductName} × {w.Quantity}"));
-
-            if (MessageBox.Show(this,
-                    $"Complete the following?\n\n{summary}\n\nThis will add finished goods to inventory and deduct BOM parts.",
-                    "Confirm Complete", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
-                return;
-
-            string notes = txtNotes.Text.Trim();
             int succeeded = 0, failed = 0;
             var errors = new List<string>();
 
             foreach (var wo in wos)
             {
+                using var dlg = new FormWorkOrderComplete(wo);
+                if (dlg.ShowDialog(this) != DialogResult.OK) continue;
+
                 try
                 {
-                    _moRepo.CompleteWorkOrder(wo.WorkOrderID, notes);
+                    _moRepo.PartialCompleteWorkOrder(wo.WorkOrderID, dlg.CompletedQty, dlg.ScrapQty,
+                        string.IsNullOrEmpty(dlg.ScrapReason) ? null : dlg.ScrapReason, dlg.Notes);
                     AppLogger.Audit(AppSession.CurrentUser?.Username, "WorkOrderComplete",
-                        $"WO#{wo.WorkOrderID} product={wo.ProductName} qty={wo.Quantity}");
+                        $"WO#{wo.WorkOrderID} product={wo.ProductName} planned={wo.Quantity} completed={dlg.CompletedQty} scrap={dlg.ScrapQty}");
                     succeeded++;
                 }
                 catch (Exception ex)
