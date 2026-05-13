@@ -20,11 +20,13 @@ namespace JaneERP.Models
 
     public class BomEntry
     {
-        public int    ProductID  { get; set; }
-        public int    PartID     { get; set; }
-        public string PartNumber { get; set; } = string.Empty;
-        public string PartName   { get; set; } = string.Empty;
-        public int    Quantity   { get; set; }
+        public int     ProductID  { get; set; }
+        public int     PartID     { get; set; }
+        public string  PartNumber { get; set; } = string.Empty;
+        public string  PartName   { get; set; } = string.Empty;
+        public int     Quantity   { get; set; }
+        public decimal UnitCost   { get; set; }
+        public decimal LineCost   => UnitCost * Quantity;
     }
 
     public class BomLabourCost

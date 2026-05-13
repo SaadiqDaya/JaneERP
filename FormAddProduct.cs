@@ -267,7 +267,7 @@ namespace JaneERP
                 // Sentinel object for "(None)" — VendorID 0 means no vendor selected
                 cboVendor.Items.Add(new Vendor { VendorID = 0, VendorName = "(None)" });
                 foreach (var v in vendors) cboVendor.Items.Add(v);
-                cboVendor.DisplayMember = "VendorName";
+                // ToString() override on Vendor provides the display text (DisplayMember not used with Items.Add)
                 cboVendor.SelectedIndex = 0;
             }
             catch (Exception ex) { AppLogger.Info($"[FormAddProduct.LoadVendors]: {ex.Message}"); }
@@ -319,6 +319,25 @@ namespace JaneERP
                 MessageBox.Show("Please fill in SKU, Product Name, and Retail Price.",
                     "Validation Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
+            }
+
+            // Warn if editing an existing product that has no BOM (ProductParts) entries
+            if (_editingProduct != null)
+            {
+                try
+                {
+                    int bomCount = new Data.ProductRepository().GetBomCount(_editingProduct.ProductID);
+                    if (bomCount == 0)
+                    {
+                        var ans = MessageBox.Show(
+                            "This product has no BOM (Bill of Materials) entries.\n\n" +
+                            "Without a BOM, manufacturing costs and parts consumption cannot be tracked.\n\n" +
+                            "Save anyway?",
+                            "No BOM Attached", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
+                        if (ans != DialogResult.Yes) return;
+                    }
+                }
+                catch { /* best-effort — don't block save on check failure */ }
             }
 
             if (!decimal.TryParse(txtPrice.Text, out decimal price))
@@ -465,27 +484,28 @@ namespace JaneERP
                     }
                     else
                     {
-                        // Prompt to set BOM for newly created non-Package product
-                        var result2 = MessageBox.Show(
-                            "Product saved. Would you like to add BOM parts now?\n(All products should have at least one part in the BOM)",
-                            "Add BOM Parts", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
-                        if (result2 == DialogResult.Yes)
+                        // Auto-open BOM editor for newly created non-Package products
+                        try
                         {
-                            try
+                            var savedProduct = new ProductRepository().GetProducts()
+                                .FirstOrDefault(p => p.SKU == newProduct.SKU);
+                            if (savedProduct != null)
                             {
-                                var allProducts = new ProductRepository().GetProducts();
-                                var savedProduct = allProducts.FirstOrDefault(p => p.SKU == newProduct.SKU);
-                                if (savedProduct != null)
-                                {
-                                    var partRepo = new PartRepository();
-                                    using var bomEditor = new FormBomEditor(savedProduct, partRepo);
-                                    bomEditor.ShowDialog(this);
-                                }
+                                var partRepo = new PartRepository();
+                                using var bomEditor = new FormBomEditor(savedProduct, partRepo);
+                                bomEditor.ShowDialog(this);
+
+                                // Warn if still no BOM parts after the editor was closed
+                                int bomCount = partRepo.GetBom(savedProduct.ProductID).Count;
+                                if (bomCount == 0)
+                                    MessageBox.Show(this,
+                                        "No BOM parts were added. All products should have at least one part in the BOM before being used in manufacturing.",
+                                        "BOM Missing", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                             }
-                            catch (Exception ex2)
-                            {
-                                AppLogger.Info($"[FormAddProduct.btnSave_Click BOM]: {ex2.Message}");
-                            }
+                        }
+                        catch (Exception ex2)
+                        {
+                            AppLogger.Info($"[FormAddProduct.btnSave_Click BOM]: {ex2.Message}");
                         }
                     }
                 }

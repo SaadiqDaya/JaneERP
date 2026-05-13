@@ -1,12 +1,13 @@
 using System.Configuration;
 using System.Data;
 using Dapper;
+using JaneERP.Interfaces;
 using JaneERP.Models;
 using Microsoft.Data.SqlClient;
 
 namespace JaneERP.Data
 {
-    public class DiscountTierRepository
+    public class DiscountTierRepository : IDiscountTierRepository
     {
         private readonly string _connectionString =
             ConfigurationManager.ConnectionStrings["MyERP"]?.ConnectionString

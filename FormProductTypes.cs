@@ -11,14 +11,16 @@ namespace JaneERP
     {
         private readonly ProductTypeRepository _repo = new();
 
-        private DataGridView dgvTypes  = new();
-        private TextBox      txtName   = new();
-        private DataGridView dgvAttrs  = new();
-        private Button       btnSave   = new();
-        private Button       btnNew    = new();
-        private Button       btnDelete = new();
-        private Button       btnClose  = new();
-        private Label        lblEdit   = new();
+        private DataGridView             dgvTypes     = new();
+        private TextBox                  txtName      = new();
+        private DataGridView             dgvAttrs     = new();
+        private DataGridViewComboBoxColumn _colAttr   = new();
+        private Button                   btnSave      = new();
+        private Button                   btnNew       = new();
+        private Button                   btnDelete    = new();
+        private Button                   btnAttrLists = new();
+        private Button                   btnClose     = new();
+        private Label                    lblEdit   = new();
 
         private ProductType? _editing;
 
@@ -29,6 +31,8 @@ namespace JaneERP
             Theme.MakeBorderless(this);
             Theme.AddCloseButton(this);
             Theme.MakeResizable(this);
+            try { _repo.EnsureSchema(); } catch { /* already logged at startup */ }
+            LoadAttributeNames();
             LoadTypes();
         }
 
@@ -96,8 +100,19 @@ namespace JaneERP
             dgvAttrs.SelectionMode   = DataGridViewSelectionMode.FullRowSelect;
             dgvAttrs.AutoGenerateColumns = false;
 
-            dgvAttrs.Columns.Add(new DataGridViewTextBoxColumn
-                { Name = "colAttr", HeaderText = "Attribute Name", AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill });
+            _colAttr = new DataGridViewComboBoxColumn
+            {
+                Name         = "colAttr",
+                HeaderText   = "Attribute Name",
+                AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill,
+                FlatStyle    = FlatStyle.Popup,
+            };
+            dgvAttrs.Columns.Add(_colAttr);
+
+            // Allow typing new attribute names not yet in the list
+            dgvAttrs.DataError             += (s, e) => e.ThrowException = false;
+            dgvAttrs.EditingControlShowing += DgvAttrs_EditingControlShowing;
+            dgvAttrs.CellValidating        += DgvAttrs_CellValidating;
 
             var chkCol = new DataGridViewCheckBoxColumn
             {
@@ -131,6 +146,17 @@ namespace JaneERP
             btnDelete.Click   += BtnDelete_Click;
             Controls.Add(btnDelete);
 
+            btnAttrLists.Location = new Point(x + 350, y);
+            btnAttrLists.Size     = new Size(130, 30);
+            btnAttrLists.Text     = "Attribute Lists →";
+            btnAttrLists.Click   += (_, _) =>
+            {
+                using var f = new FormAttributeLists();
+                f.ShowDialog(this);
+                LoadAttributeNames(); // refresh dropdown after any changes
+            };
+            Controls.Add(btnAttrLists);
+
             btnClose.Anchor   = AnchorStyles.Bottom | AnchorStyles.Right;
             btnClose.Location = new Point(754, 498);
             btnClose.Size     = new Size(90, 30);
@@ -140,6 +166,34 @@ namespace JaneERP
 
             SizeChanged += (_, _) =>
                 btnClose.Location = new Point(ClientSize.Width - btnClose.Width - 12, ClientSize.Height - btnClose.Height - 10);
+        }
+
+        private void LoadAttributeNames()
+        {
+            _colAttr.Items.Clear();
+            try
+            {
+                foreach (var (_, name, _) in _repo.GetAttributeDefinitions())
+                    _colAttr.Items.Add(name);
+            }
+            catch { /* best-effort */ }
+        }
+
+        private void DgvAttrs_EditingControlShowing(object? sender, DataGridViewEditingControlShowingEventArgs e)
+        {
+            if (dgvAttrs.CurrentCell?.OwningColumn?.Name != "colAttr") return;
+            if (e.Control is not ComboBox cbo) return;
+            cbo.DropDownStyle      = ComboBoxStyle.DropDown;
+            cbo.AutoCompleteMode   = AutoCompleteMode.SuggestAppend;
+            cbo.AutoCompleteSource = AutoCompleteSource.ListItems;
+        }
+
+        private void DgvAttrs_CellValidating(object? sender, DataGridViewCellValidatingEventArgs e)
+        {
+            if (e.ColumnIndex != _colAttr.Index) return;
+            string? val = e.FormattedValue?.ToString()?.Trim();
+            if (!string.IsNullOrEmpty(val) && !_colAttr.Items.Contains(val))
+                _colAttr.Items.Add(val);
         }
 
         private void LoadTypes()
@@ -163,6 +217,10 @@ namespace JaneERP
             dgvAttrs.Rows.Clear();
             foreach (var a in pt.AllAttributes)
             {
+                // Ensure this name is available in the dropdown (handles legacy names)
+                if (!_colAttr.Items.Contains(a.AttributeName))
+                    _colAttr.Items.Add(a.AttributeName);
+
                 int idx = dgvAttrs.Rows.Add(a.AttributeName, a.IsRequired);
                 // Ensure checkbox default is true if the value wasn't set
                 if (dgvAttrs.Rows[idx].Cells["colRequired"].Value == null)

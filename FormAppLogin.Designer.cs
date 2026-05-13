@@ -18,8 +18,9 @@ namespace JaneERP
         private TextBox txtPassword;
         private Label   lblConfirmPassword;
         private TextBox txtConfirmPassword;
-        private Button  btnLogin;
-        private Label   lblPoweredBy;
+        private Button   btnLogin;
+        private CheckBox chkRememberUsername;
+        private Label    lblPoweredBy;
 
         protected override void Dispose(bool disposing)
         {
@@ -40,8 +41,9 @@ namespace JaneERP
             txtPassword        = new TextBox();
             lblConfirmPassword = new Label();
             txtConfirmPassword = new TextBox();
-            btnLogin           = new Button();
-            lblPoweredBy       = new Label();
+            btnLogin              = new Button();
+            chkRememberUsername   = new CheckBox();
+            lblPoweredBy          = new Label();
 
             ((System.ComponentModel.ISupportInitialize)pbMascot).BeginInit();
             ((System.ComponentModel.ISupportInitialize)pbLogo).BeginInit();
@@ -148,6 +150,16 @@ namespace JaneERP
             btnLogin.Cursor    = Cursors.Hand;
             btnLogin.Click    += btnLogin_Click;
 
+            // chkRememberUsername
+            chkRememberUsername.Font      = new Font("Segoe UI", 9F);
+            chkRememberUsername.ForeColor = Theme.TextSecondary;
+            chkRememberUsername.Location  = new Point(65, 412);
+            chkRememberUsername.Size      = new Size(220, 20);
+            chkRememberUsername.Text      = "Remember my username";
+            chkRememberUsername.TabIndex  = 4;
+            chkRememberUsername.BackColor = Color.Transparent;
+            chkRememberUsername.FlatStyle = FlatStyle.Flat;
+
             // lblPoweredBy
             lblPoweredBy.Font      = new Font("Segoe UI", 8F);
             lblPoweredBy.ForeColor = Color.FromArgb(32, 184, 204);
@@ -167,6 +179,7 @@ namespace JaneERP
             pnlRight.Controls.Add(lblConfirmPassword);
             pnlRight.Controls.Add(txtConfirmPassword);
             pnlRight.Controls.Add(btnLogin);
+            pnlRight.Controls.Add(chkRememberUsername);
             pnlRight.Controls.Add(lblPoweredBy);
 
             // ── FormAppLogin ──────────────────────────────────────────────────────

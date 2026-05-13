@@ -30,5 +30,10 @@ namespace JaneERP.Models
         public string?  DiscountType    { get; set; }
         public decimal  DiscountAmount  { get; set; }
         public decimal  DiscountPercent { get; set; }
+        public decimal  ShippingCost    { get; set; }
+
+        // Payment fields (populated from SalesOrders for ERP orders)
+        public bool      IsPaid { get; set; }
+        public DateTime? PaidAt { get; set; }
     }
 }

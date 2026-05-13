@@ -1,6 +1,7 @@
 using System.Configuration;
 using System.Data;
 using Dapper;
+using JaneERP.Interfaces;
 using JaneERP.Models;
 using JaneERP.Security;
 using JaneERP.Services;
@@ -8,7 +9,7 @@ using Microsoft.Data.SqlClient;
 
 namespace JaneERP.Data
 {
-    public class UserRepository
+    public class UserRepository : IUserRepository
     {
         private readonly string _connectionString =
             ConfigurationManager.ConnectionStrings["MyERP"]?.ConnectionString
@@ -130,7 +131,7 @@ namespace JaneERP.Data
         }
 
         /// <summary>Reads from AppSettings; falls back to 5 if not configured.</summary>
-        public static int MaxLoginAttempts  => Math.Max(1, AppSettings.Current.MaxLoginAttempts > 0 ? AppSettings.Current.MaxLoginAttempts : 5);
+        public int MaxLoginAttempts  => Math.Max(1, AppSettings.Current.MaxLoginAttempts > 0 ? AppSettings.Current.MaxLoginAttempts : 5);
         /// <summary>Reads from AppSettings; falls back to 15 minutes if not configured.</summary>
         public static int LockoutMinutes    => Math.Max(1, AppSettings.Current.LockoutMinutes   > 0 ? AppSettings.Current.LockoutMinutes   : 15);
         public const  int MinPasswordLength = 8;

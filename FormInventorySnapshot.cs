@@ -18,6 +18,7 @@ namespace JaneERP
         private TextBox      txtSearch    = new();
         private List<Product> _all        = new();
         private string        _stockFilter = "All"; // "All" | "Negative" | "Zero" | "Low" | "OK"
+        private readonly List<Button> _filterButtons = new();
 
         // Expiry section
         private Label        lblExpiryHeader = new();
@@ -70,7 +71,7 @@ namespace JaneERP
                     BackColor = back,
                     ForeColor = fore,
                     FlatStyle = FlatStyle.Flat,
-                    AutoSize  = true,
+                    Size      = new Size(TextRenderer.MeasureText(label, new Font("Segoe UI", 9F)).Width + 16, 24),
                     Padding   = new Padding(4, 1, 4, 1),
                     Location  = new Point(x, 47),
                     Cursor    = Cursors.Hand,
@@ -81,10 +82,12 @@ namespace JaneERP
                 btn.Click += (_, _) =>
                 {
                     _stockFilter = filterKey;
+                    UpdateFilterButtonHighlight();
                     ApplyFilter();
                 };
                 Controls.Add(btn);
-                x += btn.PreferredSize.Width + 6;
+                _filterButtons.Add(btn);
+                x += btn.Width + 6;
             }
             AddFilterBtn("All",            "All",      Theme.Surface,               Theme.TextPrimary,              ref lx);
             AddFilterBtn("Negative",       "Negative", Color.FromArgb(80, 20, 20),  Color.FromArgb(255, 120, 120), ref lx);
@@ -175,11 +178,24 @@ namespace JaneERP
             e.CellStyle.SelectionForeColor = fore;
         }
 
+        private void UpdateFilterButtonHighlight()
+        {
+            foreach (var btn in _filterButtons)
+            {
+                bool active = btn.Tag?.ToString() == _stockFilter;
+                btn.FlatAppearance.BorderSize = active ? 2 : 1;
+                btn.Font = active
+                    ? new Font("Segoe UI", 8.5F, FontStyle.Bold)
+                    : new Font("Segoe UI", 8.5F);
+            }
+        }
+
         private void LoadData()
         {
             try
             {
                 _all = new ProductRepository().GetProducts(false).ToList();
+                UpdateFilterButtonHighlight();
                 ApplyFilter();
             }
             catch (Exception ex)

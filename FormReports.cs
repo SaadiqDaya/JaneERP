@@ -140,10 +140,12 @@ namespace JaneERP
 
             btnRefreshStock = MakeBtn("Refresh");
             btnExportStock  = MakeBtn("Export CSV");
+            var btnPrintStock = MakeBtn("Print / PDF", 110);
             btnRefreshStock.Click += (_, _) => LoadStock();
             btnExportStock.Click  += (_, _) => ExportCsv(dgvStock, "StockOnHand.csv");
+            btnPrintStock.Click   += (_, _) => PrintGrid(dgvStock, "Stock on Hand", this);
 
-            var toolbar = MakeToolbar(btnRefreshStock, btnExportStock);
+            var toolbar = MakeToolbar(btnRefreshStock, btnExportStock, btnPrintStock);
 
             var layout = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 2, ColumnCount = 1 };
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 44));
@@ -205,8 +207,10 @@ namespace JaneERP
 
             btnRefreshSales = MakeBtn("Refresh");
             btnExportSales  = MakeBtn("Export CSV");
+            var btnPrintSales = MakeBtn("Print / PDF", 110);
             btnRefreshSales.Click += (_, _) => LoadSales();
             btnExportSales.Click  += (_, _) => ExportCsv(dgvSales, "SalesByPeriod.csv");
+            btnPrintSales.Click   += (_, _) => PrintGrid(dgvSales, "Sales by Period", this);
 
             lblSalesTotals = new Label { Text = "", AutoSize = true, Dock = DockStyle.Bottom, Padding = new Padding(8, 4, 8, 4) };
 
@@ -223,7 +227,8 @@ namespace JaneERP
             var lt = new Label { Text = "To:", AutoSize = true }; lt.Location = new Point(x, 14); toolbar.Controls.Add(lt); x += 28;
             dtpSalesTo.Location = new Point(x, 8); toolbar.Controls.Add(dtpSalesTo); x += 138;
             btnRefreshSales.Location = new Point(x, 8); toolbar.Controls.Add(btnRefreshSales); x += 108;
-            btnExportSales.Location  = new Point(x, 8); toolbar.Controls.Add(btnExportSales);
+            btnExportSales.Location  = new Point(x, 8); toolbar.Controls.Add(btnExportSales);  x += 108;
+            btnPrintSales.Location   = new Point(x, 8); toolbar.Controls.Add(btnPrintSales);
 
             var layout = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 3, ColumnCount = 1 };
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 44));
@@ -294,12 +299,14 @@ namespace JaneERP
 
             btnRefreshCogs = MakeBtn("Refresh");
             btnExportCogs  = MakeBtn("Export CSV");
+            var btnPrintCogs = MakeBtn("Print / PDF", 110);
             btnRefreshCogs.Click += (_, _) => LoadCogs();
             btnExportCogs.Click  += (_, _) => ExportCsv(dgvCogs, "COGSSummary.csv");
+            btnPrintCogs.Click   += (_, _) => PrintGrid(dgvCogs, "COGS Summary", this);
 
             lblCogsTotals = new Label { Text = "", AutoSize = true, Dock = DockStyle.Bottom, Padding = new Padding(8, 4, 8, 4) };
 
-            var toolbar = MakeToolbar(btnRefreshCogs, btnExportCogs);
+            var toolbar = MakeToolbar(btnRefreshCogs, btnExportCogs, btnPrintCogs);
 
             var layout = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 3, ColumnCount = 1 };
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 44));
@@ -362,8 +369,10 @@ namespace JaneERP
 
             btnRefreshCycle = MakeBtn("Refresh");
             btnExportCycle  = MakeBtn("Export CSV");
+            var btnPrintCycle = MakeBtn("Print / PDF", 110);
             btnRefreshCycle.Click += (_, _) => LoadCycle();
             btnExportCycle.Click  += (_, _) => ExportCsv(dgvCycle, "CycleCountVariance.csv");
+            btnPrintCycle.Click   += (_, _) => PrintGrid(dgvCycle, "Cycle Count Variance", this);
 
             var toolbar = new Panel { Dock = DockStyle.Top, Height = 44, Padding = new Padding(8, 8, 8, 4) };
             int x = 8;
@@ -372,7 +381,8 @@ namespace JaneERP
             var lt = new Label { Text = "To:", AutoSize = true }; lt.Location = new Point(x, 14); toolbar.Controls.Add(lt); x += 28;
             dtpCycleTo.Location = new Point(x, 8); toolbar.Controls.Add(dtpCycleTo); x += 138;
             btnRefreshCycle.Location = new Point(x, 8); toolbar.Controls.Add(btnRefreshCycle); x += 108;
-            btnExportCycle.Location  = new Point(x, 8); toolbar.Controls.Add(btnExportCycle);
+            btnExportCycle.Location  = new Point(x, 8); toolbar.Controls.Add(btnExportCycle);  x += 108;
+            btnPrintCycle.Location   = new Point(x, 8); toolbar.Controls.Add(btnPrintCycle);
 
             var layout = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 2, ColumnCount = 1 };
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 44));
@@ -454,13 +464,15 @@ namespace JaneERP
 
             dgvGP = MakeGrid();
 
-            dtpGPFrom = new DateTimePicker { Size = new Size(130, 28), Format = DateTimePickerFormat.Short, Value = DateTime.Today.AddDays(-30) };
-            dtpGPTo   = new DateTimePicker { Size = new Size(130, 28), Format = DateTimePickerFormat.Short, Value = DateTime.Today.AddDays(1) };
+            dtpGPFrom = new DateTimePicker { Size = new Size(130, 28), Format = DateTimePickerFormat.Short, Value = new DateTime(DateTime.Today.Year, 1, 1) };
+            dtpGPTo   = new DateTimePicker { Size = new Size(130, 28), Format = DateTimePickerFormat.Short, Value = DateTime.Today };
 
             btnRefreshGP = MakeBtn("Refresh");
             btnExportGP  = MakeBtn("Export CSV");
+            var btnPrintGP = MakeBtn("Print / PDF", 110);
             btnRefreshGP.Click += (_, _) => LoadGP();
             btnExportGP.Click  += (_, _) => ExportCsv(dgvGP, "GrossProfit.csv");
+            btnPrintGP.Click   += (_, _) => PrintGrid(dgvGP, "Gross Profit", this);
 
             lblGPTotals = new Label { Text = "", AutoSize = true, Dock = DockStyle.Bottom, Padding = new Padding(8, 4, 8, 4) };
 
@@ -471,7 +483,8 @@ namespace JaneERP
             var lt = new Label { Text = "To:", AutoSize = true }; lt.Location = new Point(x, 14); toolbar.Controls.Add(lt); x += 28;
             dtpGPTo.Location = new Point(x, 8); toolbar.Controls.Add(dtpGPTo); x += 138;
             btnRefreshGP.Location = new Point(x, 8); toolbar.Controls.Add(btnRefreshGP); x += 108;
-            btnExportGP.Location  = new Point(x, 8); toolbar.Controls.Add(btnExportGP);
+            btnExportGP.Location  = new Point(x, 8); toolbar.Controls.Add(btnExportGP);  x += 108;
+            btnPrintGP.Location   = new Point(x, 8); toolbar.Controls.Add(btnPrintGP);
 
             var layout = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 3, ColumnCount = 1 };
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 44));
@@ -493,45 +506,42 @@ namespace JaneERP
                 var to   = dtpGPTo.Value.Date.AddDays(1);
 
                 // Per-product gross profit: Revenue from sales minus average unit COGS from completed work orders.
-                // Unit COGS = total CostOfGoods / total Quantity across all completed WOs for the product.
+                // Unit COGS is pre-aggregated in a CTE to avoid correlated subqueries inside SUM().
                 var data = db.Query(@"
+                    WITH ProductUnitCost AS (
+                        SELECT  ProductID,
+                                SUM(CostOfGoods) / NULLIF(SUM(Quantity), 0) AS UnitCOGS
+                        FROM    WorkOrders
+                        WHERE   Status      = 'Complete'
+                          AND   CostOfGoods IS NOT NULL
+                        GROUP BY ProductID
+                    )
                     SELECT
                         p.SKU,
-                        p.ProductName                          AS Product,
-                        SUM(soi.Quantity)                      AS UnitsSold,
-                        SUM(soi.Quantity * soi.UnitPrice)      AS Revenue,
-                        ISNULL(
-                            SUM(soi.Quantity *
-                                ISNULL((
-                                    SELECT SUM(wo2.CostOfGoods) / NULLIF(SUM(wo2.Quantity), 0)
-                                    FROM   WorkOrders wo2
-                                    WHERE  wo2.ProductID = soi.ProductID
-                                      AND  wo2.Status    = 'Complete'
-                                      AND  wo2.CostOfGoods IS NOT NULL
-                                ), 0)
-                            ),
-                            0
-                        )                                      AS COGS,
+                        p.ProductName                                             AS Product,
+                        SUM(soi.Quantity)                                         AS UnitsSold,
+                        SUM(soi.Quantity * soi.UnitPrice)                         AS Revenue,
+                        SUM(soi.Quantity * ISNULL(pc.UnitCOGS, 0))               AS COGS,
                         SUM(soi.Quantity * soi.UnitPrice)
-                        - ISNULL(
-                            SUM(soi.Quantity *
-                                ISNULL((
-                                    SELECT SUM(wo2.CostOfGoods) / NULLIF(SUM(wo2.Quantity), 0)
-                                    FROM   WorkOrders wo2
-                                    WHERE  wo2.ProductID = soi.ProductID
-                                      AND  wo2.Status    = 'Complete'
-                                      AND  wo2.CostOfGoods IS NOT NULL
-                                ), 0)
-                            ),
-                            0
-                        )                                      AS GrossProfit
-                    FROM  SalesOrderItems soi
-                    JOIN  Products    p  ON p.ProductID   = soi.ProductID
-                    JOIN  SalesOrders so ON so.SalesOrderID = soi.SalesOrderID
+                        - SUM(soi.Quantity * ISNULL(pc.UnitCOGS, 0))             AS GrossProfit
+                    FROM  SalesOrderItems  soi
+                    JOIN  Products         p  ON p.ProductID    = soi.ProductID
+                    JOIN  SalesOrders      so ON so.SalesOrderID = soi.SalesOrderID
+                    LEFT JOIN ProductUnitCost pc ON pc.ProductID = soi.ProductID
                     WHERE so.OrderDate >= @from AND so.OrderDate < @to
                     GROUP BY p.SKU, p.ProductName
                     ORDER BY GrossProfit DESC",
                     new { from, to }).ToList();
+
+                if (data.Count == 0)
+                {
+                    // Diagnose: check if SalesOrderItems has ANY data regardless of date
+                    int anyItems = db.ExecuteScalar<int>("SELECT COUNT(1) FROM SalesOrderItems");
+                    if (anyItems == 0)
+                        lblGPTotals.Text = "No line-item data found. Use 'Sync to ERP' in the Sales screen to populate order details.";
+                    else
+                        lblGPTotals.Text = $"No orders found between {dtpGPFrom.Value:yyyy-MM-dd} and {dtpGPTo.Value:yyyy-MM-dd}. Try widening the date range.";
+                }
 
                 BindGrid(dgvGP, data, new[]
                 {
@@ -545,11 +555,14 @@ namespace JaneERP
 
                 FormatDecimalColumns(dgvGP, "Revenue", "COGS", "GrossProfit");
 
-                decimal totalRev  = data.Sum(r => (decimal)(r.Revenue     ?? 0m));
-                decimal totalCogs = data.Sum(r => (decimal)(r.COGS        ?? 0m));
-                decimal totalGP   = data.Sum(r => (decimal)(r.GrossProfit ?? 0m));
-                decimal margin    = totalRev > 0 ? totalGP / totalRev * 100m : 0m;
-                lblGPTotals.Text  = $"Revenue: {totalRev:N2}   |   COGS: {totalCogs:N2}   |   Gross Profit: {totalGP:N2}   |   Margin: {margin:N1}%";
+                if (data.Count > 0)
+                {
+                    decimal totalRev  = data.Sum(r => (decimal)(r.Revenue     ?? 0m));
+                    decimal totalCogs = data.Sum(r => (decimal)(r.COGS        ?? 0m));
+                    decimal totalGP   = data.Sum(r => (decimal)(r.GrossProfit ?? 0m));
+                    decimal margin    = totalRev > 0 ? totalGP / totalRev * 100m : 0m;
+                    lblGPTotals.Text  = $"Revenue: {totalRev:N2}   |   COGS: {totalCogs:N2}   |   Gross Profit: {totalGP:N2}   |   Margin: {margin:N1}%";
+                }
             }
             catch (Exception ex)
             {
@@ -662,6 +675,101 @@ namespace JaneERP
         {
             MessageBox.Show(this, $"Could not load {context}:\n{ex.Message}", "Report Error",
                 MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
+
+        // ── Print / PDF ───────────────────────────────────────────────────────────
+
+        /// <summary>
+        /// Shows a print-preview of <paramref name="dgv"/> using GDI+ drawing.
+        /// Users can send to any printer including "Microsoft Print to PDF".
+        /// </summary>
+        internal static void PrintGrid(DataGridView dgv, string reportTitle, Form owner)
+        {
+            if (dgv.Rows.Cast<DataGridViewRow>().All(r => r.IsNewRow))
+            {
+                MessageBox.Show(owner, "No data to print.", "Empty",
+                    MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            // Snapshot visible columns and all formatted cell values before handing off to the print thread
+            var cols = dgv.Columns.Cast<DataGridViewColumn>()
+                          .Where(c => c.Visible)
+                          .ToList();
+            var headers = cols.Select(c => c.HeaderText).ToArray();
+            var rows = dgv.Rows.Cast<DataGridViewRow>()
+                          .Where(r => !r.IsNewRow)
+                          .Select(r => cols.Select(c => r.Cells[c.Index].FormattedValue?.ToString() ?? "").ToArray())
+                          .ToArray();
+
+            int currentRow = 0;
+            const int marginPx   = 50;
+            const int rowHeightPx = 20;
+            const int hdrHeightPx = 24;
+
+            var pd = new System.Drawing.Printing.PrintDocument { DocumentName = reportTitle };
+            pd.PrintPage += (_, e) =>
+            {
+                if (e.Graphics == null) return;
+                var g         = e.Graphics;
+                int pageW     = e.PageBounds.Width  - marginPx * 2;
+                int pageH     = e.PageBounds.Height - marginPx * 2;
+                int colW      = headers.Length > 0 ? pageW / headers.Length : pageW;
+                int y         = marginPx;
+
+                // Title + timestamp on every page
+                using var titleFont = new Font("Segoe UI", 11F, FontStyle.Bold);
+                g.DrawString(reportTitle, titleFont, Brushes.Black, marginPx, y);
+                y += 22;
+                using var smallFont = new Font("Segoe UI", 8F);
+                g.DrawString($"Printed {DateTime.Now:yyyy-MM-dd HH:mm}   |   Page {pd.PrintController?.ToString() ?? ""}",
+                    smallFont, Brushes.Gray, marginPx, y);
+                y += 18;
+                g.DrawLine(Pens.DarkGray, marginPx, y, marginPx + pageW, y);
+                y += 4;
+
+                // Column headers
+                using var hdrFont = new Font("Segoe UI", 9F, FontStyle.Bold);
+                g.FillRectangle(Brushes.LightSteelBlue, marginPx, y, pageW, hdrHeightPx);
+                for (int ci = 0; ci < headers.Length; ci++)
+                {
+                    var rect = new RectangleF(marginPx + ci * colW + 2, y + 4, colW - 4, hdrHeightPx - 4);
+                    g.DrawString(headers[ci], hdrFont, Brushes.Black, rect,
+                        new StringFormat { Trimming = StringTrimming.EllipsisCharacter });
+                }
+                y += hdrHeightPx;
+
+                // Data rows — fill until bottom margin
+                using var cellFont  = new Font("Segoe UI", 8.5F);
+                using var altBrush  = new SolidBrush(Color.FromArgb(240, 244, 250));
+                int startRow = currentRow;
+                while (currentRow < rows.Length && y + rowHeightPx <= marginPx + pageH)
+                {
+                    int rowIdx = currentRow - startRow;
+                    if (rowIdx % 2 == 1) g.FillRectangle(altBrush, marginPx, y, pageW, rowHeightPx);
+                    for (int ci = 0; ci < headers.Length; ci++)
+                    {
+                        var rect = new RectangleF(marginPx + ci * colW + 2, y + 2, colW - 4, rowHeightPx - 2);
+                        g.DrawString(rows[currentRow][ci], cellFont, Brushes.Black, rect,
+                            new StringFormat { Trimming = StringTrimming.EllipsisCharacter });
+                    }
+                    y += rowHeightPx;
+                    currentRow++;
+                }
+
+                g.DrawLine(Pens.LightGray, marginPx, marginPx + pageH, marginPx + pageW, marginPx + pageH);
+                e.HasMorePages = currentRow < rows.Length;
+            };
+
+            using var preview = new PrintPreviewDialog
+            {
+                Document      = pd,
+                Width         = 1000,
+                Height        = 750,
+                Text          = $"Print Preview — {reportTitle}",
+                StartPosition = FormStartPosition.CenterParent
+            };
+            preview.ShowDialog(owner);
         }
     }
 }

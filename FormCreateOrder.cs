@@ -73,8 +73,8 @@ namespace JaneERP
         private void BuildUI()
         {
             Text          = "New Sales Order";
-            ClientSize    = new Size(780, 680);
-            MinimumSize   = new Size(660, 580);
+            ClientSize    = new Size(1000, 740);
+            MinimumSize   = new Size(820, 620);
             StartPosition = FormStartPosition.CenterParent;
 
             var lblTitle = new Label

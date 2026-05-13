@@ -23,6 +23,8 @@
         private System.Windows.Forms.Button btnCreateOrder;
         private System.Windows.Forms.Button btnMarkStatus;
         private System.Windows.Forms.Button btnStoreSettings;
+        private System.Windows.Forms.Label lblLastSync;
+        private System.Windows.Forms.Button btnSyncNow;
 
         protected override void Dispose(bool disposing)
         {
@@ -55,6 +57,8 @@
             btnCreateOrder  = new Button();
             btnMarkStatus   = new Button();
             btnStoreSettings = new Button();
+            lblLastSync = new Label();
+            btnSyncNow  = new Button();
             ((System.ComponentModel.ISupportInitialize)dgvOrders).BeginInit();
             SuspendLayout();
             // 
@@ -254,14 +258,38 @@
             btnStoreSettings.UseVisualStyleBackColor = true;
             btnStoreSettings.Click += btnStoreSettings_Click;
             //
+            // lblLastSync
+            //
+            lblLastSync.Anchor   = AnchorStyles.Bottom | AnchorStyles.Left;
+            lblLastSync.AutoSize = true;
+            lblLastSync.Location = new Point(374, 449);
+            lblLastSync.Name     = "lblLastSync";
+            lblLastSync.TabIndex = 21;
+            lblLastSync.Text     = "";
+            //
+            // btnSyncNow
+            //
+            btnSyncNow.Anchor   = AnchorStyles.Bottom | AnchorStyles.Left;
+            btnSyncNow.Location = new Point(278, 443);
+            btnSyncNow.Name     = "btnSyncNow";
+            btnSyncNow.Size     = new Size(90, 24);
+            btnSyncNow.TabIndex = 22;
+            btnSyncNow.Text     = "\u21BB Refresh";
+            btnSyncNow.Enabled  = false;
+            btnSyncNow.UseVisualStyleBackColor = true;
+            btnSyncNow.Click += BtnSyncNow_Click;
+            //
             // FormSalesDash
             //
-            ClientSize = new Size(800, 475);
+            ClientSize  = new Size(1140, 680);
+            MinimumSize = new Size(900, 560);
             Controls.Add(btnSyncToERP);
             Controls.Add(btnCancelSync);
             Controls.Add(btnCreateOrder);
             Controls.Add(btnMarkStatus);
             Controls.Add(btnStoreSettings);
+            Controls.Add(btnSyncNow);
+            Controls.Add(lblLastSync);
             Controls.Add(cboStoreFilter);
             Controls.Add(lblStore);
             Controls.Add(btnViewMultiple);

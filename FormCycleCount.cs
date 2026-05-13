@@ -20,6 +20,7 @@ namespace JaneERP
         private DataGridView dgvItems         = new();
         private Button       btnVerify        = new();
         private Button       btnVerifyAll     = new();
+        private Button       btnMove          = new();
         private Button       btnClose         = new();
         private Label        lblStatus        = new();
         private Label        lblUncounted     = new();
@@ -82,9 +83,10 @@ namespace JaneERP
 
             // ── Grid ─────────────────────────────────────────────────────────────
             dgvItems.AutoGenerateColumns = false;
-            dgvItems.Columns.Add(new DataGridViewTextBoxColumn { Name = "colSKU",     HeaderText = "SKU",          DataPropertyName = "SKU",           Width = 120, ReadOnly = true });
-            dgvItems.Columns.Add(new DataGridViewTextBoxColumn { Name = "colName",    HeaderText = "Product",      DataPropertyName = "ProductName",    Width = 200, ReadOnly = true });
-            dgvItems.Columns.Add(new DataGridViewTextBoxColumn { Name = "colSystem",  HeaderText = "System Qty",   DataPropertyName = "SystemQty",      Width = 90,  ReadOnly = true });
+            dgvItems.Columns.Add(new DataGridViewTextBoxColumn { Name = "colSKU",      HeaderText = "SKU",          DataPropertyName = "SKU",           Width = 110, ReadOnly = true });
+            dgvItems.Columns.Add(new DataGridViewTextBoxColumn { Name = "colName",     HeaderText = "Product",      DataPropertyName = "ProductName",    Width = 190, ReadOnly = true });
+            dgvItems.Columns.Add(new DataGridViewTextBoxColumn { Name = "colLocation", HeaderText = "Location",     Width = 120, ReadOnly = true, Visible = false });
+            dgvItems.Columns.Add(new DataGridViewTextBoxColumn { Name = "colSystem",   HeaderText = "System Qty",   DataPropertyName = "SystemQty",      Width = 80,  ReadOnly = true });
 
             var colActual = new DataGridViewTextBoxColumn { Name = "colActual", HeaderText = "Actual Qty", Width = 90, ReadOnly = false };
             dgvItems.Columns.Add(colActual);
@@ -118,6 +120,13 @@ namespace JaneERP
             lblStatus.Location = new Point(12, 502);
             lblStatus.AutoSize = true;
             Controls.Add(lblStatus);
+
+            btnMove.Text     = "Move Stock";
+            btnMove.Size     = new Size(100, 30);
+            btnMove.Anchor   = AnchorStyles.Bottom | AnchorStyles.Right;
+            btnMove.Location = new Point(452, 500);
+            btnMove.Click   += BtnMove_Click;
+            Controls.Add(btnMove);
 
             btnVerify.Text     = "Verify Selected";
             btnVerify.Size     = new Size(130, 30);
@@ -166,6 +175,11 @@ namespace JaneERP
             if (cboLocation.SelectedItem is Models.Location loc && loc.LocationID != 0)
                 locId = loc.LocationID;
 
+            // Show Location column only when "All Locations" is selected
+            bool allLocs = locId == null;
+            if (dgvItems.Columns["colLocation"] != null)
+                dgvItems.Columns["colLocation"]!.Visible = allLocs;
+
             try
             {
                 _allEntries = _ccRepo.GetEntries(locId);
@@ -210,6 +224,8 @@ namespace JaneERP
             dgvItems.DataSource = null;
             dgvItems.Rows.Clear();
 
+            bool showLocation = dgvItems.Columns["colLocation"]?.Visible == true;
+
             foreach (var e in source)
             {
                 int idx = dgvItems.Rows.Add();
@@ -217,6 +233,8 @@ namespace JaneERP
                 row.Cells["colSKU"].Value        = e.SKU;
                 row.Cells["colName"].Value       = e.ProductName;
                 row.Cells["colSystem"].Value     = e.SystemQty;
+                if (showLocation)
+                    row.Cells["colLocation"].Value = e.LocationName ?? "";
                 row.Cells["colActual"].Value     = "";
                 row.Cells["colDiff"].Value       = "";
                 row.Cells["colStatus"].Value     = "";
@@ -250,6 +268,14 @@ namespace JaneERP
             }
         }
 
+        private void BtnMove_Click(object? sender, EventArgs e)
+        {
+            using var frm = new FormStockTransfer();
+            frm.ShowDialog(this);
+            // Reload after a move in case quantities changed
+            LoadItems();
+        }
+
         private void BtnVerify_Click(object? sender, EventArgs e)
         {
             var rows = dgvItems.SelectedRows.Cast<DataGridViewRow>().ToList();
@@ -265,16 +291,12 @@ namespace JaneERP
 
         private void SaveVerifications(List<DataGridViewRow> rows)
         {
-            int? locId = null;
+            // When a specific location is selected from the combo, use it for all rows.
+            // When "All Locations" is selected (locId == null), use the LocationID stored
+            // on each CycleCountEntry — the query already populated it per-row.
+            int? comboLocId = null;
             if (cboLocation.SelectedItem is Models.Location loc && loc.LocationID != 0)
-                locId = loc.LocationID;
-
-            if (locId == null)
-            {
-                MessageBox.Show(this, "Please select a specific location before verifying.", "Location Required",
-                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                return;
-            }
+                comboLocId = loc.LocationID;
 
             // Only process rows with actual qty entered
             var pending = rows.Where(r =>
@@ -284,18 +306,27 @@ namespace JaneERP
 
             if (pending.Count == 0) { lblStatus.Text = "No rows with actual qty entered."; return; }
 
-            int done = 0, errors = 0;
+            int done = 0, errors = 0, skipped = 0;
             string verifiedBy = AppSession.CurrentUser?.Username ?? "system";
 
             foreach (var row in pending)
             {
                 if (row.Tag is not CycleCountEntry entry) continue;
                 if (!int.TryParse(row.Cells["colActual"]?.Value?.ToString(), out int actual)) continue;
+
+                // Resolve which location to record against
+                int? useLocId = comboLocId ?? entry.LocationID;
+                if (useLocId == null)
+                {
+                    // Row has no location context — skip it
+                    skipped++;
+                    continue;
+                }
+
                 try
                 {
-                    _ccRepo.RecordVerification(entry.ProductID, locId.Value, entry.SystemQty, actual, verifiedBy);
-                    // Mark as verified (green)
-                    row.Cells["colStatus"].Value   = "Verified";
+                    _ccRepo.RecordVerification(entry.ProductID, useLocId.Value, entry.SystemQty, actual, verifiedBy);
+                    row.Cells["colStatus"].Value    = "Verified";
                     row.Cells["colVerifiedBy"].Value = verifiedBy;
                     row.Cells["colVerifiedAt"].Value = DateTime.Now;
                     row.DefaultCellStyle.BackColor = Color.FromArgb(20, 70, 20);
@@ -304,7 +335,10 @@ namespace JaneERP
                 catch { errors++; }
             }
 
-            lblStatus.Text = $"Verified {done} item(s){(errors > 0 ? $", {errors} errors" : "")}.";
+            string msg = $"Verified {done} item(s)";
+            if (skipped > 0) msg += $", {skipped} skipped (no location)";
+            if (errors  > 0) msg += $", {errors} errors";
+            lblStatus.Text = msg + ".";
             // Don't reload — keep verified state visible
         }
     }

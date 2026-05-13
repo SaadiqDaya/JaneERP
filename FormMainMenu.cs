@@ -20,6 +20,7 @@ namespace JaneERP
         // ── Mention badge ─────────────────────────────────────────────────────────
         private int _mentionCount;
         private int _unverifiedCount;
+        private int _cycleCountOverdueCount;
         private readonly System.Windows.Forms.Timer _badgeTimer =
             new System.Windows.Forms.Timer { Interval = 20_000 };
 
@@ -35,6 +36,8 @@ namespace JaneERP
             btnTaskManager.Paint += DrawMentionBadge;
             // ── Unverified items badge overlay on Unverified tile ────────────
             btnUnverified.Paint  += DrawUnverifiedBadge;
+            // ── Overdue cycle count badge on Cycle Count tile ─────────────────
+            btnCycleCount.Paint  += DrawCycleCountBadge;
             _badgeTimer.Tick     += (_, _) => System.Threading.Tasks.Task.Run(FetchBadgeCounts);
             Load                 += (_, _) => System.Threading.Tasks.Task.Run(FetchBadgeCounts);
             FormClosed           += (_, _) => _badgeTimer.Stop();
@@ -80,6 +83,9 @@ namespace JaneERP
             // Sales & Purchasing
             btnSales.Visible          = isAdmin || PermissionHelper.CanEdit("SalesOrders");
             btnPurchaseOrders.Visible = isAdmin || PermissionHelper.CanEdit("Parts");
+            btnCustomers.Visible      = isAdmin || isEditor;
+            btnVendors.Visible        = isAdmin || PermissionHelper.CanEdit("Parts");
+            btnShopifyStores.Visible  = isAdmin;
 
             // Products & Inventory
             btnInventory.Visible      = isAdmin || isEditor;  // inventory managers need this
@@ -96,11 +102,13 @@ namespace JaneERP
 
             // Manufacturing
             btnManufacturing.Visible  = isAdmin || PermissionHelper.CanEdit("Manufacturing");
+            btnWorkOrders.Visible     = isAdmin || PermissionHelper.CanEdit("Manufacturing");
 
             // Analytics & Reports
             btnDashboard.Visible  = isAdmin || isEditor;
             btnReports.Visible    = isAdmin || isEditor;
             btnBreakeven.Visible  = isAdmin || isEditor;
+            btnAccounting.Visible = isAdmin || isEditor;
 
             // Data
             btnImports.Visible = isAdmin || PermissionHelper.CanEdit("Inventory");
@@ -117,20 +125,9 @@ namespace JaneERP
             btnOphelia.Visible = true;
         }
 
-        private DateTime _lastActivity = DateTime.Now;
-
-        protected override void WndProc(ref Message m)
-        {
-            // Reset idle timer on mouse or keyboard messages
-            const int WM_MOUSEMOVE = 0x0200, WM_LBUTTONDOWN = 0x0201, WM_KEYDOWN = 0x0100;
-            if (m.Msg == WM_MOUSEMOVE || m.Msg == WM_LBUTTONDOWN || m.Msg == WM_KEYDOWN)
-                _lastActivity = DateTime.Now;
-            base.WndProc(ref m);
-        }
-
         private void IdleTimer_Tick(object? sender, EventArgs e)
         {
-            if ((DateTime.Now - _lastActivity).TotalMinutes >= IdleTimeoutMinutes)
+            if ((DateTime.Now - Security.AppSession.LastActivityTime).TotalMinutes >= IdleTimeoutMinutes)
             {
                 _idleTimer.Stop();
                 AppLogger.Audit(_user.Username, "AutoLogout", $"Idle for {IdleTimeoutMinutes} minutes");
@@ -187,6 +184,12 @@ namespace JaneERP
             frm.ShowDialog(this);
         }
 
+        private void btnShopifyStores_Click(object sender, EventArgs e)
+        {
+            using var frm = new FormStoreDashboard();
+            frm.ShowDialog(this);
+        }
+
         private void btnProductTypes_Click(object sender, EventArgs e)
         {
             using var frm = new FormProductTypes();
@@ -223,17 +226,19 @@ namespace JaneERP
 
         private void btnBOM_Click(object sender, EventArgs e)
         {
-            var pRepo = new Data.ProductRepository();
-            using var picker = new FormProductPicker(pRepo);
-            if (picker.ShowDialog(this) != DialogResult.OK || picker.SelectedProduct == null) return;
-            var partRepo = new Data.PartRepository();
-            using var bom = new FormBomEditor(picker.SelectedProduct, partRepo);
-            bom.ShowDialog(this);
+            using var frm = new FormBomExplorer();
+            frm.ShowDialog(this);
         }
 
         private void btnManufacturing_Click(object sender, EventArgs e)
         {
             using var frm = new FormManufacturingDash();
+            frm.ShowDialog(this);
+        }
+
+        private void btnWorkOrders_Click(object sender, EventArgs e)
+        {
+            using var frm = new FormWorkOrders();
             frm.ShowDialog(this);
         }
 
@@ -299,10 +304,18 @@ namespace JaneERP
             frm.ShowDialog(this);
         }
 
+        private void btnAccounting_Click(object sender, EventArgs e)
+        {
+            using var frm = new FormAccounting();
+            frm.ShowDialog(this);
+        }
+
         private void btnCycleCount_Click(object sender, EventArgs e)
         {
             using var frm = new FormCycleCount();
             frm.ShowDialog(this);
+            // Refresh badge after verifications may have been recorded
+            System.Threading.Tasks.Task.Run(FetchBadgeCounts);
         }
 
         private void btnJane_Click(object sender, EventArgs e)
@@ -317,6 +330,18 @@ namespace JaneERP
             var phone = AppSettings.Current.OpheliaPhone;
             try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo($"tel:{phone}") { UseShellExecute = true }); }
             catch { MessageBox.Show(this, $"Call Ophelia: {phone}", "Talk to Ophelia", MessageBoxButtons.OK, MessageBoxIcon.Information); }
+        }
+
+        private void btnCustomers_Click(object sender, EventArgs e)
+        {
+            using var frm = new FormCustomers();
+            frm.ShowDialog(this);
+        }
+
+        private void btnVendors_Click(object sender, EventArgs e)
+        {
+            using var frm = new FormVendors();
+            frm.ShowDialog(this);
         }
 
         private void btnSettings_Click(object sender, EventArgs e)
@@ -344,18 +369,24 @@ namespace JaneERP
             {
                 string username = AppSession.CurrentUser?.Username ?? _user.Username;
 
-                int mentions   = new TaskRepository().GetMentions(username, unreadOnly: true).Count;
-                int unverified = new Data.ProductRepository().GetUnverifiedCount();
+                int mentions      = new TaskRepository().GetMentions(username, unreadOnly: true).Count;
+                int unverified    = new Data.ProductRepository().GetUnverifiedCount();
+                int cycleOverdue  = new Data.CycleCountRepository().GetOverdueCount();
 
-                bool changed = mentions != _mentionCount || unverified != _unverifiedCount;
-                _mentionCount    = mentions;
-                _unverifiedCount = unverified;
+                bool changed = mentions    != _mentionCount
+                            || unverified  != _unverifiedCount
+                            || cycleOverdue != _cycleCountOverdueCount;
+
+                _mentionCount           = mentions;
+                _unverifiedCount        = unverified;
+                _cycleCountOverdueCount = cycleOverdue;
 
                 if (changed && IsHandleCreated && !IsDisposed)
                     BeginInvoke(() =>
                     {
                         btnTaskManager.Invalidate();
                         btnUnverified.Invalidate();
+                        btnCycleCount.Invalidate();
                     });
             }
             catch { }
@@ -390,6 +421,27 @@ namespace JaneERP
             int badgeW    = _unverifiedCount > 9 ? 22 : 18;
             var badgeRect = new Rectangle(btnUnverified.Width - badgeW - 4, 4, badgeW, 18);
             using var bgBrush = new SolidBrush(Theme.Danger);
+            g.FillEllipse(bgBrush, badgeRect);
+            using var tf = new Font("Segoe UI", 7F, FontStyle.Bold, GraphicsUnit.Point);
+            using var tb = new SolidBrush(Color.White);
+            var sf = new StringFormat
+            {
+                Alignment     = StringAlignment.Center,
+                LineAlignment = StringAlignment.Center
+            };
+            g.DrawString(text, tf, tb, badgeRect, sf);
+        }
+
+        private void DrawCycleCountBadge(object? sender, PaintEventArgs e)
+        {
+            if (_cycleCountOverdueCount <= 0) return;
+            var g = e.Graphics;
+            g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+            string text   = _cycleCountOverdueCount > 99 ? "99+" : _cycleCountOverdueCount.ToString();
+            int badgeW    = _cycleCountOverdueCount > 9 ? 22 : 18;
+            var badgeRect = new Rectangle(btnCycleCount.Width - badgeW - 4, 4, badgeW, 18);
+            // Amber badge — visually distinct from the red danger badges
+            using var bgBrush = new SolidBrush(Color.FromArgb(210, 130, 0));
             g.FillEllipse(bgBrush, badgeRect);
             using var tf = new Font("Segoe UI", 7F, FontStyle.Bold, GraphicsUnit.Point);
             using var tb = new SolidBrush(Color.White);

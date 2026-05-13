@@ -1,10 +1,25 @@
 using System.Configuration;
 using System.Data;
 using Dapper;
+using JaneERP.Interfaces;
 using Microsoft.Data.SqlClient;
 
 namespace JaneERP
 {
+    public class TaskWorkflow
+    {
+        public int    WorkflowID { get; set; }
+        public string Name       { get; set; } = "";
+    }
+
+    public class WorkflowStatus
+    {
+        public int    StatusID    { get; set; }
+        public int    WorkflowID  { get; set; }
+        public string StatusName  { get; set; } = "";
+        public int    SortOrder   { get; set; }
+    }
+
     public class ErpTask
     {
         public int      TaskID      { get; set; }
@@ -39,7 +54,7 @@ namespace JaneERP
         public string   TaskTitle     { get; set; } = "";
     }
 
-    public class TaskRepository
+    public class TaskRepository : ITaskRepository
     {
         private readonly string _cs =
             ConfigurationManager.ConnectionStrings["MyERP"]?.ConnectionString
@@ -79,16 +94,37 @@ namespace JaneERP
                     CommentText   NVARCHAR(MAX)  NOT NULL,
                     MentionedAt   DATETIME       NOT NULL DEFAULT GETDATE(),
                     IsRead        BIT            NOT NULL DEFAULT 0
-                );");
+                );
+
+                IF NOT EXISTS (SELECT 1 FROM sysobjects WHERE name='TaskWorkflows' AND xtype='U')
+                CREATE TABLE TaskWorkflows (
+                    WorkflowID INT           IDENTITY(1,1) PRIMARY KEY,
+                    Name       NVARCHAR(100) NOT NULL
+                );
+
+                IF NOT EXISTS (SELECT 1 FROM sysobjects WHERE name='TaskWorkflowStatuses' AND xtype='U')
+                CREATE TABLE TaskWorkflowStatuses (
+                    StatusID   INT           IDENTITY(1,1) PRIMARY KEY,
+                    WorkflowID INT           NOT NULL REFERENCES TaskWorkflows(WorkflowID) ON DELETE CASCADE,
+                    StatusName NVARCHAR(100) NOT NULL,
+                    SortOrder  INT           NOT NULL DEFAULT 0
+                );
+
+                IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('Tasks') AND name = 'WorkflowID')
+                    ALTER TABLE Tasks ADD WorkflowID INT NULL REFERENCES TaskWorkflows(WorkflowID);
+                IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('Tasks') AND name = 'WorkflowCurrentStatus')
+                    ALTER TABLE Tasks ADD WorkflowCurrentStatus NVARCHAR(100) NULL;");
         }
 
-        public List<ErpTask> GetAll(string? assignedTo = null)
+        public List<ErpTask> GetAll(string? assignedTo = null, string? status = null)
         {
             using IDbConnection db = new SqlConnection(_cs);
-            var sql = assignedTo == null
-                ? "SELECT * FROM Tasks ORDER BY DueDate"
-                : "SELECT * FROM Tasks WHERE AssignedTo = @assignedTo ORDER BY DueDate";
-            return db.Query<ErpTask>(sql, new { assignedTo }).ToList();
+            var conditions = new List<string>();
+            if (assignedTo != null) conditions.Add("AssignedTo = @assignedTo");
+            if (status != null)     conditions.Add("Status = @status");
+            var where = conditions.Count > 0 ? "WHERE " + string.Join(" AND ", conditions) : "";
+            return db.Query<ErpTask>($"SELECT * FROM Tasks {where} ORDER BY DueDate",
+                new { assignedTo, status }).ToList();
         }
 
         public ErpTask? GetById(int taskId)
@@ -119,6 +155,18 @@ namespace JaneERP
         {
             using IDbConnection db = new SqlConnection(_cs);
             db.Execute("UPDATE Tasks SET Status = @status WHERE TaskID = @taskId", new { taskId, status });
+        }
+
+        public void UpdateDueDate(int taskId, DateTime dueDate)
+        {
+            using IDbConnection db = new SqlConnection(_cs);
+            db.Execute("UPDATE Tasks SET DueDate = @dueDate WHERE TaskID = @taskId", new { taskId, dueDate });
+        }
+
+        public void UpdateDescription(int taskId, string description)
+        {
+            using IDbConnection db = new SqlConnection(_cs);
+            db.Execute("UPDATE Tasks SET Description = @description WHERE TaskID = @taskId", new { taskId, description });
         }
 
         public void Delete(int taskId)
@@ -208,6 +256,104 @@ namespace JaneERP
         {
             public string  Username { get; set; } = "";
             public string? Email    { get; set; }
+        }
+
+        // ── Workflows ─────────────────────────────────────────────────────────────
+
+        public List<TaskWorkflow> GetWorkflows()
+        {
+            using IDbConnection db = new SqlConnection(_cs);
+            return db.Query<TaskWorkflow>("SELECT * FROM TaskWorkflows ORDER BY Name").ToList();
+        }
+
+        public int AddWorkflow(string name)
+        {
+            using IDbConnection db = new SqlConnection(_cs);
+            return db.QuerySingle<int>(@"
+                INSERT INTO TaskWorkflows (Name) VALUES (@name);
+                SELECT CAST(SCOPE_IDENTITY() AS INT);", new { name });
+        }
+
+        public void DeleteWorkflow(int workflowId)
+        {
+            using IDbConnection db = new SqlConnection(_cs);
+            db.Execute("DELETE FROM TaskWorkflows WHERE WorkflowID = @workflowId", new { workflowId });
+        }
+
+        public List<WorkflowStatus> GetWorkflowStatuses(int workflowId)
+        {
+            using IDbConnection db = new SqlConnection(_cs);
+            return db.Query<WorkflowStatus>(
+                "SELECT * FROM TaskWorkflowStatuses WHERE WorkflowID = @workflowId ORDER BY SortOrder",
+                new { workflowId }).ToList();
+        }
+
+        public int AddWorkflowStatus(int workflowId, string statusName)
+        {
+            using IDbConnection db = new SqlConnection(_cs);
+            int maxSort = db.ExecuteScalar<int>(
+                "SELECT ISNULL(MAX(SortOrder), -1) FROM TaskWorkflowStatuses WHERE WorkflowID = @workflowId",
+                new { workflowId });
+            return db.QuerySingle<int>(@"
+                INSERT INTO TaskWorkflowStatuses (WorkflowID, StatusName, SortOrder)
+                VALUES (@workflowId, @statusName, @sortOrder);
+                SELECT CAST(SCOPE_IDENTITY() AS INT);",
+                new { workflowId, statusName, sortOrder = maxSort + 1 });
+        }
+
+        public void DeleteWorkflowStatus(int statusId)
+        {
+            using IDbConnection db = new SqlConnection(_cs);
+            db.Execute("DELETE FROM TaskWorkflowStatuses WHERE StatusID = @statusId", new { statusId });
+        }
+
+        public void MoveWorkflowStatus(int statusId, bool moveUp)
+        {
+            using var db = new SqlConnection(_cs);
+            db.Open();
+            using var tx = db.BeginTransaction();
+            try
+            {
+                var current = db.QueryFirstOrDefault<WorkflowStatus>(
+                    "SELECT * FROM TaskWorkflowStatuses WHERE StatusID = @statusId",
+                    new { statusId }, tx);
+                if (current == null) return;
+
+                var neighbour = moveUp
+                    ? db.QueryFirstOrDefault<WorkflowStatus>(
+                        "SELECT TOP 1 * FROM TaskWorkflowStatuses WHERE WorkflowID = @wid AND SortOrder < @sort ORDER BY SortOrder DESC",
+                        new { wid = current.WorkflowID, sort = current.SortOrder }, tx)
+                    : db.QueryFirstOrDefault<WorkflowStatus>(
+                        "SELECT TOP 1 * FROM TaskWorkflowStatuses WHERE WorkflowID = @wid AND SortOrder > @sort ORDER BY SortOrder ASC",
+                        new { wid = current.WorkflowID, sort = current.SortOrder }, tx);
+
+                if (neighbour == null) return;
+
+                db.Execute("UPDATE TaskWorkflowStatuses SET SortOrder = @s WHERE StatusID = @id",
+                    new { s = neighbour.SortOrder, id = current.StatusID }, tx);
+                db.Execute("UPDATE TaskWorkflowStatuses SET SortOrder = @s WHERE StatusID = @id",
+                    new { s = current.SortOrder, id = neighbour.StatusID }, tx);
+                tx.Commit();
+            }
+            catch { tx.Rollback(); throw; }
+        }
+
+        public void SetTaskWorkflow(int taskId, int? workflowId, string? initialStatus)
+        {
+            using IDbConnection db = new SqlConnection(_cs);
+            db.Execute(@"
+                UPDATE Tasks
+                SET WorkflowID = @workflowId, WorkflowCurrentStatus = @initialStatus
+                WHERE TaskID = @taskId",
+                new { taskId, workflowId, initialStatus });
+        }
+
+        public List<string> GetWorkflowStatusNames(int workflowId)
+        {
+            using IDbConnection db = new SqlConnection(_cs);
+            return db.Query<string>(
+                "SELECT StatusName FROM TaskWorkflowStatuses WHERE WorkflowID = @workflowId ORDER BY SortOrder",
+                new { workflowId }).ToList();
         }
     }
 }

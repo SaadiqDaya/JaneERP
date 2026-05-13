@@ -107,6 +107,16 @@ namespace JaneERP
         /// <summary>Attribute names pinned as filter buttons on the Product Search screen.</summary>
         public List<string> ProductSearchPinnedAttributes { get; set; } = new();
 
+        // ── Appearance ────────────────────────────────────────────────────────────
+        /// <summary>Hex colour string for the primary accent (Theme.Gold). Empty = use default violet.</summary>
+        public string AccentColor    { get; set; } = "";
+        /// <summary>Hex colour string for the secondary highlight (Theme.Teal). Empty = use default teal.</summary>
+        public string HighlightColor { get; set; } = "";
+
+        // ── Export settings ───────────────────────────────────────────────────────
+        /// <summary>Default folder for CSV exports. Empty string = ask every time.</summary>
+        public string DefaultExportPath { get; set; } = "";
+
         // ── Backup settings ───────────────────────────────────────────────────────
         /// <summary>Folder where database backups are written.</summary>
         public string BackupFolder    { get; set; } = "";

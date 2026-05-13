@@ -217,31 +217,49 @@ namespace JaneERP.Services
         {
             if (string.IsNullOrWhiteSpace(storeDomain))
                 throw new ArgumentException("storeDomain is required", nameof(storeDomain));
+            if (string.IsNullOrWhiteSpace(accessToken))
+                throw new ArgumentException("accessToken is required for this call", nameof(accessToken));
 
             var url = $"https://{storeDomain}/admin/api/{ApiVersion}/orders/{orderId}.json";
             progress?.Report($"Requesting {url}");
 
-            using var req = new HttpRequestMessage(HttpMethod.Get, url);
-            req.Headers.Accept.Clear();
-            req.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-            if (!string.IsNullOrWhiteSpace(accessToken))
-            {
-                req.Headers.Remove("X-Shopify-Access-Token");
-                req.Headers.Add("X-Shopify-Access-Token", accessToken);
-            }
-            else
-            {
-                throw new ArgumentException("accessToken is required for this call", nameof(accessToken));
-            }
+            int retryDelay = 1000;
+            int maxRetries = 5;
 
             HttpResponseMessage resp;
-            try
+            while (true)
             {
-                resp = await _http.SendAsync(req).ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                throw new InvalidOperationException("Failed to contact Shopify API", ex);
+                using var req = new HttpRequestMessage(HttpMethod.Get, url);
+                req.Headers.Accept.Clear();
+                req.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+                req.Headers.Remove("X-Shopify-Access-Token");
+                req.Headers.Add("X-Shopify-Access-Token", accessToken);
+
+                try
+                {
+                    resp = await _http.SendAsync(req).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    throw new InvalidOperationException("Failed to contact Shopify API", ex);
+                }
+
+                if (resp.StatusCode == HttpStatusCode.TooManyRequests)
+                {
+                    if (maxRetries-- <= 0)
+                        throw new InvalidOperationException($"Too many 429 responses from Shopify API fetching order {orderId}.");
+                    // Honour Retry-After header if present, otherwise use exponential back-off
+                    int delay = retryDelay;
+                    if (resp.Headers.TryGetValues("Retry-After", out var ra) &&
+                        double.TryParse(System.Linq.Enumerable.FirstOrDefault(ra), out var sec))
+                        delay = (int)(sec * 1000) + 200;
+                    progress?.Report($"Rate-limited (429) — retrying order {orderId} in {delay / 1000.0:0.0}s…");
+                    await Task.Delay(delay).ConfigureAwait(false);
+                    retryDelay = Math.Min(retryDelay * 2, 16000);
+                    continue;
+                }
+
+                break;
             }
 
             if (!resp.IsSuccessStatusCode)

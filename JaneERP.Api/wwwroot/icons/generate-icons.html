@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<!-- Open this file in a browser, then right-click each canvas and Save As icon-192.png / icon-512.png -->
+<html>
+<body style="background:#f0f0f0;padding:20px;font-family:sans-serif;">
+<h2>JaneERP PWA Icon Generator</h2>
+<p>Right-click each canvas → "Save image as..." → save as the filename shown below.</p>
+
+<h3>icon-192.png</h3>
+<canvas id="c192" width="192" height="192"></canvas>
+
+<h3>icon-512.png</h3>
+<canvas id="c512" width="512" height="512"></canvas>
+
+<script>
+function drawIcon(canvas) {
+  const s = canvas.width;
+  const ctx = canvas.getContext('2d');
+  const r = s * 0.25;
+
+  // Background
+  ctx.fillStyle = '#2563eb';
+  ctx.beginPath();
+  ctx.roundRect(0, 0, s, s, r);
+  ctx.fill();
+
+  // "M" letterform (same as SVG in index.html, scaled)
+  ctx.fillStyle = 'white';
+  ctx.beginPath();
+  const sx = s * 0.25, sy = s * 0.29, w = s * 0.5, h = s * 0.42;
+  // Left vertical
+  ctx.fillRect(sx, sy, w * 0.16, h);
+  // Right vertical
+  ctx.fillRect(sx + w * 0.84, sy, w * 0.16, h);
+  // Left diagonal
+  ctx.beginPath();
+  ctx.moveTo(sx, sy);
+  ctx.lineTo(sx + w * 0.16, sy);
+  ctx.lineTo(sx + w * 0.5, sy + h * 0.45);
+  ctx.lineTo(sx + w * 0.84, sy);
+  ctx.lineTo(sx + w, sy);
+  ctx.lineTo(sx + w * 0.5, sy + h * 0.65);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillRect(sx, sy, w * 0.16, h);
+  ctx.fillRect(sx + w * 0.84, sy, w * 0.16, h);
+}
+
+drawIcon(document.getElementById('c192'));
+drawIcon(document.getElementById('c512'));
+</script>
+</body>
+</html>

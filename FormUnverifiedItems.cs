@@ -1,4 +1,5 @@
 using System.Configuration;
+using System.Linq;
 using Dapper;
 using JaneERP.Data;
 using JaneERP.Models;
@@ -96,8 +97,22 @@ namespace JaneERP
             dgvProducts.Columns.Add(new DataGridViewTextBoxColumn { Name = "colType",      HeaderText = "Type",        Width = 100 });
             dgvProducts.Columns.Add(new DataGridViewTextBoxColumn { Name = "colPrice",     HeaderText = "Retail",      Width = 80  });
             dgvProducts.Columns.Add(new DataGridViewTextBoxColumn { Name = "colStock",     HeaderText = "Stock",       Width = 65  });
+            // Inline verify button column
+            dgvProducts.Columns.Add(new DataGridViewButtonColumn
+            {
+                Name = "colVerify", HeaderText = "", Text = "Verify",
+                UseColumnTextForButtonValue = true, Width = 70, ReadOnly = false
+            });
 
             dgvProducts.CellDoubleClick += DgvProducts_CellDoubleClick;
+            dgvProducts.CellClick       += (_, e) =>
+            {
+                if (e.RowIndex >= 0 && dgvProducts.Columns[e.ColumnIndex].Name == "colVerify")
+                {
+                    if (int.TryParse(dgvProducts.Rows[e.RowIndex].Cells["colProductID"].Value?.ToString(), out int id))
+                        VerifyProductIds(new List<int> { id });
+                }
+            };
 
             var pnlProductBottom = new Panel { Dock = DockStyle.Bottom, Height = 44 };
 
@@ -106,12 +121,21 @@ namespace JaneERP
             lblProductCount.ForeColor = Theme.TextSecondary;
             pnlProductBottom.Controls.Add(lblProductCount);
 
+            var btnApplyAttrs = new Button
+            {
+                Text   = "Apply Type/Attrs…",
+                Size   = new Size(140, 30),
+                Anchor = AnchorStyles.Right | AnchorStyles.Top
+            };
+            Theme.StyleSecondaryButton(btnApplyAttrs);
+            btnApplyAttrs.Click += BtnApplyAttrs_Click;
+            pnlProductBottom.Controls.Add(btnApplyAttrs);
+
             var btnVerifyAllProducts = new Button
             {
-                Text     = "✔ Verify All",
-                Size     = new Size(110, 30),
-                Location = new Point(640, 7),
-                Anchor   = AnchorStyles.Right | AnchorStyles.Top
+                Text   = "✔ Verify All",
+                Size   = new Size(110, 30),
+                Anchor = AnchorStyles.Right | AnchorStyles.Top
             };
             Theme.StyleButton(btnVerifyAllProducts);
             btnVerifyAllProducts.Click += (_, _) => VerifyProducts(getAllIds: true);
@@ -119,14 +143,22 @@ namespace JaneERP
 
             var btnVerifySelected = new Button
             {
-                Text     = "✔ Verify Selected",
-                Size     = new Size(130, 30),
-                Location = new Point(758, 7),
-                Anchor   = AnchorStyles.Right | AnchorStyles.Top
+                Text   = "✔ Verify Selected",
+                Size   = new Size(130, 30),
+                Anchor = AnchorStyles.Right | AnchorStyles.Top
             };
             Theme.StyleSecondaryButton(btnVerifySelected);
             btnVerifySelected.Click += (_, _) => VerifyProducts(getAllIds: false);
             pnlProductBottom.Controls.Add(btnVerifySelected);
+
+            // Anchor buttons to right edge
+            pnlProductBottom.Resize += (_, _) =>
+            {
+                int right = pnlProductBottom.ClientSize.Width - 8;
+                btnVerifySelected.Location = new Point(right - btnVerifySelected.Width, 7);
+                btnVerifyAllProducts.Location = new Point(btnVerifySelected.Left - btnVerifyAllProducts.Width - 8, 7);
+                btnApplyAttrs.Location = new Point(btnVerifyAllProducts.Left - btnApplyAttrs.Width - 8, 7);
+            };
 
             tabProducts.Controls.Add(dgvProducts);
             tabProducts.Controls.Add(pnlProductBottom);
@@ -148,8 +180,22 @@ namespace JaneERP
             dgvParts.Columns.Add(new DataGridViewTextBoxColumn { Name = "colPartName",   HeaderText = "Part Name", AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill });
             dgvParts.Columns.Add(new DataGridViewTextBoxColumn { Name = "colCost",       HeaderText = "Unit Cost", Width = 90  });
             dgvParts.Columns.Add(new DataGridViewTextBoxColumn { Name = "colStock",      HeaderText = "Stock",     Width = 65  });
+            // Inline verify button column
+            dgvParts.Columns.Add(new DataGridViewButtonColumn
+            {
+                Name = "colVerify", HeaderText = "", Text = "Verify",
+                UseColumnTextForButtonValue = true, Width = 70, ReadOnly = false
+            });
 
             dgvParts.CellDoubleClick += DgvParts_CellDoubleClick;
+            dgvParts.CellClick       += (_, e) =>
+            {
+                if (e.RowIndex >= 0 && dgvParts.Columns[e.ColumnIndex].Name == "colVerify")
+                {
+                    if (int.TryParse(dgvParts.Rows[e.RowIndex].Cells["colPartID"].Value?.ToString(), out int id))
+                        VerifyPartIds(new List<int> { id });
+                }
+            };
 
             var pnlPartsBottom = new Panel { Dock = DockStyle.Bottom, Height = 44 };
 
@@ -160,10 +206,9 @@ namespace JaneERP
 
             var btnVerifyAllParts = new Button
             {
-                Text     = "✔ Verify All",
-                Size     = new Size(110, 30),
-                Location = new Point(640, 7),
-                Anchor   = AnchorStyles.Right | AnchorStyles.Top
+                Text   = "✔ Verify All",
+                Size   = new Size(110, 30),
+                Anchor = AnchorStyles.Right | AnchorStyles.Top
             };
             Theme.StyleButton(btnVerifyAllParts);
             btnVerifyAllParts.Click += (_, _) => VerifyParts(getAllIds: true);
@@ -171,14 +216,20 @@ namespace JaneERP
 
             var btnVerifySelected = new Button
             {
-                Text     = "✔ Verify Selected",
-                Size     = new Size(130, 30),
-                Location = new Point(758, 7),
-                Anchor   = AnchorStyles.Right | AnchorStyles.Top
+                Text   = "✔ Verify Selected",
+                Size   = new Size(130, 30),
+                Anchor = AnchorStyles.Right | AnchorStyles.Top
             };
             Theme.StyleSecondaryButton(btnVerifySelected);
             btnVerifySelected.Click += (_, _) => VerifyParts(getAllIds: false);
             pnlPartsBottom.Controls.Add(btnVerifySelected);
+
+            pnlPartsBottom.Resize += (_, _) =>
+            {
+                int right = pnlPartsBottom.ClientSize.Width - 8;
+                btnVerifySelected.Location   = new Point(right - btnVerifySelected.Width, 7);
+                btnVerifyAllParts.Location   = new Point(btnVerifySelected.Left - btnVerifyAllParts.Width - 8, 7);
+            };
 
             tabParts.Controls.Add(dgvParts);
             tabParts.Controls.Add(pnlPartsBottom);
@@ -298,6 +349,11 @@ namespace JaneERP
                     .Select(r => int.TryParse(r.Cells["colProductID"].Value?.ToString(), out int id) ? id : 0)
                     .Where(id => id > 0).ToList();
 
+            VerifyProductIds(ids);
+        }
+
+        private void VerifyProductIds(List<int> ids)
+        {
             if (ids.Count == 0) return;
             try
             {
@@ -321,6 +377,11 @@ namespace JaneERP
                     .Select(r => int.TryParse(r.Cells["colPartID"].Value?.ToString(), out int id) ? id : 0)
                     .Where(id => id > 0).ToList();
 
+            VerifyPartIds(ids);
+        }
+
+        private void VerifyPartIds(List<int> ids)
+        {
             if (ids.Count == 0) return;
             try
             {
@@ -332,6 +393,26 @@ namespace JaneERP
             {
                 MessageBox.Show(this, ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
+        }
+
+        // ── Apply Type / Attributes to selected products ───────────────────────────
+
+        private void BtnApplyAttrs_Click(object? sender, EventArgs e)
+        {
+            var selectedIds = dgvProducts.SelectedRows.Cast<DataGridViewRow>()
+                .Select(r => int.TryParse(r.Cells["colProductID"].Value?.ToString(), out int id) ? id : 0)
+                .Where(id => id > 0).ToList();
+
+            if (selectedIds.Count == 0)
+            {
+                MessageBox.Show(this, "Select one or more products first.", "No Selection",
+                    MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            using var dlg = new FormApplyProductAttributes(selectedIds, _connStr);
+            if (dlg.ShowDialog(this) == DialogResult.OK)
+                LoadProducts();
         }
     }
 
@@ -400,6 +481,192 @@ namespace JaneERP
             Theme.StyleSecondaryButton(btnCancel);
             btnCancel.Click += (_, _) => { DialogResult = DialogResult.Cancel; Close(); };
             Controls.Add(btnCancel);
+        }
+    }
+
+    // ── Dialog: Apply Product Type + key attributes to multiple products at once ────
+
+    internal class FormApplyProductAttributes : Form
+    {
+        private readonly List<int> _productIds;
+        private readonly string    _cs;
+
+        private ComboBox     cboType  = new();
+        private DataGridView dgvAttrs = new();
+
+        private List<ProductType> _types = new();
+
+        public FormApplyProductAttributes(List<int> productIds, string connStr)
+        {
+            _productIds = productIds;
+            _cs         = connStr;
+            BuildUI();
+            Theme.Apply(this);
+            Theme.MakeBorderless(this);
+            Theme.AddCloseButton(this);
+            LoadTypes();
+        }
+
+        private void BuildUI()
+        {
+            Text          = "Apply Type / Attributes";
+            ClientSize    = new Size(500, 440);
+            MinimumSize   = new Size(420, 360);
+            StartPosition = FormStartPosition.CenterParent;
+
+            int y = 12, x = 12;
+            Controls.Add(new Label
+            {
+                Text      = $"Applying to {_productIds.Count} product{(_productIds.Count == 1 ? "" : "s")}",
+                Font      = new Font("Segoe UI", 11F, FontStyle.Bold),
+                ForeColor = Theme.Gold,
+                AutoSize  = true, Location = new Point(x, y)
+            });
+            y += 34;
+
+            Controls.Add(new Label { Text = "Product Type:", AutoSize = true, Location = new Point(x, y + 3), ForeColor = Theme.TextSecondary });
+            cboType.Location      = new Point(x + 120, y);
+            cboType.Size          = new Size(260, 24);
+            cboType.DropDownStyle = ComboBoxStyle.DropDownList;
+            cboType.DisplayMember = "TypeName";
+            Controls.Add(cboType);
+            y += 34;
+
+            Controls.Add(new Label
+            {
+                Text      = "Attribute Values  (leave Value blank to skip that attribute)",
+                Font      = new Font("Segoe UI", 8.5F),
+                ForeColor = Theme.TextSecondary,
+                AutoSize  = true,
+                Location  = new Point(x, y)
+            });
+            y += 20;
+
+            dgvAttrs.Location          = new Point(x, y);
+            dgvAttrs.Size              = new Size(470, 270);
+            dgvAttrs.Anchor            = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
+            dgvAttrs.AllowUserToAddRows    = true;
+            dgvAttrs.AllowUserToDeleteRows = true;
+            dgvAttrs.AutoGenerateColumns   = false;
+            dgvAttrs.RowHeadersVisible     = false;
+            dgvAttrs.Columns.Add(new DataGridViewTextBoxColumn { Name = "colAttrName",  HeaderText = "Attribute Name",  AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill });
+            dgvAttrs.Columns.Add(new DataGridViewTextBoxColumn { Name = "colAttrValue", HeaderText = "Value",           Width = 160 });
+            Controls.Add(dgvAttrs);
+            y += 278;
+
+            // When type is selected, load its attribute definitions into the grid
+            cboType.SelectedIndexChanged += CboType_SelectedIndexChanged;
+
+            var btnApply = new Button { Text = "Apply", Size = new Size(100, 30) };
+            Theme.StyleButton(btnApply);
+            btnApply.Click += BtnApply_Click;
+            Controls.Add(btnApply);
+
+            var btnCancel = new Button { Text = "Cancel", Size = new Size(80, 30) };
+            Theme.StyleSecondaryButton(btnCancel);
+            btnCancel.Click += (_, _) => { DialogResult = DialogResult.Cancel; Close(); };
+            Controls.Add(btnCancel);
+
+            SizeChanged += (_, _) => PositionButtons(btnApply, btnCancel);
+            Load        += (_, _) => PositionButtons(btnApply, btnCancel);
+        }
+
+        private void PositionButtons(Button btnApply, Button btnCancel)
+        {
+            int bottom = ClientSize.Height - 8;
+            int right  = ClientSize.Width  - 12;
+            btnCancel.Location = new Point(right - btnCancel.Width, bottom - btnCancel.Height);
+            btnApply.Location  = new Point(btnCancel.Left - btnApply.Width - 8, bottom - btnApply.Height);
+            dgvAttrs.Height    = Math.Max(80, btnApply.Top - dgvAttrs.Top - 8);
+        }
+
+        private void LoadTypes()
+        {
+            try
+            {
+                _types = new ProductTypeRepository().GetAll();
+                cboType.Items.Clear();
+                cboType.Items.Add(new ProductType { ProductTypeID = 0, TypeName = "(no change)" });
+                foreach (var t in _types) cboType.Items.Add(t);
+                cboType.SelectedIndex = 0;
+            }
+            catch { /* best effort */ }
+        }
+
+        private void CboType_SelectedIndexChanged(object? sender, EventArgs e)
+        {
+            dgvAttrs.Rows.Clear();
+            if (cboType.SelectedItem is not ProductType pt || pt.ProductTypeID == 0) return;
+            try
+            {
+                using var db = new SqlConnection(_cs);
+                var attrNames = db.Query<string>(
+                    "SELECT AttributeName FROM ProductTypeAttributes WHERE ProductTypeID = @id ORDER BY AttributeName",
+                    new { id = pt.ProductTypeID }).ToList();
+                foreach (var name in attrNames)
+                    dgvAttrs.Rows.Add(name, "");
+            }
+            catch { /* best effort */ }
+        }
+
+        private void BtnApply_Click(object? sender, EventArgs e)
+        {
+            var selectedType = cboType.SelectedItem as ProductType;
+            int? typeId      = (selectedType?.ProductTypeID > 0) ? selectedType.ProductTypeID : (int?)null;
+
+            // Collect attribute key-value pairs (skip blank values)
+            var attrs = new List<(string Name, string Value)>();
+            foreach (DataGridViewRow row in dgvAttrs.Rows)
+            {
+                if (row.IsNewRow) continue;
+                var name  = row.Cells["colAttrName"].Value?.ToString()?.Trim() ?? "";
+                var value = row.Cells["colAttrValue"].Value?.ToString()?.Trim() ?? "";
+                if (!string.IsNullOrEmpty(name) && !string.IsNullOrEmpty(value))
+                    attrs.Add((name, value));
+            }
+
+            if (typeId == null && attrs.Count == 0)
+            {
+                MessageBox.Show(this, "Select a product type or enter at least one attribute value.",
+                    "Nothing to Apply", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            try
+            {
+                using var db = new SqlConnection(_cs);
+                db.Open();
+                using var tx = db.BeginTransaction();
+
+                if (typeId.HasValue)
+                    db.Execute("UPDATE Products SET ProductTypeID = @typeId WHERE ProductID IN @ids",
+                        new { typeId = typeId.Value, ids = _productIds }, tx);
+
+                foreach (int pid in _productIds)
+                {
+                    foreach (var (name, value) in attrs)
+                    {
+                        db.Execute(@"
+                            IF EXISTS (SELECT 1 FROM ProductAttributes WHERE ProductID=@pid AND AttributeName=@name)
+                                UPDATE ProductAttributes SET AttributeValue=@value WHERE ProductID=@pid AND AttributeName=@name
+                            ELSE
+                                INSERT INTO ProductAttributes (ProductID, AttributeName, AttributeValue)
+                                VALUES (@pid, @name, @value)",
+                            new { pid, name, value }, tx);
+                    }
+                }
+
+                tx.Commit();
+                MessageBox.Show(this,
+                    $"Applied to {_productIds.Count} product{(_productIds.Count == 1 ? "" : "s")}.",
+                    "Done", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                DialogResult = DialogResult.OK;
+                Close();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, "Failed: " + ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
         }
     }
 }

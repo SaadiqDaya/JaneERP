@@ -10,12 +10,15 @@ namespace JaneERP
     {
         private readonly ManufacturingRepository _moRepo = new();
 
-        private DataGridView dgvWOs    = new();
-        private TextBox      txtNotes  = new();
-        private Button       btnStart  = new();
-        private Button       btnComplete = new();
-        private Button       btnClose  = new();
-        private Label        lblSel    = new();
+        private DataGridView   dgvWOs      = new();
+        private TextBox        txtNotes    = new();
+        private Button         btnStart    = new();
+        private Button         btnComplete = new();
+        private Button         btnClose    = new();
+        private Label          lblSel      = new();
+        private DateTimePicker dtpFrom     = new();
+        private DateTimePicker dtpTo       = new();
+        private CheckBox       chkDateFilter = new();
 
         public FormWorkOrders()
         {
@@ -37,6 +40,31 @@ namespace JaneERP
                 ForeColor = Theme.Gold, AutoSize = true, Location = new Point(12, 12) };
             Controls.Add(lbl);
 
+            // ── Date range filter ─────────────────────────────────────────────────
+            chkDateFilter.Text     = "Filter by date:";
+            chkDateFilter.AutoSize = true;
+            chkDateFilter.Location = new Point(220, 14);
+            chkDateFilter.CheckedChanged += (_, _) => { dtpFrom.Enabled = dtpTo.Enabled = chkDateFilter.Checked; LoadWorkOrders(); };
+            Controls.Add(chkDateFilter);
+
+            dtpFrom.Location = new Point(336, 10);
+            dtpFrom.Size     = new Size(120, 23);
+            dtpFrom.Format   = DateTimePickerFormat.Short;
+            dtpFrom.Value    = DateTime.Today.AddMonths(-1);
+            dtpFrom.Enabled  = false;
+            dtpFrom.ValueChanged += (_, _) => { if (chkDateFilter.Checked) LoadWorkOrders(); };
+            Controls.Add(dtpFrom);
+
+            Controls.Add(new Label { Text = "→", Location = new Point(460, 14), AutoSize = true });
+
+            dtpTo.Location = new Point(478, 10);
+            dtpTo.Size     = new Size(120, 23);
+            dtpTo.Format   = DateTimePickerFormat.Short;
+            dtpTo.Value    = DateTime.Today;
+            dtpTo.Enabled  = false;
+            dtpTo.ValueChanged += (_, _) => { if (chkDateFilter.Checked) LoadWorkOrders(); };
+            Controls.Add(dtpTo);
+
             dgvWOs.Location          = new Point(12, 40);
             dgvWOs.Size              = new Size(876, 380);
             dgvWOs.Anchor            = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
@@ -44,7 +72,7 @@ namespace JaneERP
             dgvWOs.AllowUserToAddRows    = false;
             dgvWOs.AllowUserToDeleteRows = false;
             dgvWOs.SelectionMode     = DataGridViewSelectionMode.FullRowSelect;
-            dgvWOs.MultiSelect       = false;
+            dgvWOs.MultiSelect       = true;
             dgvWOs.AutoGenerateColumns = false;
             dgvWOs.Columns.Add(new DataGridViewTextBoxColumn { Name = "cWOID",    HeaderText = "WO #",     DataPropertyName = "WorkOrderID", Width = 60  });
             dgvWOs.Columns.Add(new DataGridViewTextBoxColumn { Name = "cMOID",    HeaderText = "MO #",     DataPropertyName = "MOID",        Width = 60  });
@@ -55,8 +83,13 @@ namespace JaneERP
             dgvWOs.Columns.Add(new DataGridViewTextBoxColumn { Name = "cNotes",   HeaderText = "Notes",    DataPropertyName = "Notes",       Width = 180 });
             dgvWOs.SelectionChanged += (_, _) =>
             {
-                var wo = SelectedWO();
-                lblSel.Text = wo == null ? "" : $"Selected: {wo.ProductName} × {wo.Quantity}";
+                var wos = SelectedWOs();
+                lblSel.Text = wos.Count switch
+                {
+                    0 => "",
+                    1 => $"Selected: {wos[0].ProductName} × {wos[0].Quantity}",
+                    _ => $"{wos.Count} work orders selected"
+                };
             };
             Controls.Add(dgvWOs);
 
@@ -79,9 +112,9 @@ namespace JaneERP
             btnStart.Click   += BtnStart_Click;
             Controls.Add(btnStart);
 
-            btnComplete.Text     = "Mark Complete + Add Stock";
-            btnComplete.Location = new Point(668, 468);
-            btnComplete.Size     = new Size(180, 30);
+            btnComplete.Text     = "Complete Selected + Add Stock";
+            btnComplete.Location = new Point(648, 468);
+            btnComplete.Size     = new Size(200, 30);
             btnComplete.Anchor   = AnchorStyles.Bottom | AnchorStyles.Left;
             btnComplete.Click   += BtnComplete_Click;
             Controls.Add(btnComplete);
@@ -98,7 +131,9 @@ namespace JaneERP
         {
             try
             {
-                dgvWOs.DataSource = _moRepo.GetPendingWorkOrders();
+                DateTime? from = chkDateFilter.Checked ? dtpFrom.Value.Date : (DateTime?)null;
+                DateTime? to   = chkDateFilter.Checked ? dtpTo.Value.Date   : (DateTime?)null;
+                dgvWOs.DataSource = _moRepo.GetPendingWorkOrders(from, to);
             }
             catch (Exception ex)
             {
@@ -107,20 +142,42 @@ namespace JaneERP
             }
         }
 
-        private WorkOrder? SelectedWO()
-        {
-            if (dgvWOs.SelectedRows.Count == 0) return null;
-            return dgvWOs.SelectedRows[0].DataBoundItem as WorkOrder;
-        }
+        private WorkOrder? SelectedWO() =>
+            dgvWOs.SelectedRows.Count == 0 ? null : dgvWOs.SelectedRows[0].DataBoundItem as WorkOrder;
+
+        private List<WorkOrder> SelectedWOs() =>
+            dgvWOs.SelectedRows
+                  .Cast<DataGridViewRow>()
+                  .Select(r => r.DataBoundItem as WorkOrder)
+                  .Where(w => w != null)
+                  .Select(w => w!)
+                  .ToList();
 
         private void BtnStart_Click(object? sender, EventArgs e)
         {
             var wo = SelectedWO();
-            if (wo == null) { MessageBox.Show(this, "Select a work order first.", "No Selection", MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
+            if (wo == null)
+            {
+                MessageBox.Show(this, "Select a work order first.", "No Selection",
+                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
 
             try
             {
+                var lines = _moRepo.GetWOReservationItems(wo.WorkOrderID);
+                if (lines.Count > 0)
+                {
+                    using var resForm = new FormStockReservation(
+                        $"Reserve Parts — WO #{wo.WorkOrderID}  ({wo.ProductName} × {wo.Quantity})", lines);
+                    if (resForm.ShowDialog(this) != DialogResult.OK) return;
+                    if (resForm.ConfirmedLines?.Count > 0)
+                        _moRepo.SaveWOReservations(wo.WorkOrderID, resForm.ConfirmedLines);
+                }
+
                 _moRepo.UpdateWorkOrderStatus(wo.WorkOrderID, "InProgress");
+                AppLogger.Audit(AppSession.CurrentUser?.Username, "WorkOrderStarted",
+                    $"WO#{wo.WorkOrderID} product={wo.ProductName} qty={wo.Quantity}");
                 LoadWorkOrders();
             }
             catch (Exception ex)
@@ -131,29 +188,70 @@ namespace JaneERP
 
         private void BtnComplete_Click(object? sender, EventArgs e)
         {
-            var wo = SelectedWO();
-            if (wo == null) { MessageBox.Show(this, "Select a work order first.", "No Selection", MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
+            var wos = SelectedWOs();
+            if (wos.Count == 0)
+            {
+                MessageBox.Show(this, "Select one or more work orders first.", "No Selection",
+                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            // Aggregate parts shortages across all selected WOs
+            var allShortages = new List<string>();
+            foreach (var wo in wos)
+            {
+                var negParts = _moRepo.GetNegativePartsForWorkOrder(wo.WorkOrderID);
+                foreach (var p in negParts)
+                    allShortages.Add($"  WO#{wo.WorkOrderID} {p.PartName}: need {p.RequiredQty}, have {p.CurrentStock}");
+            }
+
+            if (allShortages.Count > 0)
+            {
+                var warn = MessageBox.Show(this,
+                    $"Insufficient parts stock for {(wos.Count == 1 ? "this work order" : "some work orders")}:\n\n" +
+                    string.Join("\n", allShortages) +
+                    "\n\nCompleting will result in negative part stock. Continue anyway?",
+                    "Insufficient Parts Warning", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
+                if (warn != DialogResult.Yes) return;
+            }
+
+            // Single confirmation for all selected WOs
+            string summary = wos.Count == 1
+                ? $"WO #{wos[0].WorkOrderID} — {wos[0].ProductName} × {wos[0].Quantity}"
+                : $"{wos.Count} work orders:\n" + string.Join("\n", wos.Select(w => $"  • WO #{w.WorkOrderID} {w.ProductName} × {w.Quantity}"));
 
             if (MessageBox.Show(this,
-                    $"Complete WO #{wo.WorkOrderID}?\n\nThis will add {wo.Quantity} unit(s) of '{wo.ProductName}' to inventory.",
+                    $"Complete the following?\n\n{summary}\n\nThis will add finished goods to inventory and deduct BOM parts.",
                     "Confirm Complete", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
                 return;
 
-            try
-            {
-                // CompleteWorkOrder atomically marks done + adds finished-goods + deducts BOM parts
-                _moRepo.CompleteWorkOrder(wo.WorkOrderID, txtNotes.Text.Trim());
+            string notes = txtNotes.Text.Trim();
+            int succeeded = 0, failed = 0;
+            var errors = new List<string>();
 
-                AppLogger.Audit(AppSession.CurrentUser?.Username, "WorkOrderComplete",
-                    $"WO#{wo.WorkOrderID} product={wo.ProductName} qty={wo.Quantity}");
-
-                txtNotes.Clear();
-                LoadWorkOrders();
-            }
-            catch (Exception ex)
+            foreach (var wo in wos)
             {
-                MessageBox.Show(this, ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                try
+                {
+                    _moRepo.CompleteWorkOrder(wo.WorkOrderID, notes);
+                    AppLogger.Audit(AppSession.CurrentUser?.Username, "WorkOrderComplete",
+                        $"WO#{wo.WorkOrderID} product={wo.ProductName} qty={wo.Quantity}");
+                    succeeded++;
+                }
+                catch (Exception ex)
+                {
+                    errors.Add($"WO#{wo.WorkOrderID}: {ex.Message}");
+                    failed++;
+                }
             }
+
+            txtNotes.Clear();
+            LoadWorkOrders();
+
+            if (failed > 0)
+                MessageBox.Show(this,
+                    $"{succeeded} completed, {failed} failed:\n\n" + string.Join("\n", errors),
+                    "Partial Completion", MessageBoxButtons.OK, MessageBoxIcon.Warning);
         }
     }
 }

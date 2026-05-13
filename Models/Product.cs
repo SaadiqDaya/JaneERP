@@ -8,6 +8,8 @@ namespace JaneERP.Models
         public decimal RetailPrice        { get; set; }
         public decimal WholesalePrice    { get; set; }
         public int     CurrentStock      { get; set; }
+        /// <summary>Qty soft-locked by open Live/WIP sales orders. Available = CurrentStock - ReservedQty.</summary>
+        public int     ReservedQty       { get; set; }
         public int     ReorderPoint      { get; set; } = 0;
         /// <summary>Target stock level to order up to when restocking.</summary>
         public int     OrderUpTo         { get; set; } = 0;

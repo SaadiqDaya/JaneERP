@@ -63,7 +63,7 @@
             txtSearch.TabIndex = 2;
 
             // dgvProducts
-            dgvProducts.Anchor          = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
+            dgvProducts.Anchor          = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
             dgvProducts.ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.AutoSize;
             dgvProducts.Location        = new Point(12, 62);
             dgvProducts.MultiSelect     = false;
@@ -93,7 +93,7 @@
             dgvDetails.ReadOnly        = true;
             dgvDetails.RowTemplate.Height = 22;
             dgvDetails.SelectionMode   = DataGridViewSelectionMode.FullRowSelect;
-            dgvDetails.Size            = new Size(330, 403);
+            dgvDetails.Size            = new Size(330, 520);
             dgvDetails.TabIndex        = 4;
 
             // lblInventorySummary — stock totals status bar above the product grid
@@ -106,7 +106,7 @@
             lblInventorySummary.Font     = new Font("Segoe UI", 8.5F);
 
             // lblHistoryHeader
-            lblHistoryHeader.Anchor   = AnchorStyles.Bottom | AnchorStyles.Left;
+            lblHistoryHeader.Anchor   = AnchorStyles.Top | AnchorStyles.Left;
             lblHistoryHeader.AutoSize = true;
             lblHistoryHeader.Font     = new Font("Segoe UI", 9F, FontStyle.Bold);
             lblHistoryHeader.Location = new Point(12, 283);
@@ -114,7 +114,7 @@
             lblHistoryHeader.Text     = "Stock Transaction History";
 
             // dgvHistory
-            dgvHistory.Anchor          = AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
+            dgvHistory.Anchor          = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
             dgvHistory.ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.AutoSize;
             dgvHistory.Location        = new Point(12, 303);
             dgvHistory.MultiSelect     = false;
@@ -122,12 +122,12 @@
             dgvHistory.ReadOnly        = true;
             dgvHistory.RowTemplate.Height = 23;
             dgvHistory.SelectionMode   = DataGridViewSelectionMode.FullRowSelect;
-            dgvHistory.Size            = new Size(820, 175);
+            dgvHistory.Size            = new Size(820, 150);
             dgvHistory.TabIndex        = 5;
 
             // btnLocations
             btnLocations.Anchor    = AnchorStyles.Bottom | AnchorStyles.Left;
-            btnLocations.Location  = new Point(12, 495);
+            btnLocations.Location  = new Point(12, 600);
             btnLocations.Name      = "btnLocations";
             btnLocations.Size      = new Size(105, 30);
             btnLocations.TabIndex  = 12;
@@ -137,7 +137,7 @@
 
             // btnAdd
             btnAdd.Anchor              = AnchorStyles.Bottom | AnchorStyles.Left;
-            btnAdd.Location            = new Point(125, 495);
+            btnAdd.Location            = new Point(125, 600);
             btnAdd.Name                = "btnAdd";
             btnAdd.Size                = new Size(110, 30);
             btnAdd.TabIndex            = 6;
@@ -147,7 +147,7 @@
 
             // btnLoad
             btnLoad.Anchor             = AnchorStyles.Bottom | AnchorStyles.Left;
-            btnLoad.Location           = new Point(243, 495);
+            btnLoad.Location           = new Point(243, 600);
             btnLoad.Name               = "btnLoad";
             btnLoad.Size               = new Size(110, 30);
             btnLoad.TabIndex           = 7;
@@ -157,7 +157,7 @@
 
             // btnEdit
             btnEdit.Anchor             = AnchorStyles.Bottom | AnchorStyles.Left;
-            btnEdit.Location           = new Point(361, 495);
+            btnEdit.Location           = new Point(361, 600);
             btnEdit.Name               = "btnEdit";
             btnEdit.Size               = new Size(110, 30);
             btnEdit.TabIndex           = 8;
@@ -167,7 +167,7 @@
 
             // btnDeactivate
             btnDeactivate.Anchor       = AnchorStyles.Bottom | AnchorStyles.Left;
-            btnDeactivate.Location     = new Point(479, 495);
+            btnDeactivate.Location     = new Point(479, 600);
             btnDeactivate.Name         = "btnDeactivate";
             btnDeactivate.Size         = new Size(130, 30);
             btnDeactivate.TabIndex     = 9;
@@ -177,7 +177,7 @@
 
             // btnAdjustStock
             btnAdjustStock.Anchor      = AnchorStyles.Bottom | AnchorStyles.Left;
-            btnAdjustStock.Location    = new Point(617, 495);
+            btnAdjustStock.Location    = new Point(617, 600);
             btnAdjustStock.Name        = "btnAdjustStock";
             btnAdjustStock.Size        = new Size(120, 30);
             btnAdjustStock.TabIndex    = 10;
@@ -187,7 +187,7 @@
 
             // btnTransfer
             btnTransfer.Anchor         = AnchorStyles.Bottom | AnchorStyles.Left;
-            btnTransfer.Location       = new Point(745, 495);
+            btnTransfer.Location       = new Point(745, 600);
             btnTransfer.Name           = "btnTransfer";
             btnTransfer.Size           = new Size(120, 30);
             btnTransfer.TabIndex       = 14;
@@ -197,7 +197,7 @@
 
             // btnImportCSV
             btnImportCSV.Anchor        = AnchorStyles.Bottom | AnchorStyles.Left;
-            btnImportCSV.Location      = new Point(883, 495);
+            btnImportCSV.Location      = new Point(883, 600);
             btnImportCSV.Name          = "btnImportCSV";
             btnImportCSV.Size          = new Size(130, 30);
             btnImportCSV.TabIndex      = 11;
@@ -207,7 +207,7 @@
 
             // btnExportCSV
             btnExportCSV.Anchor        = AnchorStyles.Bottom | AnchorStyles.Left;
-            btnExportCSV.Location      = new Point(1021, 495);
+            btnExportCSV.Location      = new Point(1021, 600);
             btnExportCSV.Name          = "btnExportCSV";
             btnExportCSV.Size          = new Size(130, 30);
             btnExportCSV.TabIndex      = 13;
@@ -218,8 +218,8 @@
             // Form1
             AutoScaleDimensions = new SizeF(7F, 15F);
             AutoScaleMode       = AutoScaleMode.Font;
-            ClientSize          = new Size(1200, 545);
-            MinimumSize         = new Size(1200, 545);
+            ClientSize          = new Size(1200, 650);
+            MinimumSize         = new Size(1200, 650);
             Controls.Add(lblHeader);
             Controls.Add(chkShowInactive);
             Controls.Add(txtSearch);

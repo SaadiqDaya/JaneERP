@@ -1,12 +1,13 @@
 using System.Configuration;
 using System.Data;
 using Dapper;
+using JaneERP.Interfaces;
 using JaneERP.Models;
 using Microsoft.Data.SqlClient;
 
 namespace JaneERP.Data
 {
-    public class PartRepository
+    public class PartRepository : IPartRepository
     {
         private readonly string _connectionString =
             ConfigurationManager.ConnectionStrings["MyERP"]?.ConnectionString
@@ -112,7 +113,8 @@ namespace JaneERP.Data
         {
             using IDbConnection db = new SqlConnection(_connectionString);
             return db.Query<BomEntry>(@"
-                SELECT pp.ProductID, pp.PartID, p.PartNumber, p.PartName, pp.Quantity
+                SELECT pp.ProductID, pp.PartID, p.PartNumber, p.PartName, pp.Quantity,
+                       ISNULL(p.UnitCost, 0) AS UnitCost
                 FROM   ProductParts pp
                 JOIN   Parts p ON p.PartID = pp.PartID
                 WHERE  pp.ProductID = @productId
@@ -165,6 +167,22 @@ namespace JaneERP.Data
                 tx.Commit();
             }
             catch { tx.Rollback(); throw; }
+        }
+
+        /// <summary>Returns all active products that have at least one BOM part, with their BOM number and part count.</summary>
+        public List<(int ProductID, string ProductName, string? BomNumber, int PartCount)> GetProductsWithBoms()
+        {
+            using IDbConnection db = new SqlConnection(_connectionString);
+            return db.Query(@"
+                SELECT p.ProductID, p.ProductName, p.BomNumber,
+                       COUNT(pp.PartID) AS PartCount
+                FROM   Products p
+                JOIN   ProductParts pp ON pp.ProductID = p.ProductID
+                WHERE  p.IsActive = 1
+                GROUP BY p.ProductID, p.ProductName, p.BomNumber
+                ORDER BY p.ProductName")
+                .Select(r => ((int)r.ProductID, (string)r.ProductName, (string?)r.BomNumber, (int)r.PartCount))
+                .ToList();
         }
     }
 }

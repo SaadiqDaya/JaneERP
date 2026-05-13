@@ -25,6 +25,7 @@ namespace JaneERP
 
             // Pre-fill last username if the setting is on
             var cfg = AppSettings.Current;
+            chkRememberUsername.Checked = cfg.RememberLastUsername;
             if (cfg.RememberLastUsername && !string.IsNullOrWhiteSpace(cfg.LastUsername))
             {
                 txtUsername.Text = cfg.LastUsername;
@@ -130,7 +131,7 @@ namespace JaneERP
                     else
                     {
                         var attempts  = fresh?.FailedLoginCount ?? 0;
-                        var remaining2 = UserRepository.MaxLoginAttempts - attempts;
+                        var remaining2 = _repo.MaxLoginAttempts - attempts;
                         var msg = attempts == 0
                             ? "Incorrect username or password."
                             : $"Incorrect password — {remaining2} attempt{(remaining2 == 1 ? "" : "s")} remaining before lockout.";
@@ -144,13 +145,12 @@ namespace JaneERP
                 AppSession.SetUser(user);
                 AppLogger.Audit(user.Username, "Login", $"Role={user.Role}");
 
-                // Remember last username if the setting is on
+                // Persist remember-username preference from the checkbox
                 var cfgSave = AppSettings.Current;
-                if (cfgSave.RememberLastUsername)
-                {
+                cfgSave.RememberLastUsername = chkRememberUsername.Checked;
+                if (chkRememberUsername.Checked)
                     cfgSave.LastUsername = user.Username;
-                    cfgSave.Save();
-                }
+                cfgSave.Save();
 
                 LaunchMainMenu(user);
             }

@@ -1,13 +1,14 @@
 using System.Configuration;
 using System.Data;
 using Dapper;
+using JaneERP.Interfaces;
 using JaneERP.Models;
 using JaneERP.Logging;
 using Microsoft.Data.SqlClient;
 
 namespace JaneERP.Data
 {
-    public class LocationRepository
+    public class LocationRepository : ILocationRepository
     {
         private readonly string _connectionString =
             ConfigurationManager.ConnectionStrings["MyERP"]?.ConnectionString

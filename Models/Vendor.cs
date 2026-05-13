@@ -9,5 +9,7 @@ namespace JaneERP.Models
         public string? Phone      { get; set; }
         public string? Website    { get; set; }
         public bool   IsActive    { get; set; } = true;
+
+        public override string ToString() => VendorName;
     }
 }

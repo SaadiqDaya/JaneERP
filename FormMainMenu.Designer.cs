@@ -22,6 +22,7 @@ namespace JaneERP
         private Button btnSales;
         private Button btnPurchaseOrders;
         private Button btnManufacturing;
+        private Button btnWorkOrders;
         private Button btnProductSearch;
         private Button btnTaskManager;
         private Button btnCycleCount;
@@ -39,8 +40,12 @@ namespace JaneERP
         private Button btnExport;
         private Button btnImports;
         private Button btnBreakeven;
+        private Button btnAccounting;
         private Button btnJane;
         private Button btnOphelia;
+        private Button btnShopifyStores;
+        private Button btnCustomers;
+        private Button btnVendors;
         private Button btnExitApp;
 
         // ── Misc ──────────────────────────────────────────────────────────────
@@ -75,6 +80,7 @@ namespace JaneERP
             btnSales          = MakeIconButton("\U0001F6D2", "Sales",           btnSales_Click);
             btnPurchaseOrders = MakeIconButton("\U0001F69B", "Purchase",        btnPurchaseOrders_Click);
             btnManufacturing  = MakeIconButton("\U0001F3ED", "Mfg",             btnManufacturing_Click);
+            btnWorkOrders     = MakeIconButton("\U0001F6E0", "Work Orders",     btnWorkOrders_Click);
             btnProductSearch  = MakeIconButton("\U0001F50D", "Product Explorer",btnProductSearch_Click);
             btnTaskManager    = MakeIconButton("\u2705",     "Tasks",           btnTaskManager_Click);
             btnCycleCount     = MakeIconButton("\U0001F504", "Cycle Count",     btnCycleCount_Click);
@@ -92,8 +98,16 @@ namespace JaneERP
             btnExport         = MakeIconButton("\U0001F4BE", "Exports",         btnExport_Click);
             btnImports        = MakeIconButton("\U0001F4E5", "Imports",         btnImports_Click);
             btnBreakeven      = MakeIconButton("\U0001F4B9", "Breakeven",       btnBreakeven_Click);
-            btnJane           = MakeIconButton("\U0001F4DE", "Call Jane",       btnJane_Click);
-            btnOphelia        = MakeIconButton("\U0001F4F1", "Call Ophelia",    btnOphelia_Click);
+            btnAccounting     = MakeIconButton("\U0001F4B0", "Accounting",      btnAccounting_Click);
+            btnShopifyStores  = MakeIconButton("\U0001F6D2", "Shopify Stores",  btnShopifyStores_Click);
+            btnCustomers      = MakeIconButton("\U0001F465", "Customers",        btnCustomers_Click);
+            btnVendors        = MakeIconButton("\U0001F3ED", "Vendors",          btnVendors_Click);
+
+            // Header quick-dial buttons — plain style (NOT MakeIconButton so no neon tile paint handler)
+            btnJane   = new Button { Text = "\U0001F4DE Jane",    UseVisualStyleBackColor = false };
+            btnOphelia = new Button { Text = "\U0001F4F1 Ophelia", UseVisualStyleBackColor = false };
+            btnJane.Click   += btnJane_Click;
+            btnOphelia.Click += btnOphelia_Click;
 
             // ── Tooltips ──────────────────────────────────────────────────────
             toolTip1.SetToolTip(btnInventory,      "Inventory Manager — browse and manage products");
@@ -102,6 +116,7 @@ namespace JaneERP
             toolTip1.SetToolTip(btnSales,          "View and manage Shopify & manual sales orders");
             toolTip1.SetToolTip(btnPurchaseOrders, "Create and manage supplier purchase orders");
             toolTip1.SetToolTip(btnManufacturing,  "Work orders and production management");
+            toolTip1.SetToolTip(btnWorkOrders,     "Process open work orders directly");
             toolTip1.SetToolTip(btnTaskManager,    "Create tasks, assign to team members");
             toolTip1.SetToolTip(btnCycleCount,     "Schedule and record stock cycle counts");
             toolTip1.SetToolTip(btnLocations,      "Manage warehouse storage locations");
@@ -118,7 +133,11 @@ namespace JaneERP
             toolTip1.SetToolTip(btnSettings,       "Configure theme, logo, colors and app settings");
             toolTip1.SetToolTip(btnExport,         "Export ERP data to CSV files");
             toolTip1.SetToolTip(btnImports,        "Import data from CSV files into the ERP");
+            toolTip1.SetToolTip(btnShopifyStores,  "Add, edit, and test Shopify store connections");
+            toolTip1.SetToolTip(btnCustomers,      "Browse customers and their order history");
+            toolTip1.SetToolTip(btnVendors,        "Manage vendors and the parts they supply");
             toolTip1.SetToolTip(btnBreakeven,      "Breakeven & margin calculator");
+            toolTip1.SetToolTip(btnAccounting,     "Accounting — revenue, COGS, expenses and net profit");
             toolTip1.SetToolTip(btnJane,           "Dial Jane directly from this screen");
             toolTip1.SetToolTip(btnOphelia,        "Dial Ophelia directly from this screen");
             toolTip1.SetToolTip(btnProductSearch,  "Explore products with custom attribute filters");
@@ -240,12 +259,13 @@ namespace JaneERP
             pnlHeader.Controls.Add(headerAccentLine);
 
             // ── Grid Panel ────────────────────────────────────────────────────
-            pnlGrid.Dock          = DockStyle.Fill;
-            pnlGrid.FlowDirection = FlowDirection.LeftToRight;
-            pnlGrid.WrapContents  = true;
-            pnlGrid.AutoScroll    = true;
-            pnlGrid.Padding       = new Padding(18, 14, 18, 18);
-            pnlGrid.BackColor     = Theme.Background;
+            pnlGrid.Dock              = DockStyle.Fill;
+            pnlGrid.FlowDirection     = FlowDirection.LeftToRight;
+            pnlGrid.WrapContents      = true;
+            pnlGrid.AutoScroll        = true;
+            pnlGrid.AutoScrollMargin  = new Size(0, 80); // extra scrollable margin so last row clears the window edge
+            pnlGrid.Padding           = new Padding(18, 14, 18, 200); // generous bottom padding so last row is fully visible
+            pnlGrid.BackColor         = Theme.Background;
 
             // ── Group header helper ──────────────────────────────────────────
             var _grpHeaders = new List<Control>();
@@ -290,6 +310,9 @@ namespace JaneERP
             pnlGrid.SetFlowBreak(hdrSales, true);
             pnlGrid.Controls.Add(btnSales);
             pnlGrid.Controls.Add(btnPurchaseOrders);
+            pnlGrid.Controls.Add(btnCustomers);
+            pnlGrid.Controls.Add(btnVendors);
+            pnlGrid.Controls.Add(btnShopifyStores);
             var sp1 = GrpSpacer(); pnlGrid.Controls.Add(sp1); pnlGrid.SetFlowBreak(sp1, true);
 
             // ── Section: Products & Inventory ────────────────────────────────
@@ -315,6 +338,7 @@ namespace JaneERP
             pnlGrid.Controls.Add(hdrMfg);
             pnlGrid.SetFlowBreak(hdrMfg, true);
             pnlGrid.Controls.Add(btnManufacturing);
+            pnlGrid.Controls.Add(btnWorkOrders);
             var sp3 = GrpSpacer(); pnlGrid.Controls.Add(sp3); pnlGrid.SetFlowBreak(sp3, true);
 
             // ── Section: Analytics & Reports ─────────────────────────────────
@@ -324,6 +348,7 @@ namespace JaneERP
             pnlGrid.Controls.Add(btnDashboard);
             pnlGrid.Controls.Add(btnReports);
             pnlGrid.Controls.Add(btnBreakeven);
+            pnlGrid.Controls.Add(btnAccounting);
             var sp4 = GrpSpacer(); pnlGrid.Controls.Add(sp4); pnlGrid.SetFlowBreak(sp4, true);
 
             // ── Section: Data ─────────────────────────────────────────────────
@@ -360,8 +385,8 @@ namespace JaneERP
             // ── Form ──────────────────────────────────────────────────────────
             AutoScaleDimensions = new SizeF(7F, 15F);
             AutoScaleMode       = AutoScaleMode.Font;
-            ClientSize          = new Size(940, 720);
-            MinimumSize         = new Size(660, 540);
+            ClientSize          = new Size(980, 800);
+            MinimumSize         = new Size(700, 600);
             FormBorderStyle     = FormBorderStyle.None;
             MaximizeBox         = false;
             Name                = "FormMainMenu";

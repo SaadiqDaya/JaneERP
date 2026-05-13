@@ -18,6 +18,12 @@ namespace JaneERP
         // Full unfiltered product list — search filters in-memory against this
         private List<Product> _allProducts = [];
 
+        // Stock status filter value set by the filter ComboBox
+        private string _stockStatusFilter = "All";
+
+        // Dedicated stock-by-location grid added below transaction history
+        private DataGridView _dgvStockByLocation = null!;
+
         // Class-level repos — avoid creating a new instance on every selection change
         private readonly ProductRepository _repo    = new();
         private readonly Data.PartRepository _partRepo = new();
@@ -42,6 +48,41 @@ namespace JaneERP
             ApplyPermissions();
             txtSearch.PlaceholderText = "Search SKU or Name…";
             txtSearch.TextChanged    += TxtSearch_TextChanged;
+
+            // ── Stock status filter ComboBox ───────────────────────────────────────
+            var cboStock = new ComboBox
+            {
+                DropDownStyle = ComboBoxStyle.DropDownList,
+                Location      = new Point(450, 16),
+                Size          = new Size(148, 23),
+                Font          = txtSearch.Font
+            };
+            cboStock.Items.AddRange(new object[] { "All", "In Stock", "Low Stock", "Out of Stock" });
+            cboStock.SelectedIndex = 0;
+            cboStock.SelectedIndexChanged += (_, _) =>
+            {
+                _stockStatusFilter = cboStock.SelectedItem?.ToString() ?? "All";
+                ApplyInventoryFilters();
+            };
+            Controls.Add(cboStock);
+
+            Controls.Add(new Label
+            {
+                Text      = "Status:",
+                Location  = new Point(406, 19),
+                AutoSize  = true,
+                ForeColor = Theme.TextSecondary,
+                Font      = new Font("Segoe UI", 8.5F)
+            });
+
+            // Wire debounced selection refresh
+            _selectionDebounce.Tick += (_, _) => { _selectionDebounce.Stop(); RefreshDetailsPanel(); };
+            dgvProducts.SelectionChanged += (_, _) => ScheduleSelectionRefresh();
+
+            // Configure grids BEFORE loading data so DataBindingComplete fires with handlers attached
+            ConfigureHistoryGrid();
+            ConfigureProductGrid();
+
             try { LoadProducts(); }
             catch (Exception ex)
             {
@@ -63,13 +104,6 @@ namespace JaneERP
                 }
             };
 
-            // Wire debounced selection refresh
-            _selectionDebounce.Tick += (_, _) => { _selectionDebounce.Stop(); RefreshDetailsPanel(); };
-            dgvProducts.SelectionChanged += (_, _) => ScheduleSelectionRefresh();
-
-            ConfigureHistoryGrid();
-            ConfigureProductGrid();
-
             // Configure the details DataGridView columns once
             dgvDetails.AutoGenerateColumns = false;
             dgvDetails.Columns.Add(new DataGridViewTextBoxColumn
@@ -84,6 +118,41 @@ namespace JaneERP
 
             // Row coloring for low/out-of-stock
             dgvProducts.RowPrePaint += DgvProducts_RowPrePaint;
+
+            // ── Stock by Location grid — added below dgvHistory ───────────────────
+            // dgvHistory has Top anchor (fixed position), so we can safely position relative to it.
+            var lblStockByLoc = new Label
+            {
+                Anchor   = AnchorStyles.Top | AnchorStyles.Left,
+                AutoSize = true,
+                Font     = new Font("Segoe UI", 9F, FontStyle.Bold),
+                Text     = "Stock by Location"
+            };
+            _dgvStockByLocation = new DataGridView
+            {
+                Anchor                  = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
+                ReadOnly                = true,
+                AllowUserToAddRows      = false,
+                AllowUserToDeleteRows   = false,
+                AllowUserToResizeRows   = false,
+                MultiSelect             = false,
+                SelectionMode           = DataGridViewSelectionMode.FullRowSelect,
+                RowHeadersVisible       = false,
+                ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.AutoSize
+            };
+            _dgvStockByLocation.Columns.Add(new DataGridViewTextBoxColumn
+                { Name = "colLoc", HeaderText = "Location", Width = 200 });
+            _dgvStockByLocation.Columns.Add(new DataGridViewTextBoxColumn
+                { Name = "colQty", HeaderText = "Qty", Width = 80 });
+            Theme.StyleGrid(_dgvStockByLocation);
+
+            // Position relative to dgvHistory (which is top-anchored and won't move)
+            lblStockByLoc.Location       = new Point(dgvHistory.Left, dgvHistory.Bottom + 8);
+            _dgvStockByLocation.Location = new Point(dgvHistory.Left, dgvHistory.Bottom + 26);
+            _dgvStockByLocation.Size     = new Size(dgvHistory.Width, 100);
+
+            Controls.Add(lblStockByLoc);
+            Controls.Add(_dgvStockByLocation);
         }
 
         // Configure product grid columns — hide raw ID columns, show joined name columns
@@ -178,29 +247,40 @@ namespace JaneERP
             }
         }
 
-        private void TxtSearch_TextChanged(object? sender, EventArgs e)
+        private void TxtSearch_TextChanged(object? sender, EventArgs e) => ApplyInventoryFilters();
+
+        private void ApplyInventoryFilters()
         {
             string term = txtSearch.Text.Trim();
-            if (string.IsNullOrEmpty(term))
+            var filtered = _allProducts.AsEnumerable();
+
+            // Text search
+            if (!string.IsNullOrEmpty(term))
+                filtered = filtered.Where(p =>
+                    (p.SKU         ?? "").Contains(term, StringComparison.OrdinalIgnoreCase) ||
+                    (p.ProductName ?? "").Contains(term, StringComparison.OrdinalIgnoreCase));
+
+            // Stock status filter
+            filtered = _stockStatusFilter switch
             {
-                dgvProducts.DataSource = _allProducts;
-                return;
-            }
-            dgvProducts.DataSource = _allProducts
-                .Where(p => (p.SKU         ?? "").Contains(term, StringComparison.OrdinalIgnoreCase)
-                         || (p.ProductName ?? "").Contains(term, StringComparison.OrdinalIgnoreCase))
-                .ToList();
+                "In Stock"    => filtered.Where(p => p.CurrentStock > p.ReorderPoint || (p.ReorderPoint == 0 && p.CurrentStock > 0)),
+                "Low Stock"   => filtered.Where(p => p.ReorderPoint > 0 && p.CurrentStock > 0 && p.CurrentStock <= p.ReorderPoint),
+                "Out of Stock"=> filtered.Where(p => p.CurrentStock <= 0),
+                _             => filtered  // "All"
+            };
+
+            dgvProducts.DataSource = filtered.ToList();
         }
 
         private void ApplyPermissions()
         {
             bool canEdit = PermissionHelper.CanEdit("Inventory");
-            btnAdd.Enabled         = canEdit;
-            btnEdit.Enabled        = canEdit;
-            btnDeactivate.Enabled  = canEdit;
-            btnAdjustStock.Enabled = canEdit;
-            btnTransfer.Enabled    = canEdit;
-            btnImportCSV.Enabled   = canEdit;
+            btnAdd.Visible         = canEdit;
+            btnEdit.Visible        = canEdit;
+            btnDeactivate.Visible  = canEdit;
+            btnAdjustStock.Visible = canEdit;
+            btnTransfer.Visible    = canEdit;
+            btnImportCSV.Visible   = canEdit;
             btnExportCSV.Enabled   = true; // export is read-only, visible to all
             // Locations visible to all, editing within that form is unrestricted (admin task)
             btnLocations.Enabled   = true;
@@ -214,11 +294,8 @@ namespace JaneERP
 
         private void LoadProducts()
         {
-            _allProducts           = new ProductRepository().GetProducts(chkShowInactive.Checked).ToList();
-            dgvProducts.DataSource = _allProducts;
-            // Re-apply any active search filter
-            if (!string.IsNullOrWhiteSpace(txtSearch.Text))
-                TxtSearch_TextChanged(null, EventArgs.Empty);
+            _allProducts = new ProductRepository().GetProducts(chkShowInactive.Checked).ToList();
+            ApplyInventoryFilters();
             UpdateInventorySummary();
         }
 
@@ -271,6 +348,7 @@ namespace JaneERP
         {
             dgvDetails.Rows.Clear();
             dgvHistory.DataSource = null;
+            _dgvStockByLocation?.Rows.Clear();
 
             if (dgvProducts.SelectedRows.Count == 0) return;
             if (dgvProducts.SelectedRows[0].DataBoundItem is not Product product) return;
@@ -281,7 +359,12 @@ namespace JaneERP
             AddRow("Name",        product.ProductName  ?? "—");
             AddRow("Retail",      product.RetailPrice.ToString("C"));
             AddRow("Wholesale",   product.WholesalePrice.ToString("C"));
-            AddRow("Stock",       product.CurrentStock.ToString());
+            AddRow("On Hand",     product.CurrentStock.ToString());
+            if (product.ReservedQty > 0)
+            {
+                AddRow("Reserved",  product.ReservedQty.ToString());
+                AddRow("Available", Math.Max(0, product.CurrentStock - product.ReservedQty).ToString());
+            }
             AddRow("Reorder At",  product.ReorderPoint.ToString());
             AddRow("Order Up To", product.OrderUpTo > 0 ? product.OrderUpTo.ToString() : "—");
             if (!string.IsNullOrEmpty(product.DefaultLocationName))
@@ -291,20 +374,18 @@ namespace JaneERP
             if (!string.IsNullOrEmpty(product.DefaultVendorName))
                 AddRow("Vendor",      product.DefaultVendorName);
 
+            // Populate dedicated stock-by-location grid
+            _dgvStockByLocation.Rows.Clear();
             try
             {
-                // Stock by location breakdown
-                try
-                {
-                    var byLocation = _repo.GetStockByLocation(product.ProductID);
-                    if (byLocation.Count > 1) // only show breakdown if more than one location
-                    {
-                        dgvDetails.Rows.Add("── Stock by Location ──", "");
-                        foreach (var (loc, qty) in byLocation)
-                            AddRow($"  {loc}", qty.ToString());
-                    }
-                }
-                catch { /* location breakdown optional */ }
+                var byLocation = _repo.GetStockByLocation(product.ProductID);
+                foreach (var (loc, qty) in byLocation)
+                    _dgvStockByLocation.Rows.Add(loc, qty);
+            }
+            catch { /* location breakdown optional */ }
+
+            try
+            {
 
                 var attrs = _repo.GetAttributes(product.ProductID).ToList();
                 if (attrs.Any())
@@ -413,12 +494,17 @@ namespace JaneERP
 
         private void btnLoad_Click(object sender, EventArgs e)
         {
+            // Preserve selection across reload
+            int? savedId = (dgvProducts.SelectedRows.Count > 0 &&
+                            dgvProducts.SelectedRows[0].DataBoundItem is Product sp)
+                           ? sp.ProductID : null;
             try { LoadProducts(); }
             catch (Exception ex)
             {
                 MessageBox.Show(ex.Message, "Error loading products",
                     MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
+            if (savedId.HasValue) SelectProductById(savedId.Value);
         }
 
         private void btnAdd_Click(object sender, EventArgs e)

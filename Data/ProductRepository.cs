@@ -1,12 +1,13 @@
 using System.Configuration;
 using System.Data;
 using Dapper;
+using JaneERP.Interfaces;
 using JaneERP.Models;
 using Microsoft.Data.SqlClient;
 
 namespace JaneERP.Data
 {
-    public class ProductRepository
+    public class ProductRepository : IProductRepository
     {
         private readonly string _connectionString =
             ConfigurationManager.ConnectionStrings["MyERP"]?.ConnectionString
@@ -92,7 +93,12 @@ namespace JaneERP.Data
                             FROM   InventoryTransactions t
                             WHERE  t.ProductID = p.ProductID
                               AND  (@LocationID IS NULL OR t.LocationID = @LocationID)
-                        ), 0) AS CurrentStock
+                        ), 0) AS CurrentStock,
+                        ISNULL((
+                            SELECT SUM(sr.Quantity)
+                            FROM   StockReservations sr
+                            WHERE  sr.ProductID = p.ProductID
+                        ), 0) AS ReservedQty
                 FROM    Products p
                 LEFT JOIN ProductTypes pt ON pt.ProductTypeID = p.ProductTypeID
                 LEFT JOIN Locations    l  ON l.LocationID     = p.DefaultLocationID
@@ -114,7 +120,9 @@ namespace JaneERP.Data
                         p.DefaultVendorID,
                         v.VendorName   AS DefaultVendorName,
                         ISNULL((SELECT SUM(t.QuantityChange) FROM InventoryTransactions t
-                                WHERE t.ProductID = p.ProductID), 0) AS CurrentStock
+                                WHERE t.ProductID = p.ProductID), 0) AS CurrentStock,
+                        ISNULL((SELECT SUM(sr.Quantity) FROM StockReservations sr
+                                WHERE sr.ProductID = p.ProductID), 0) AS ReservedQty
                 FROM    Products p
                 LEFT JOIN ProductTypes pt ON pt.ProductTypeID = p.ProductTypeID
                 LEFT JOIN Locations    l  ON l.LocationID     = p.DefaultLocationID
@@ -156,7 +164,11 @@ namespace JaneERP.Data
                     IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('Products') AND name='IsAutoCreated')
                         ALTER TABLE Products ADD IsAutoCreated BIT NOT NULL DEFAULT 0;
                     IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('Products') AND name='IsVerified')
-                        ALTER TABLE Products ADD IsVerified BIT NOT NULL DEFAULT 0;");
+                        ALTER TABLE Products ADD IsVerified BIT NOT NULL DEFAULT 0;
+                    IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('Products') AND name='BomSourceID')
+                        ALTER TABLE Products ADD BomSourceID INT NULL REFERENCES Products(ProductID);
+                    IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('Products') AND name='BomNumber')
+                        ALTER TABLE Products ADD BomNumber NVARCHAR(20) NULL;");
             }
             catch (Exception ex) { Logging.AppLogger.Info($"MigrateProductColumns warning: {ex.Message}"); }
 
@@ -481,6 +493,14 @@ namespace JaneERP.Data
             db.Execute("UPDATE Products SET IsActive = 1 WHERE ProductID = @id", new { id = productId });
         }
 
+        /// <summary>Returns the number of BOM (ProductParts) entries for a specific product.</summary>
+        public int GetBomCount(int productId)
+        {
+            using IDbConnection db = new SqlConnection(_connectionString);
+            try { return db.ExecuteScalar<int>("SELECT COUNT(*) FROM ProductParts WHERE ProductID = @productId", new { productId }); }
+            catch { return 0; }
+        }
+
         /// <summary>Returns the count of active products that have no BOM entries (ProductParts).</summary>
         public int CountProductsWithNoBOM()
         {
@@ -491,6 +511,66 @@ namespace JaneERP.Data
                     "SELECT COUNT(*) FROM Products p WHERE p.IsActive=1 AND NOT EXISTS (SELECT 1 FROM ProductParts pp WHERE pp.ProductID=p.ProductID)");
             }
             catch { return 0; }
+        }
+
+        // ── BOM source / numbering ─────────────────────────────────────────────────
+
+        /// <summary>Links a product's BOM to another product so its bill-of-materials can be copied or referenced.</summary>
+        public void SetBomSource(int productId, int sourceProductId)
+        {
+            using IDbConnection db = new SqlConnection(_connectionString);
+            try
+            {
+                db.Execute("UPDATE Products SET BomSourceID = @sourceProductId WHERE ProductID = @productId",
+                    new { productId, sourceProductId });
+            }
+            catch (Exception ex) { Logging.AppLogger.Info($"SetBomSource warning: {ex.Message}"); }
+        }
+
+        /// <summary>Returns the next available BOM number in the format BOM-0001.</summary>
+        public string NextBomNumber()
+        {
+            using IDbConnection db = new SqlConnection(_connectionString);
+            try
+            {
+                int next = db.ExecuteScalar<int>(@"
+                    SELECT ISNULL(MAX(TRY_CAST(SUBSTRING(BomNumber, 5, LEN(BomNumber)) AS INT)), 0) + 1
+                    FROM   Products
+                    WHERE  BomNumber IS NOT NULL AND BomNumber LIKE 'BOM-%'");
+                return $"BOM-{next:D4}";
+            }
+            catch { return $"BOM-{DateTime.Now:yyyyMMddHHmm}"; }
+        }
+
+        /// <summary>Assigns a BOM number to a product.</summary>
+        public void AssignBomNumber(int productId, string bomNumber)
+        {
+            using IDbConnection db = new SqlConnection(_connectionString);
+            try
+            {
+                db.Execute("UPDATE Products SET BomNumber = @bomNumber WHERE ProductID = @productId",
+                    new { productId, bomNumber });
+            }
+            catch (Exception ex) { Logging.AppLogger.Info($"AssignBomNumber warning: {ex.Message}"); }
+        }
+
+        /// <summary>Removes the BOM source link from a product.</summary>
+        public void ClearBomSource(int productId)
+        {
+            using IDbConnection db = new SqlConnection(_connectionString);
+            try
+            {
+                db.Execute("UPDATE Products SET BomSourceID = NULL WHERE ProductID = @productId",
+                    new { productId });
+            }
+            catch (Exception ex) { Logging.AppLogger.Info($"ClearBomSource warning: {ex.Message}"); }
+        }
+
+        /// <summary>Permanently deactivates (soft-deletes) a product. Hard deletion is not used due to FK constraints.</summary>
+        public void DeleteProduct(int productId)
+        {
+            using IDbConnection db = new SqlConnection(_connectionString);
+            db.Execute("UPDATE Products SET IsActive = 0 WHERE ProductID = @productId", new { productId });
         }
     }
 }

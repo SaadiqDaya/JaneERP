@@ -29,7 +29,34 @@ namespace JaneERP
             Theme.MakeBorderless(this);
             Theme.AddCloseButton(this);
             Theme.MakeResizable(this);
+            try { _repo.EnsureSchema(); } catch { /* already logged at startup */ }
+            SeedFromProductTypeAttributes();
             LoadData();
+        }
+
+        /// <summary>
+        /// If AttributeDefinitions is empty, pre-populate it with all attribute names
+        /// found in ProductTypeAttributes so the list isn't blank on first open.
+        /// </summary>
+        private void SeedFromProductTypeAttributes()
+        {
+            try
+            {
+                var existing = _repo.GetAttributeDefinitions();
+                if (existing.Count > 0) return;   // already has entries
+
+                // Pull distinct attribute names from ProductTypeAttributes
+                var typeAttrNames = _repo.GetAll()
+                    .SelectMany(t => t.AllAttributes)
+                    .Select(a => a.AttributeName)
+                    .Where(n => !string.IsNullOrWhiteSpace(n))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .OrderBy(n => n);
+
+                foreach (var name in typeAttrNames)
+                    _repo.UpsertAttributeDefinition(name, null);   // null = allow any value
+            }
+            catch { /* best-effort seeding */ }
         }
 
         private void BuildUI()
@@ -67,7 +94,8 @@ namespace JaneERP
             dgv.SelectionMode     = DataGridViewSelectionMode.FullRowSelect;
             dgv.MultiSelect       = false;
             dgv.AutoGenerateColumns = false;
-            dgv.RowHeadersVisible = false;
+            dgv.RowHeadersVisible     = false;
+            dgv.AllowUserToResizeRows = false;
             dgv.Columns.Add(new DataGridViewTextBoxColumn
             {
                 Name = "colName", HeaderText = "Attribute Name",
@@ -162,12 +190,20 @@ namespace JaneERP
 
         private void LoadData()
         {
-            var defs = _repo.GetAttributeDefinitions();
-            dgv.Rows.Clear();
-            foreach (var (id, name, _) in defs)
+            try
             {
-                int idx = dgv.Rows.Add(name);
-                dgv.Rows[idx].Tag = id;
+                var defs = _repo.GetAttributeDefinitions();
+                dgv.Rows.Clear();
+                foreach (var (id, name, _) in defs)
+                {
+                    int idx = dgv.Rows.Add(name);
+                    dgv.Rows[idx].Tag = id;
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, "Could not load attribute definitions:\n\n" + ex.Message,
+                    "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
 

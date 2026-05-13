@@ -23,6 +23,9 @@ namespace JaneERP.Models
         public string   Status        { get; set; } = "Pending"; // Pending | InProgress | Complete
         public string?  Notes         { get; set; }
         public DateTime? CompletedAt  { get; set; }
+        public int      CompletedQty  { get; set; }
+        public int      ScrapQty      { get; set; }
+        public string?  AssignedTo    { get; set; }
         /// <summary>Shopify SalesOrderID that triggered this WO (optional).</summary>
         public long?    ShopifyOrderID { get; set; }
     }

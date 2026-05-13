@@ -20,6 +20,7 @@ namespace JaneERP
         private DataGridView   dgvParts      = new();
         private Label          lblTotalCost  = new();
         private Button         btnExportCsv  = new();
+        private Button         btnPrint      = new();
         private Button         btnCreatePO   = new();
         private Button         btnRefresh    = new();
 
@@ -93,26 +94,28 @@ namespace JaneERP
 
             // Products grid
             dgvProducts = BuildGrid();
-            dgvProducts.Columns.Add(new DataGridViewTextBoxColumn { Name = "cSKU",          HeaderText = "SKU",               DataPropertyName = "SKU",               Width = 90  });
-            dgvProducts.Columns.Add(new DataGridViewTextBoxColumn { Name = "cName",         HeaderText = "Product Name",       DataPropertyName = "ProductName",       Width = 220 });
-            dgvProducts.Columns.Add(new DataGridViewTextBoxColumn { Name = "cStock",        HeaderText = "Current Stock",      DataPropertyName = "CurrentStock",      Width = 90  });
-            dgvProducts.Columns.Add(new DataGridViewTextBoxColumn { Name = "cReorder",      HeaderText = "Reorder Point",      DataPropertyName = "ReorderPoint",      Width = 90  });
-            dgvProducts.Columns.Add(new DataGridViewTextBoxColumn { Name = "cShortfall",    HeaderText = "Shortfall",          DataPropertyName = "Shortfall",         Width = 75  });
-            dgvProducts.Columns.Add(new DataGridViewTextBoxColumn { Name = "cSuggestedQty", HeaderText = "Suggested Qty",      DataPropertyName = "SuggestedQty",      Width = 95  });
-            dgvProducts.Columns.Add(new DataGridViewTextBoxColumn { Name = "cRetail",       HeaderText = "Retail Price",       DataPropertyName = "RetailPriceDisplay", Width = 90 });
-            dgvProducts.Columns.Add(new DataGridViewTextBoxColumn { Name = "cEstCost",      HeaderText = "Est. Cost",          DataPropertyName = "EstCostDisplay",    Width = 90  });
+            dgvProducts.Columns.Add(new DataGridViewTextBoxColumn { Name = "cSKU",          HeaderText = "SKU",               DataPropertyName = "SKU",               Width = 90,  ReadOnly = true });
+            dgvProducts.Columns.Add(new DataGridViewTextBoxColumn { Name = "cName",         HeaderText = "Product Name",       DataPropertyName = "ProductName",       Width = 200, ReadOnly = true });
+            dgvProducts.Columns.Add(new DataGridViewTextBoxColumn { Name = "cStock",        HeaderText = "On Hand",            DataPropertyName = "CurrentStock",      Width = 70,  ReadOnly = true });
+            dgvProducts.Columns.Add(new DataGridViewTextBoxColumn { Name = "cReserved",     HeaderText = "Reserved",           DataPropertyName = "ReservedQty",       Width = 70,  ReadOnly = true });
+            dgvProducts.Columns.Add(new DataGridViewTextBoxColumn { Name = "cAvailable",    HeaderText = "Available",          DataPropertyName = "Available",         Width = 75,  ReadOnly = true });
+            dgvProducts.Columns.Add(new DataGridViewTextBoxColumn { Name = "cReorder",      HeaderText = "Reorder Point",      DataPropertyName = "ReorderPoint",      Width = 90,  ReadOnly = true });
+            dgvProducts.Columns.Add(new DataGridViewTextBoxColumn { Name = "cShortfall",    HeaderText = "Shortfall",          DataPropertyName = "Shortfall",         Width = 75,  ReadOnly = true });
+            dgvProducts.Columns.Add(new DataGridViewTextBoxColumn { Name = "cSuggestedQty", HeaderText = "Order Qty ✎",        DataPropertyName = "SuggestedQty",      Width = 95,  ReadOnly = false });
+            dgvProducts.Columns.Add(new DataGridViewTextBoxColumn { Name = "cRetail",       HeaderText = "Retail Price",       DataPropertyName = "RetailPriceDisplay", Width = 90, ReadOnly = true });
+            dgvProducts.Columns.Add(new DataGridViewTextBoxColumn { Name = "cEstCost",      HeaderText = "Est. Cost",          DataPropertyName = "EstCostDisplay",    Width = 90,  ReadOnly = true });
             tabProducts.Controls.Add(dgvProducts);
 
             // Parts grid
             dgvParts = BuildGrid();
-            dgvParts.Columns.Add(new DataGridViewTextBoxColumn { Name = "cPartNo",       HeaderText = "Part Number",    DataPropertyName = "PartNumber",       Width = 110 });
-            dgvParts.Columns.Add(new DataGridViewTextBoxColumn { Name = "cPartName",     HeaderText = "Part Name",      DataPropertyName = "PartName",         Width = 220 });
-            dgvParts.Columns.Add(new DataGridViewTextBoxColumn { Name = "cStock",        HeaderText = "Current Stock",  DataPropertyName = "CurrentStock",     Width = 90  });
-            dgvParts.Columns.Add(new DataGridViewTextBoxColumn { Name = "cReorder",      HeaderText = "Reorder Point",  DataPropertyName = "ReorderPoint",     Width = 90  });
-            dgvParts.Columns.Add(new DataGridViewTextBoxColumn { Name = "cShortfall",    HeaderText = "Shortfall",      DataPropertyName = "Shortfall",        Width = 75  });
-            dgvParts.Columns.Add(new DataGridViewTextBoxColumn { Name = "cSuggestedQty", HeaderText = "Suggested Qty",  DataPropertyName = "SuggestedQty",     Width = 95  });
-            dgvParts.Columns.Add(new DataGridViewTextBoxColumn { Name = "cUnitCost",     HeaderText = "Unit Cost",      DataPropertyName = "UnitCostDisplay",  Width = 90  });
-            dgvParts.Columns.Add(new DataGridViewTextBoxColumn { Name = "cEstCost",      HeaderText = "Est. Cost",      DataPropertyName = "EstCostDisplay",   Width = 90  });
+            dgvParts.Columns.Add(new DataGridViewTextBoxColumn { Name = "cPartNo",       HeaderText = "Part Number",    DataPropertyName = "PartNumber",       Width = 110, ReadOnly = true });
+            dgvParts.Columns.Add(new DataGridViewTextBoxColumn { Name = "cPartName",     HeaderText = "Part Name",      DataPropertyName = "PartName",         Width = 220, ReadOnly = true });
+            dgvParts.Columns.Add(new DataGridViewTextBoxColumn { Name = "cStock",        HeaderText = "Current Stock",  DataPropertyName = "CurrentStock",     Width = 90,  ReadOnly = true });
+            dgvParts.Columns.Add(new DataGridViewTextBoxColumn { Name = "cReorder",      HeaderText = "Reorder Point",  DataPropertyName = "ReorderPoint",     Width = 90,  ReadOnly = true });
+            dgvParts.Columns.Add(new DataGridViewTextBoxColumn { Name = "cShortfall",    HeaderText = "Shortfall",      DataPropertyName = "Shortfall",        Width = 75,  ReadOnly = true });
+            dgvParts.Columns.Add(new DataGridViewTextBoxColumn { Name = "cSuggestedQty", HeaderText = "Order Qty ✎",    DataPropertyName = "SuggestedQty",     Width = 95,  ReadOnly = false });
+            dgvParts.Columns.Add(new DataGridViewTextBoxColumn { Name = "cUnitCost",     HeaderText = "Unit Cost",      DataPropertyName = "UnitCostDisplay",  Width = 90,  ReadOnly = true });
+            dgvParts.Columns.Add(new DataGridViewTextBoxColumn { Name = "cEstCost",      HeaderText = "Est. Cost",      DataPropertyName = "EstCostDisplay",   Width = 90,  ReadOnly = true });
             tabParts.Controls.Add(dgvParts);
 
             tabControl.TabPages.Add(tabProducts);
@@ -144,17 +147,34 @@ namespace JaneERP
             {
                 Text     = "Export to CSV",
                 Size     = new Size(120, 30),
-                Location = new Point(630, 8),
+                Location = new Point(490, 8),
                 Font     = new Font("Segoe UI", 9F)
             };
             btnExportCsv.Click += BtnExportCsv_Click;
             Theme.StyleSecondaryButton(btnExportCsv);
 
+            btnPrint = new Button
+            {
+                Text     = "Print / PDF",
+                Size     = new Size(110, 30),
+                Location = new Point(618, 8),
+                Font     = new Font("Segoe UI", 9F)
+            };
+            btnPrint.Click += (_, _) =>
+            {
+                var dgv = tabControl.SelectedIndex == 0 ? dgvProducts : dgvParts;
+                string title = tabControl.SelectedIndex == 0
+                    ? "Reorder Report — Products"
+                    : "Reorder Report — Parts";
+                FormReports.PrintGrid(dgv, title, this);
+            };
+            Theme.StyleSecondaryButton(btnPrint);
+
             btnCreatePO = new Button
             {
                 Text     = "Create PO",
                 Size     = new Size(100, 30),
-                Location = new Point(762, 8),
+                Location = new Point(736, 8),
                 Font     = new Font("Segoe UI", 9F)
             };
             btnCreatePO.Click += BtnCreatePO_Click;
@@ -162,6 +182,7 @@ namespace JaneERP
 
             pnlBottom.Controls.Add(lblTotalCost);
             pnlBottom.Controls.Add(btnExportCsv);
+            pnlBottom.Controls.Add(btnPrint);
             pnlBottom.Controls.Add(btnCreatePO);
             Controls.Add(pnlBottom);
         }
@@ -171,7 +192,7 @@ namespace JaneERP
             var dgv = new DataGridView
             {
                 Dock                     = DockStyle.Fill,
-                ReadOnly                 = true,
+                ReadOnly                 = false,   // individual columns opt-in to ReadOnly
                 AllowUserToAddRows       = false,
                 AllowUserToDeleteRows    = false,
                 AllowUserToResizeRows    = false,
@@ -213,7 +234,7 @@ namespace JaneERP
         {
             using IDbConnection db = new SqlConnection(_cs);
 
-            // Fetch all active products with ledger-based stock
+            // Fetch active products where available stock (on-hand minus reservations) is at or below reorder point
             var rows = db.Query<ProductReorderRow>(@"
                 SELECT  p.SKU,
                         p.ProductName,
@@ -224,15 +245,18 @@ namespace JaneERP
                             SELECT SUM(t.QuantityChange)
                             FROM   InventoryTransactions t
                             WHERE  t.ProductID = p.ProductID
-                        ), 0) AS CurrentStock
+                        ), 0) AS CurrentStock,
+                        ISNULL((
+                            SELECT SUM(sr.Quantity)
+                            FROM   StockReservations sr
+                            WHERE  sr.ProductID = p.ProductID
+                        ), 0) AS ReservedQty
                 FROM    Products p
                 WHERE   p.IsActive = 1
                   AND   p.ReorderPoint > 0
-                  AND   ISNULL((
-                            SELECT SUM(t.QuantityChange)
-                            FROM   InventoryTransactions t
-                            WHERE  t.ProductID = p.ProductID
-                        ), 0) <= p.ReorderPoint
+                  AND   (ISNULL((SELECT SUM(t.QuantityChange) FROM InventoryTransactions t WHERE t.ProductID = p.ProductID), 0)
+                         - ISNULL((SELECT SUM(sr.Quantity) FROM StockReservations sr WHERE sr.ProductID = p.ProductID), 0)
+                        ) <= p.ReorderPoint
                 ORDER   BY p.SKU").ToList();
 
             foreach (var r in rows)
@@ -325,9 +349,9 @@ namespace JaneERP
                 var sb = new StringBuilder();
                 if (tabControl.SelectedIndex == 0)
                 {
-                    sb.AppendLine("SKU,Product Name,Current Stock,Reorder Point,Shortfall,Suggested Qty,Retail Price,Est. Cost");
+                    sb.AppendLine("SKU,Product Name,On Hand,Reserved,Available,Reorder Point,Shortfall,Suggested Qty,Retail Price,Est. Cost");
                     foreach (var r in _productRows)
-                        sb.AppendLine($"\"{r.SKU}\",\"{r.ProductName}\",{r.CurrentStock},{r.ReorderPoint},{r.Shortfall},{r.SuggestedQty},{r.RetailPrice:F2},{r.EstCost:F2}");
+                        sb.AppendLine($"\"{r.SKU}\",\"{r.ProductName}\",{r.CurrentStock},{r.ReservedQty},{r.Available},{r.ReorderPoint},{r.Shortfall},{r.SuggestedQty},{r.RetailPrice:F2},{r.EstCost:F2}");
                 }
                 else
                 {
@@ -349,8 +373,56 @@ namespace JaneERP
 
         private void BtnCreatePO_Click(object? sender, EventArgs e)
         {
-            MessageBox.Show(this, "PO creation coming soon.",
-                "Create PO", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            // Commit any in-progress cell edit before reading values
+            dgvProducts.EndEdit();
+            dgvParts.EndEdit();
+
+            // Build pre-populated items reading Order Qty from the grid (respects user edits)
+            var items = new List<JaneERP.Models.PurchaseOrderItem>();
+
+            if (tabControl.SelectedIndex == 0)
+            {
+                for (int i = 0; i < dgvProducts.Rows.Count && i < _productRows.Count; i++)
+                {
+                    if (!int.TryParse(dgvProducts.Rows[i].Cells["cSuggestedQty"].Value?.ToString(), out int qty) || qty <= 0)
+                        continue;
+                    var r = _productRows[i];
+                    items.Add(new JaneERP.Models.PurchaseOrderItem
+                    {
+                        SKU             = r.SKU,
+                        ItemName        = r.ProductName,
+                        QuantityOrdered = qty,
+                        UnitCost        = r.WholesalePrice
+                    });
+                }
+            }
+            else
+            {
+                for (int i = 0; i < dgvParts.Rows.Count && i < _partRows.Count; i++)
+                {
+                    if (!int.TryParse(dgvParts.Rows[i].Cells["cSuggestedQty"].Value?.ToString(), out int qty) || qty <= 0)
+                        continue;
+                    var r = _partRows[i];
+                    items.Add(new JaneERP.Models.PurchaseOrderItem
+                    {
+                        SKU             = r.PartNumber,
+                        ItemName        = r.PartName,
+                        QuantityOrdered = qty,
+                        UnitCost        = r.UnitCost
+                    });
+                }
+            }
+
+            if (items.Count == 0)
+            {
+                MessageBox.Show(this, "No items with a quantity > 0 on the current tab.",
+                    "Nothing to Order", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            var repo = new JaneERP.Data.SupplierRepository();
+            using var frm = new FormCreatePO(repo, prePopulateItems: items);
+            frm.ShowDialog(this);
         }
     }
 
@@ -361,11 +433,13 @@ namespace JaneERP
         public string  SKU              { get; set; } = "";
         public string  ProductName      { get; set; } = "";
         public int     CurrentStock     { get; set; }
+        public int     ReservedQty      { get; set; }
         public int     ReorderPoint     { get; set; }
         public decimal RetailPrice      { get; set; }
         public decimal WholesalePrice   { get; set; }
 
         // Computed
+        public int     Available        => Math.Max(0, CurrentStock - ReservedQty);
         public int     Shortfall        { get; set; }
         public int     SuggestedQty     { get; set; }
         public decimal EstCost          { get; set; }
@@ -376,7 +450,7 @@ namespace JaneERP
 
         public void Compute()
         {
-            Shortfall           = Math.Max(0, ReorderPoint - CurrentStock);
+            Shortfall           = Math.Max(0, ReorderPoint - Available);
             SuggestedQty        = (int)Math.Ceiling(Shortfall * 1.5);
             EstCost             = SuggestedQty * WholesalePrice;
             RetailPriceDisplay  = RetailPrice.ToString("C");

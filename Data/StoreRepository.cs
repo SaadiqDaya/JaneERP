@@ -1,13 +1,14 @@
 using System.Configuration;
 using System.Data;
 using Dapper;
+using JaneERP.Interfaces;
 using JaneERP.Models;
 using JaneERP.Security;
 using Microsoft.Data.SqlClient;
 
 namespace JaneERP.Data
 {
-    public class StoreRepository
+    public class StoreRepository : IStoreRepository
     {
         private readonly string _connectionString =
             ConfigurationManager.ConnectionStrings["MyERP"]?.ConnectionString

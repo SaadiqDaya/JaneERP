@@ -64,11 +64,11 @@ namespace JaneERP
             cboProduct.DropDownStyle = ComboBoxStyle.DropDownList;
             cboProduct.Location      = new Point(controlX, y);
             cboProduct.Size          = new Size(290, 23);
-            cboProduct.SelectedIndexChanged += (_, _) => UpdatePreview();
+            cboProduct.SelectedIndexChanged += (_, _) => { RefreshFromLocations(); UpdatePreview(); };
             Controls.Add(cboProduct);
             y += rowH;
 
-            // From Location
+            // From Location — populated based on selected product (only locations with stock)
             Controls.Add(new Label { Text = "From Location:", Location = new Point(labelX, y + 3), AutoSize = true });
             cboFromLocation.DropDownStyle = ComboBoxStyle.DropDownList;
             cboFromLocation.Location      = new Point(controlX, y);
@@ -174,18 +174,68 @@ namespace JaneERP
             }
         }
 
+        /// <summary>Rebuilds the From Location dropdown showing only locations with stock for the selected product.</summary>
+        private void RefreshFromLocations()
+        {
+            if (cboProduct.SelectedItem is not ProductComboItem prod)
+            {
+                cboFromLocation.DataSource    = _locations.ToList();
+                cboFromLocation.DisplayMember = "LocationName";
+                cboFromLocation.ValueMember   = "LocationID";
+                cboFromLocation.SelectedIndex = -1;
+                return;
+            }
+
+            try
+            {
+                using var db = new SqlConnection(_cs);
+                var rows = db.Query<LocationStockItem>(@"
+                    SELECT  l.LocationID,
+                            l.LocationName,
+                            SUM(t.QuantityChange) AS StockQty
+                    FROM    InventoryTransactions t
+                    JOIN    Locations l ON l.LocationID = t.LocationID
+                    WHERE   t.ProductID = @ProductID
+                    GROUP BY l.LocationID, l.LocationName
+                    HAVING  SUM(t.QuantityChange) > 0
+                    ORDER BY l.LocationName",
+                    new { prod.ProductID }).ToList();
+
+                cboFromLocation.DataSource    = rows;
+                cboFromLocation.DisplayMember = "Display";
+                cboFromLocation.ValueMember   = "LocationID";
+                cboFromLocation.SelectedIndex = rows.Count > 0 ? 0 : -1;
+            }
+            catch
+            {
+                // Fall back to all locations
+                cboFromLocation.DataSource    = _locations.ToList();
+                cboFromLocation.DisplayMember = "LocationName";
+                cboFromLocation.ValueMember   = "LocationID";
+                cboFromLocation.SelectedIndex = -1;
+            }
+        }
+
         private void UpdatePreview()
         {
-            if (cboProduct.SelectedItem is not ProductComboItem prod
-                || cboFromLocation.SelectedItem is not Location from
-                || cboToLocation.SelectedItem   is not Location to)
+            if (cboProduct.SelectedItem is not ProductComboItem prod)
             {
                 lblPreview.Text = "";
                 return;
             }
 
+            string fromName = cboFromLocation.SelectedItem switch
+            {
+                LocationStockItem ls => ls.LocationName,
+                Location l           => l.LocationName,
+                _                    => null!
+            };
+            string toName = (cboToLocation.SelectedItem as Location)?.LocationName!;
+
+            if (fromName == null || toName == null) { lblPreview.Text = ""; return; }
+
             int qty = (int)nudQuantity.Value;
-            lblPreview.Text = $"Moving {qty} unit(s): {prod.ProductName} from {from.LocationName} \u2192 {to.LocationName}";
+            lblPreview.Text = $"Moving {qty} unit(s): {prod.ProductName} from {fromName} \u2192 {toName}";
         }
 
         private void BtnSave_Click(object? sender, EventArgs e)
@@ -197,7 +247,19 @@ namespace JaneERP
                 return;
             }
 
-            if (cboFromLocation.SelectedItem is not Location fromLoc)
+            int    fromLocId;
+            string fromLocName;
+            if (cboFromLocation.SelectedItem is LocationStockItem fromStock)
+            {
+                fromLocId   = fromStock.LocationID;
+                fromLocName = fromStock.LocationName;
+            }
+            else if (cboFromLocation.SelectedItem is Location fromLoc)
+            {
+                fromLocId   = fromLoc.LocationID;
+                fromLocName = fromLoc.LocationName;
+            }
+            else
             {
                 MessageBox.Show("Please select a From Location.", "Validation", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
@@ -209,7 +271,7 @@ namespace JaneERP
                 return;
             }
 
-            if (fromLoc.LocationID == toLoc.LocationID)
+            if (fromLocId == toLoc.LocationID)
             {
                 MessageBox.Show("From and To locations must be different.", "Validation",
                     MessageBoxButtons.OK, MessageBoxIcon.Warning);
@@ -234,7 +296,7 @@ namespace JaneERP
                     FROM   InventoryTransactions
                     WHERE  ProductID  = @ProductID
                       AND  LocationID = @LocationID",
-                    new { selectedProd.ProductID, fromLoc.LocationID });
+                    new { selectedProd.ProductID, LocationID = fromLocId });
             }
             catch (Exception ex)
             {
@@ -246,7 +308,7 @@ namespace JaneERP
             if (currentStock < qty)
             {
                 MessageBox.Show(
-                    $"Insufficient stock at {fromLoc.LocationName}.\n" +
+                    $"Insufficient stock at {fromLocName}.\n" +
                     $"Available: {currentStock}  |  Requested: {qty}",
                     "Insufficient Stock", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
@@ -255,7 +317,7 @@ namespace JaneERP
             // Execute transfer in a DB transaction
             string note = txtNote.Text.Trim();
             string transferNote = string.IsNullOrEmpty(note)
-                ? $"Transfer from {fromLoc.LocationName} to {toLoc.LocationName}"
+                ? $"Transfer from {fromLocName} to {toLoc.LocationName}"
                 : note;
 
             try
@@ -275,7 +337,7 @@ namespace JaneERP
                         {
                             ProductID       = selectedProd.ProductID,
                             QuantityChange  = -qty,
-                            LocationID      = fromLoc.LocationID,
+                            LocationID      = fromLocId,
                             Notes           = transferNote,
                             TransactionDate = DateTime.Now
                         }, tx);
@@ -307,12 +369,12 @@ namespace JaneERP
                 AppLogger.Audit(
                     AppSession.CurrentUser?.Username,
                     "StockTransfer",
-                    $"SKU={selectedProd.SKU} qty={qty} from={fromLoc.LocationName} to={toLoc.LocationName}");
+                    $"SKU={selectedProd.SKU} qty={qty} from={fromLocName} to={toLoc.LocationName}");
 
                 MessageBox.Show(
                     $"Transfer complete.\n\n" +
                     $"Moved {qty} unit(s) of {selectedProd.ProductName}\n" +
-                    $"From: {fromLoc.LocationName}\n" +
+                    $"From: {fromLocName}\n" +
                     $"To:   {toLoc.LocationName}",
                     "Transfer Successful", MessageBoxButtons.OK, MessageBoxIcon.Information);
 
@@ -324,6 +386,15 @@ namespace JaneERP
                 MessageBox.Show("Transfer failed: " + ex.Message, "Error",
                     MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
+        }
+
+        /// <summary>Wraps a location + its available stock for display in the From Location combo.</summary>
+        private sealed class LocationStockItem
+        {
+            public int    LocationID   { get; set; }
+            public string LocationName { get; set; } = "";
+            public int    StockQty     { get; set; }
+            public string Display      => $"{LocationName}  —  {StockQty} available";
         }
 
         /// <summary>Wraps a Product for display in the combo box as "ProductName [SKU]".</summary>

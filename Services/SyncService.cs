@@ -20,7 +20,12 @@ namespace JaneERP.Services
         private readonly AppDbContext _db;
 
         public event EventHandler<SyncCompletedEventArgs>? SyncCompleted;
-        public bool IsRunning { get; private set; }
+        public event EventHandler? SyncStarted;
+
+        public bool IsRunning  { get; private set; }
+        public bool IsSyncing  { get; private set; }
+        public bool LastSyncFailed { get; private set; }
+        public DateTime? LastSyncAt { get; private set; }
 
         public SyncService(string store, string token, TimeSpan? interval = null)
         {
@@ -47,10 +52,21 @@ namespace JaneERP.Services
             IsRunning = false;
         }
 
+        /// <summary>Triggers an immediate sync without waiting for the next scheduled interval.
+        /// No-op if a sync is already in progress.</summary>
+        public void TriggerNow()
+        {
+            if (IsSyncing) return;
+            _ = Task.Run(PerformSyncAsync);
+        }
+
         private DateTime? _lastSyncAt;
 
         private async Task PerformSyncAsync()
         {
+            if (IsSyncing) return;
+            IsSyncing = true;
+            SyncStarted?.Invoke(this, EventArgs.Empty);
             try
             {
                 // Delta sync: only fetch orders updated since the last successful sync.
@@ -60,11 +76,19 @@ namespace JaneERP.Services
                                           .ConfigureAwait(false);
                 await _db.UpsertOrdersAsync(orders, _store).ConfigureAwait(false);
                 _lastSyncAt = DateTime.UtcNow;
+                LastSyncAt     = DateTime.Now;
+                LastSyncFailed = false;
                 SyncCompleted?.Invoke(this, new SyncCompletedEventArgs(true, null, orders.Count));
             }
             catch (Exception ex)
             {
+                LastSyncAt     = DateTime.Now;
+                LastSyncFailed = true;
                 SyncCompleted?.Invoke(this, new SyncCompletedEventArgs(false, ex, 0));
+            }
+            finally
+            {
+                IsSyncing = false;
             }
         }
 

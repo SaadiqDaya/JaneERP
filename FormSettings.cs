@@ -24,6 +24,11 @@ namespace JaneERP
         private Button     btnRemoveOrderType = new();
         private Button     btnSave           = new();
         private Button     btnCancel         = new();
+        // Appearance tab
+        private Panel      _pnlAccentPreview    = new();
+        private Panel      _pnlHighlightPreview = new();
+        private Button     _btnAccentColor      = new();
+        private Button     _btnHighlightColor   = new();
         private TextBox      txtSmtpServer = new();
         private NumericUpDown nudSmtpPort  = new();
         private TextBox      txtSmtpUser   = new();
@@ -35,6 +40,7 @@ namespace JaneERP
         private TextBox      txtAdminPhone    = new();
         private TextBox      txtAdminEmail    = new();
         private CheckBox     chkRememberUser  = new();
+        private TextBox      _txtDefaultExportPath = new();
 
         public FormSettings()
         {
@@ -438,6 +444,39 @@ namespace JaneERP
             btnConfigureSearch.Click += (_, _) => { using var frm = new FormProductSearch(); frm.ShowDialog(this); };
             grpProductSearch.Controls.Add(btnConfigureSearch);
             tabSystem.Controls.Add(grpProductSearch);
+            y += 104;
+
+            var grpExports = new GroupBox
+            {
+                Text      = "Exports",
+                Font      = new Font("Segoe UI", 10F, FontStyle.Bold),
+                ForeColor = Theme.Gold,
+                Location  = new Point(12, y),
+                Size      = new Size(530, 90)
+            };
+            grpExports.Controls.Add(new Label
+            {
+                Text      = "Default folder for CSV exports. Leave blank to always ask.",
+                ForeColor = Theme.TextSecondary,
+                Location  = new Point(10, 24),
+                Size      = new Size(400, 18)
+            });
+            _txtDefaultExportPath.Location        = new Point(10, 50);
+            _txtDefaultExportPath.Size            = new Size(380, 23);
+            _txtDefaultExportPath.PlaceholderText = "e.g. C:\\Exports";
+            _txtDefaultExportPath.Text            = _settings.DefaultExportPath;
+            grpExports.Controls.Add(_txtDefaultExportPath);
+            var btnBrowseExport = new Button { Text = "Browse…", Location = new Point(398, 49), Size = new Size(80, 25) };
+            btnBrowseExport.Click += (_, _) =>
+            {
+                using var dlg = new FolderBrowserDialog { Description = "Select default export folder" };
+                if (!string.IsNullOrEmpty(_txtDefaultExportPath.Text))
+                    dlg.SelectedPath = _txtDefaultExportPath.Text;
+                if (dlg.ShowDialog(this) == DialogResult.OK)
+                    _txtDefaultExportPath.Text = dlg.SelectedPath;
+            };
+            grpExports.Controls.Add(btnBrowseExport);
+            tabSystem.Controls.Add(grpExports);
 
             // ──────────────────────────────────────────────────────────────────────
             // TAB 7: Backup
@@ -516,6 +555,100 @@ namespace JaneERP
                 ForeColor = Theme.TextSecondary,
                 Location  = new Point(12, y + 42),
                 Size      = new Size(520, 40)
+            });
+
+            // ──────────────────────────────────────────────────────────────────────
+            // TAB 8: Appearance
+            // ──────────────────────────────────────────────────────────────────────
+            var tabAppearance = new TabPage("Appearance") { Padding = new Padding(12) };
+            tabs.TabPages.Add(tabAppearance);
+            y = 12;
+
+            tabAppearance.Controls.Add(new Label
+            {
+                Text      = "Colour Scheme",
+                Font      = new Font("Segoe UI", 11F, FontStyle.Bold),
+                ForeColor = Theme.Gold,
+                Location  = new Point(12, y),
+                AutoSize  = true
+            });
+            y += 30;
+
+            y += 4;
+
+            // Primary accent
+            tabAppearance.Controls.Add(new Label { Text = "Primary Accent:", AutoSize = true, Location = new Point(12, y + 5) });
+            _pnlAccentPreview.Location    = new Point(130, y);
+            _pnlAccentPreview.Size        = new Size(36, 26);
+            _pnlAccentPreview.BackColor   = TryParseColor(_settings.AccentColor, Theme.Gold);
+            _pnlAccentPreview.BorderStyle = BorderStyle.FixedSingle;
+            tabAppearance.Controls.Add(_pnlAccentPreview);
+
+            _btnAccentColor.Text     = "Pick…";
+            _btnAccentColor.Size     = new Size(60, 26);
+            _btnAccentColor.Location = new Point(174, y);
+            _btnAccentColor.Click   += (_, _) =>
+            {
+                using var dlg = new ColorDialog { FullOpen = true, Color = _pnlAccentPreview.BackColor };
+                if (dlg.ShowDialog(this) == DialogResult.OK)
+                {
+                    _pnlAccentPreview.BackColor = dlg.Color;
+                    _settings.AccentColor       = ColorTranslator.ToHtml(dlg.Color);
+                }
+            };
+            tabAppearance.Controls.Add(_btnAccentColor);
+
+            var btnResetAccent = new Button { Text = "Reset", Size = new Size(55, 26), Location = new Point(242, y) };
+            btnResetAccent.Click += (_, _) =>
+            {
+                _settings.AccentColor       = "";
+                _pnlAccentPreview.BackColor = Color.FromArgb(155, 55, 220);
+            };
+            tabAppearance.Controls.Add(btnResetAccent);
+            tabAppearance.Controls.Add(new Label
+            {
+                Text      = "Main accent (buttons, borders, tile glow)",
+                ForeColor = Theme.TextSecondary,
+                Location  = new Point(306, y + 5),
+                AutoSize  = true
+            });
+            y += 44;
+
+            // Secondary highlight
+            tabAppearance.Controls.Add(new Label { Text = "Highlight:", AutoSize = true, Location = new Point(12, y + 5) });
+            _pnlHighlightPreview.Location    = new Point(130, y);
+            _pnlHighlightPreview.Size        = new Size(36, 26);
+            _pnlHighlightPreview.BackColor   = TryParseColor(_settings.HighlightColor, Theme.Teal);
+            _pnlHighlightPreview.BorderStyle = BorderStyle.FixedSingle;
+            tabAppearance.Controls.Add(_pnlHighlightPreview);
+
+            _btnHighlightColor.Text     = "Pick…";
+            _btnHighlightColor.Size     = new Size(60, 26);
+            _btnHighlightColor.Location = new Point(174, y);
+            _btnHighlightColor.Click   += (_, _) =>
+            {
+                using var dlg = new ColorDialog { FullOpen = true, Color = _pnlHighlightPreview.BackColor };
+                if (dlg.ShowDialog(this) == DialogResult.OK)
+                {
+                    _pnlHighlightPreview.BackColor = dlg.Color;
+                    _settings.HighlightColor       = ColorTranslator.ToHtml(dlg.Color);
+                }
+            };
+            tabAppearance.Controls.Add(_btnHighlightColor);
+
+            var btnResetHighlight = new Button { Text = "Reset", Size = new Size(55, 26), Location = new Point(242, y) };
+            btnResetHighlight.Click += (_, _) =>
+            {
+                _settings.HighlightColor       = "";
+                _pnlHighlightPreview.BackColor = Color.FromArgb(32, 184, 204);
+            };
+            tabAppearance.Controls.Add(btnResetHighlight);
+            tabAppearance.Controls.Add(new Label
+            {
+                Text      = "Secondary highlight (grid headers, status indicators)",
+                ForeColor = Theme.TextSecondary,
+                Location  = new Point(306, y + 5),
+                AutoSize  = true
             });
         }
 
@@ -626,9 +759,20 @@ namespace JaneERP
             _settings.AdminPhone           = txtAdminPhone.Text.Trim();
             _settings.AdminEmail           = txtAdminEmail.Text.Trim();
             _settings.RememberLastUsername = chkRememberUser.Checked;
-            _settings.BackupFolder   = _txtBackupFolder.Text.Trim();
-            _settings.BackupSchedule = _cboBackupSchedule.SelectedItem?.ToString() ?? "None";
+            _settings.BackupFolder        = _txtBackupFolder.Text.Trim();
+            _settings.BackupSchedule      = _cboBackupSchedule.SelectedItem?.ToString() ?? "None";
+            _settings.DefaultExportPath   = _txtDefaultExportPath.Text.Trim();
             _settings.Save();
+
+            // Reload the AppSettings singleton and re-apply theme colours to all open forms immediately
+            var fresh = AppSettings.Load();
+            Theme.ApplyCustomColors(fresh);
+            foreach (Form f in Application.OpenForms)
+            {
+                try { f.Invalidate(true); }
+                catch { /* best-effort */ }
+            }
+
             MessageBox.Show(this, "Settings saved.", "Saved", MessageBoxButtons.OK, MessageBoxIcon.Information);
             Close();
         }
@@ -668,6 +812,13 @@ namespace JaneERP
             {
                 Cursor = Cursors.Default;
             }
+        }
+
+        private static Color TryParseColor(string? hex, Color fallback)
+        {
+            if (string.IsNullOrEmpty(hex)) return fallback;
+            try { return ColorTranslator.FromHtml(hex); }
+            catch { return fallback; }
         }
 
         protected override void OnFormClosed(FormClosedEventArgs e)

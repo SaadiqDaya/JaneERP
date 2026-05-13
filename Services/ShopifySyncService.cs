@@ -1,13 +1,14 @@
 using System.Configuration;
 using System.Data;
 using Dapper;
+using JaneERP.Interfaces;
 using JaneERP.Logging;
 using JaneERP.Models;
 using Microsoft.Data.SqlClient;
 
 namespace JaneERP.Services
 {
-    public class ShopifySyncService
+    public class ShopifySyncService : IShopifySyncService
     {
         private readonly string _connectionString =
             ConfigurationManager.ConnectionStrings["MyERP"]?.ConnectionString
@@ -66,6 +67,19 @@ namespace JaneERP.Services
             Migrate(db, "IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('SalesOrders') AND name='OrderType') ALTER TABLE SalesOrders ADD OrderType NVARCHAR(50) NOT NULL DEFAULT 'Shopify'");
             Migrate(db, "IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('SalesOrders') AND name='ShippingCost') ALTER TABLE SalesOrders ADD ShippingCost DECIMAL(18,2) NOT NULL DEFAULT 0");
             Migrate(db, "UPDATE SalesOrders SET OrderType='Manual' WHERE ShopifyOrderID IS NULL AND OrderType='Shopify'");
+            Migrate(db, "IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('SalesOrders') AND name='IsPaid') ALTER TABLE SalesOrders ADD IsPaid BIT NOT NULL DEFAULT 0");
+            Migrate(db, "IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('SalesOrders') AND name='PaidAt') ALTER TABLE SalesOrders ADD PaidAt DATETIME NULL");
+            Migrate(db, @"
+        IF NOT EXISTS (SELECT 1 FROM sysobjects WHERE name='CustomerPayments' AND xtype='U')
+        CREATE TABLE CustomerPayments (
+            PaymentID     INT IDENTITY(1,1) PRIMARY KEY,
+            CustomerID    INT           NOT NULL REFERENCES Customers(CustomerID),
+            SalesOrderID  INT           NULL REFERENCES SalesOrders(SalesOrderID),
+            Amount        DECIMAL(18,2) NOT NULL,
+            PaymentMethod NVARCHAR(50)  NULL,
+            Notes         NVARCHAR(500) NULL,
+            PaidAt        DATETIME      NOT NULL DEFAULT GETDATE()
+        )");
 
             // Replace UNIQUE constraint on ShopifyOrderID (which disallows multiple NULLs) with a filtered
             // unique index that only applies when ShopifyOrderID IS NOT NULL — allows unlimited manual orders.
@@ -100,6 +114,18 @@ namespace JaneERP.Services
             IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id=OBJECT_ID('SalesOrders') AND name='UQ_SalesOrders_ShopifyOrderID')
                 ALTER TABLE SalesOrders ADD CONSTRAINT UQ_SalesOrders_ShopifyOrderID UNIQUE (ShopifyOrderID)
         END");
+
+            // Stock reservations: soft-locks created when an SO goes Live, released on Complete/Draft
+            Migrate(db, @"
+        IF NOT EXISTS (SELECT 1 FROM sysobjects WHERE name='StockReservations' AND xtype='U')
+        CREATE TABLE StockReservations (
+            ReservationID INT IDENTITY(1,1) PRIMARY KEY,
+            SalesOrderID  INT NOT NULL REFERENCES SalesOrders(SalesOrderID),
+            ProductID     INT NOT NULL REFERENCES Products(ProductID),
+            LocationID    INT NULL     REFERENCES Locations(LocationID),
+            Quantity      INT NOT NULL,
+            CreatedAt     DATETIME NOT NULL DEFAULT GETDATE()
+        )");
         }
 
         private static void Migrate(IDbConnection db, string sql)
@@ -133,7 +159,10 @@ namespace JaneERP.Services
                        ISNULL(st.StoreName, so.OrderType)     AS StoreName,
                        so.DiscountType,
                        ISNULL(so.DiscountAmount, 0)           AS DiscountAmount,
-                       ISNULL(so.DiscountPercent, 0)          AS DiscountPercent
+                       ISNULL(so.DiscountPercent, 0)          AS DiscountPercent,
+                       ISNULL(so.ShippingCost, 0)             AS ShippingCost,
+                       ISNULL(so.IsPaid, 0)                   AS IsPaid,
+                       so.PaidAt
                 FROM  SalesOrders so
                 JOIN  Customers   c   ON c.CustomerID = so.CustomerID
                 LEFT JOIN Stores  st  ON st.StoreID   = so.StoreID
@@ -155,19 +184,29 @@ namespace JaneERP.Services
             try
             {
                 var order = db.QueryFirstOrDefault(
-                    "SELECT SalesOrderID, OrderNumber, InventoryAffected FROM SalesOrders WHERE SalesOrderID = @id",
+                    "SELECT SalesOrderID, OrderNumber, Status, InventoryAffected FROM SalesOrders WHERE SalesOrderID = @id",
                     new { id = salesOrderId }, tx);
 
                 if (order == null) { tx.Rollback(); return false; }
+
+                string currentStatus = (string)order.Status;
 
                 db.Execute(
                     "UPDATE SalesOrders SET Status = @s WHERE SalesOrderID = @id",
                     new { s = newStatus, id = salesOrderId }, tx);
 
-                // Deduct inventory once when first going Live
+                // Release stock reservations when moving to Complete or back to Draft
+                if (newStatus == "Complete" ||
+                    (newStatus == "Draft" && (currentStatus == "Live" || currentStatus == "WIP")))
+                {
+                    db.Execute("DELETE FROM StockReservations WHERE SalesOrderID = @id",
+                        new { id = salesOrderId }, tx);
+                }
+
+                // Deduct inventory once when first going Complete
                 // Dapper returns BIT as bool — cast directly, don't cast to int
                 bool wasAffected = (bool)order.InventoryAffected;
-                if (newStatus == "Live" && !wasAffected)
+                if (newStatus == "Complete" && !wasAffected)
                 {
                     var items = db.Query(
                         "SELECT ProductID, Quantity, SalesOrderID FROM SalesOrderItems WHERE SalesOrderID = @id",
@@ -199,7 +238,7 @@ namespace JaneERP.Services
                             {
                                 ProductID       = (int)li.ProductID,
                                 QuantityChange  = -(int)li.Quantity,
-                                Notes           = $"Order #{orderNumber} → Live",
+                                Notes           = $"Order #{orderNumber} → Complete",
                                 TransactionDate = DateTime.Now
                             }, tx);
                     }
@@ -207,10 +246,205 @@ namespace JaneERP.Services
                     db.Execute(
                         "UPDATE SalesOrders SET InventoryAffected = 1 WHERE SalesOrderID = @id",
                         new { id = salesOrderId }, tx);
+
+                    AppLogger.Audit(Security.AppSession.CurrentUser?.Username ?? "system",
+                        "InventoryDeducted",
+                        $"OrderID={salesOrderId} OrderNumber={order.OrderNumber} items={items.Count}");
                 }
 
                 tx.Commit();
                 return true;
+            }
+            catch { tx.Rollback(); throw; }
+        }
+
+        /// <summary>
+        /// Marks a SalesOrder as paid and records a CustomerPayment transaction.
+        /// Throws if the order is not found or is already paid.
+        /// </summary>
+        public void MarkAsPaid(int salesOrderId, string? paymentMethod = null, string? notes = null)
+        {
+            using var db = new SqlConnection(_connectionString);
+            db.Open();
+            using var tx = db.BeginTransaction();
+            try
+            {
+                var order = db.QueryFirstOrDefault(
+                    "SELECT SalesOrderID, CustomerID, TotalPrice, IsPaid, OrderNumber FROM SalesOrders WHERE SalesOrderID = @id",
+                    new { id = salesOrderId }, tx)
+                    ?? throw new InvalidOperationException("Sales order not found.");
+
+                if ((bool)order.IsPaid)
+                    throw new InvalidOperationException("This order is already marked as paid.");
+
+                var now = DateTime.Now;
+
+                db.Execute(
+                    "UPDATE SalesOrders SET IsPaid = 1, PaidAt = @now WHERE SalesOrderID = @id",
+                    new { now, id = salesOrderId }, tx);
+
+                db.Execute(@"
+                    INSERT INTO CustomerPayments (CustomerID, SalesOrderID, Amount, PaymentMethod, Notes, PaidAt)
+                    VALUES (@CustomerID, @SalesOrderID, @Amount, @PaymentMethod, @Notes, @PaidAt)",
+                    new
+                    {
+                        CustomerID    = (int)order.CustomerID,
+                        SalesOrderID  = salesOrderId,
+                        Amount        = (decimal)order.TotalPrice,
+                        PaymentMethod = paymentMethod,
+                        Notes         = notes,
+                        PaidAt        = now
+                    }, tx);
+
+                tx.Commit();
+
+                AppLogger.Audit(Security.AppSession.CurrentUser?.Username ?? "system",
+                    "MarkAsPaid", $"OrderID={salesOrderId} OrderNumber={order.OrderNumber} Amount={order.TotalPrice:N2}");
+            }
+            catch { tx.Rollback(); throw; }
+        }
+
+        /// <summary>Returns the line items for a given SalesOrderID.</summary>
+        public List<Models.SalesOrderItem> GetOrderItems(int salesOrderId)
+        {
+            using IDbConnection db = new SqlConnection(_connectionString);
+            return db.Query<Models.SalesOrderItem>(
+                @"SELECT SKU, Title, Quantity, UnitPrice
+                  FROM   SalesOrderItems
+                  WHERE  SalesOrderID = @id
+                  ORDER  BY SalesOrderItemID",
+                new { id = salesOrderId }).ToList();
+        }
+
+        /// <summary>
+        /// Builds the list of reservation lines for the stock-lock dialog when an SO goes Live.
+        /// Returns one row per (product × location) that currently has positive stock.
+        /// Products with no stock anywhere are included as zero-available rows so the operator
+        /// can see the gap.
+        /// </summary>
+        public List<Models.ReservationLine> GetSOReservationItems(int salesOrderId)
+        {
+            using IDbConnection db = new SqlConnection(_connectionString);
+
+            // Required qty per product
+            var required = db.Query(
+                    "SELECT ProductID, SUM(Quantity) AS Qty FROM SalesOrderItems WHERE SalesOrderID = @id GROUP BY ProductID",
+                    new { id = salesOrderId })
+                .ToDictionary(r => (int)r.ProductID, r => (int)r.Qty);
+
+            // Stock per (product, location) with existing reservations from OTHER orders
+            var rows = db.Query(@"
+                SELECT
+                    soi.ProductID,
+                    p.SKU,
+                    p.ProductName,
+                    loc.LocationID,
+                    loc.LocationName,
+                    loc.StockQty                AS OnHand,
+                    ISNULL(res.ReservedQty, 0)  AS AlreadyReserved
+                FROM (SELECT DISTINCT ProductID FROM SalesOrderItems WHERE SalesOrderID = @id) soi
+                JOIN Products p ON p.ProductID = soi.ProductID
+                JOIN (
+                    SELECT  it.ProductID,
+                            it.LocationID,
+                            ISNULL(l.LocationName, 'No Location') AS LocationName,
+                            SUM(it.QuantityChange) AS StockQty
+                    FROM    InventoryTransactions it
+                    LEFT JOIN Locations l ON l.LocationID = it.LocationID
+                    GROUP BY it.ProductID, it.LocationID, l.LocationName
+                    HAVING  SUM(it.QuantityChange) > 0
+                ) loc ON loc.ProductID = soi.ProductID
+                LEFT JOIN (
+                    SELECT  ProductID,
+                            LocationID,
+                            SUM(Quantity) AS ReservedQty
+                    FROM    StockReservations
+                    WHERE   SalesOrderID <> @id
+                    GROUP BY ProductID, LocationID
+                ) res ON res.ProductID  = loc.ProductID
+                     AND (res.LocationID = loc.LocationID
+                          OR (res.LocationID IS NULL AND loc.LocationID IS NULL))
+                ORDER BY p.ProductName, loc.LocationName",
+                new { id = salesOrderId }).ToList();
+
+            var lines = new List<Models.ReservationLine>();
+
+            foreach (var row in rows)
+            {
+                int productId = (int)row.ProductID;
+                int req       = required.TryGetValue(productId, out int r) ? r : 0;
+                int avail     = Math.Max(0, (int)row.OnHand - (int)row.AlreadyReserved);
+
+                lines.Add(new Models.ReservationLine
+                {
+                    ItemId          = productId,
+                    LocationId      = row.LocationID == null ? (int?)null : (int)row.LocationID,
+                    DisplayLabel    = $"{row.SKU} — {row.ProductName}",
+                    LocationName    = (string)row.LocationName,
+                    Required        = req,
+                    OnHand          = (int)row.OnHand,
+                    AlreadyReserved = (int)row.AlreadyReserved,
+                    ToLock          = Math.Min(req, avail)
+                });
+            }
+
+            // Any product with no stock at all still needs a row so the operator sees it
+            foreach (var (productId, qty) in required)
+            {
+                if (lines.Any(l => l.ItemId == productId)) continue;
+                var p = db.QueryFirstOrDefault(
+                    "SELECT SKU, ProductName FROM Products WHERE ProductID = @id",
+                    new { id = productId });
+                if (p == null) continue;
+                lines.Add(new Models.ReservationLine
+                {
+                    ItemId       = productId,
+                    LocationId   = null,
+                    DisplayLabel = $"{p.SKU} — {p.ProductName}",
+                    LocationName = "No Stock",
+                    Required     = qty,
+                    OnHand       = 0,
+                    AlreadyReserved = 0,
+                    ToLock       = 0
+                });
+            }
+
+            return lines;
+        }
+
+        /// <summary>
+        /// Persists the reservation choices made in the stock-lock dialog for a Sales Order.
+        /// Replaces any prior reservations for this order.
+        /// </summary>
+        public void SaveSOReservations(int salesOrderId, IEnumerable<Models.ReservationLine> lines)
+        {
+            using var db = new SqlConnection(_connectionString);
+            db.Open();
+            using var tx = db.BeginTransaction();
+            try
+            {
+                db.Execute("DELETE FROM StockReservations WHERE SalesOrderID = @id",
+                    new { id = salesOrderId }, tx);
+
+                foreach (var line in lines.Where(l => l.ToLock > 0))
+                {
+                    db.Execute(@"
+                        INSERT INTO StockReservations (SalesOrderID, ProductID, LocationID, Quantity)
+                        VALUES (@SalesOrderID, @ProductID, @LocationID, @Quantity)",
+                        new
+                        {
+                            SalesOrderID = salesOrderId,
+                            ProductID    = line.ItemId,
+                            LocationID   = line.LocationId,
+                            Quantity     = line.ToLock
+                        }, tx);
+                }
+
+                tx.Commit();
+
+                AppLogger.Audit(Security.AppSession.CurrentUser?.Username ?? "system",
+                    "StockReserved",
+                    $"OrderID={salesOrderId} lines={lines.Count(l => l.ToLock > 0)}");
             }
             catch { tx.Rollback(); throw; }
         }

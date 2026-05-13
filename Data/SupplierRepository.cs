@@ -2,13 +2,14 @@ using System.Configuration;
 using System.Data;
 using Dapper;
 using JaneERP.Logging;
+using JaneERP.Interfaces;
 using JaneERP.Models;
 using JaneERP.Security;
 using Microsoft.Data.SqlClient;
 
 namespace JaneERP.Data
 {
-    public class SupplierRepository
+    public class SupplierRepository : ISupplierRepository
     {
         private readonly string _cs =
             ConfigurationManager.ConnectionStrings["MyERP"]?.ConnectionString
@@ -68,6 +69,15 @@ namespace JaneERP.Data
             db.Execute(@"
                 IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('PurchaseOrders') AND name='OverdueNotifiedAt')
                     ALTER TABLE PurchaseOrders ADD OverdueNotifiedAt DATETIME NULL;");
+        }
+
+        /// <summary>Adds ShippingCost column to PurchaseOrders if not already present.</summary>
+        public void MigrateShippingCost()
+        {
+            using IDbConnection db = new SqlConnection(_cs);
+            db.Execute(@"
+                IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('PurchaseOrders') AND name='ShippingCost')
+                    ALTER TABLE PurchaseOrders ADD ShippingCost DECIMAL(18,2) NOT NULL DEFAULT 0;");
         }
 
         /// <summary>Returns POs that are past their expected date, not yet received/cancelled,
@@ -174,12 +184,12 @@ namespace JaneERP.Data
                 po.PONumber = $"PO-{year}-{seq:D4}";
                 po.CreatedBy ??= AppSession.CurrentUser?.Username;
 
-                // Recalculate total cost
-                po.TotalCost = po.Items.Sum(i => i.UnitCost * i.QuantityOrdered);
+                // Recalculate total cost (items subtotal + shipping)
+                po.TotalCost = po.Items.Sum(i => i.UnitCost * i.QuantityOrdered) + po.ShippingCost;
 
                 int poid = db.QuerySingle<int>(@"
-                    INSERT INTO PurchaseOrders (PONumber, SupplierID, Status, OrderDate, ExpectedDate, Notes, CreatedBy, TotalCost)
-                    VALUES (@PONumber, @SupplierID, @Status, @OrderDate, @ExpectedDate, @Notes, @CreatedBy, @TotalCost);
+                    INSERT INTO PurchaseOrders (PONumber, SupplierID, Status, OrderDate, ExpectedDate, Notes, CreatedBy, TotalCost, ShippingCost)
+                    VALUES (@PONumber, @SupplierID, @Status, @OrderDate, @ExpectedDate, @Notes, @CreatedBy, @TotalCost, @ShippingCost);
                     SELECT CAST(SCOPE_IDENTITY() AS INT);", po, tx);
 
                 foreach (var item in po.Items)
@@ -206,6 +216,51 @@ namespace JaneERP.Data
             using IDbConnection db = new SqlConnection(_cs);
             db.Execute("UPDATE PurchaseOrders SET Status = @status WHERE POID = @poid",
                 new { status, poid });
+        }
+
+        /// <summary>Returns the supplier with the given name, creating it if it doesn't exist.</summary>
+        public Supplier FindOrCreateByName(string name)
+        {
+            using var db = new SqlConnection(_cs);
+            db.Open();
+            var existing = db.QueryFirstOrDefault<Supplier>(
+                "SELECT * FROM Suppliers WHERE SupplierName = @name", new { name });
+            if (existing != null) return existing;
+
+            int id = db.QuerySingle<int>(@"
+                INSERT INTO Suppliers (SupplierName, IsActive) VALUES (@name, 1);
+                SELECT CAST(SCOPE_IDENTITY() AS INT);", new { name });
+            return new Supplier { SupplierID = id, SupplierName = name, IsActive = true };
+        }
+
+        /// <summary>Replaces the line items of a Draft purchase order without changing its status.</summary>
+        public void UpdateDraftOrder(int poid, PurchaseOrder updated)
+        {
+            using var db = new SqlConnection(_cs);
+            db.Open();
+            using var tx = db.BeginTransaction();
+            try
+            {
+                db.Execute(@"
+                    UPDATE PurchaseOrders
+                    SET PONumber    = @PONumber,
+                        SupplierID  = @SupplierID,
+                        Notes       = @Notes,
+                        ExpectedDate = @ExpectedDate
+                    WHERE POID = @POID AND Status = 'Draft'",
+                    new { updated.PONumber, updated.SupplierID, updated.Notes, updated.ExpectedDate, updated.POID }, tx);
+
+                db.Execute("DELETE FROM PurchaseOrderItems WHERE POID = @poid", new { poid }, tx);
+
+                foreach (var item in updated.Items ?? new List<PurchaseOrderItem>())
+                    db.Execute(@"
+                        INSERT INTO PurchaseOrderItems (POID, PartID, ProductID, SKU, ItemName, QuantityOrdered, QuantityReceived, UnitCost)
+                        VALUES (@POID, @PartID, @ProductID, @SKU, @ItemName, @QuantityOrdered, 0, @UnitCost);",
+                        new { POID = poid, item.PartID, item.ProductID, item.SKU, item.ItemName, item.QuantityOrdered, item.UnitCost }, tx);
+
+                tx.Commit();
+            }
+            catch { tx.Rollback(); throw; }
         }
 
         public void ReceiveItems(int poid, List<(int poItemId, int qtyReceived)> receivals)

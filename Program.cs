@@ -16,6 +16,9 @@ namespace JaneERP
 
             ApplicationConfiguration.Initialize();
 
+            // ── Apply custom colours before any form is shown ─────────────────────────
+            Theme.ApplyCustomColors(AppSettings.Current);
+
             // ── Step 1: Company / database selection (must happen before any DB access) ──
             using (var selector = new FormCompanySelector())
             {
@@ -59,6 +62,7 @@ namespace JaneERP
             SchemaStep("PackageComponents", () => new PackageRepository().EnsureSchema());
             SchemaStep("DiscountTiers",  () => { var r = new DiscountTierRepository(); r.EnsureSchema(); r.MigrateCustomerTier(); r.MigrateOrderDiscount(); });
             SchemaStep("PONotifiedAt",   () => new SupplierRepository().MigrateOverdueNotifiedColumn());
+            SchemaStep("POShipping",     () => new SupplierRepository().MigrateShippingCost());
 
             // ── Migration version table (must run before any RunOnce migrations) ──
             SchemaStep("MigrationTable", () => DataMigrations.EnsureMigrationTable());
@@ -103,6 +107,7 @@ namespace JaneERP
                 }
             });
 
+            Application.AddMessageFilter(new JaneERP.Security.GlobalActivityFilter());
             Application.Run(new FormAppLogin());
 
             AppLogger.Shutdown();

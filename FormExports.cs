@@ -1,7 +1,9 @@
 using System.Configuration;
 using System.Data;
+using System.Linq;
 using System.Text;
 using Dapper;
+using JaneERP.Data;
 using Microsoft.Data.SqlClient;
 
 namespace JaneERP
@@ -82,6 +84,9 @@ namespace JaneERP
             y = AddExportRow(scroll, y, "Sales Orders CSV",
                 "All ERP sales orders (OrderNumber, Customer, Date, Status, Total, Discount)",
                 ExportSalesOrders);
+            y = AddExportRow(scroll, y, "Sales Order Line Items CSV",
+                "Line-item detail per order (OrderNumber, Date, SKU, Product, Qty, UnitPrice, LineTotal, Status)",
+                ExportSalesOrderLineItems);
             y = AddExportRow(scroll, y, "Purchase Orders CSV",
                 "All purchase orders (PONumber, Supplier, Status, OrderDate, TotalCost)",
                 ExportPurchaseOrders);
@@ -123,7 +128,8 @@ namespace JaneERP
                 Font      = new Font("Segoe UI", 10F, FontStyle.Bold),
                 ForeColor = Theme.Gold,
                 Location  = new Point(0, y),
-                Size      = new Size(740, 24),
+                Size      = new Size(parent.ClientSize.Width > 0 ? parent.ClientSize.Width - 4 : 740, 24),
+                Anchor    = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Top,
                 AutoSize  = false
             };
             parent.Controls.Add(lbl);
@@ -132,15 +138,17 @@ namespace JaneERP
 
         private static int AddExportRow(Panel parent, int y, string name, string description, EventHandler exportHandler)
         {
-            const int rowH    = 56;
-            const int btnW    = 100;
-            const int btnH    = 30;
+            const int rowH = 56;
+            const int btnW = 100;
+            const int btnH = 30;
+            int initW = parent.ClientSize.Width > 0 ? parent.ClientSize.Width - 4 : 740;
 
             var pnlRow = new Panel
             {
                 Location  = new Point(0, y),
-                Size      = new Size(740, rowH),
-                BackColor = Theme.Surface
+                Size      = new Size(initW, rowH),
+                BackColor = Theme.Surface,
+                Anchor    = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Top
             };
 
             var lblName = new Label
@@ -158,7 +166,8 @@ namespace JaneERP
                 Font      = new Font("Segoe UI", 8.5F),
                 ForeColor = Theme.TextSecondary,
                 Location  = new Point(10, 26),
-                Size      = new Size(600, 22),
+                Size      = new Size(initW - btnW - 30, 22),
+                Anchor    = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Top,
                 AutoSize  = false
             };
 
@@ -166,7 +175,8 @@ namespace JaneERP
             {
                 Text      = "Export →",
                 Size      = new Size(btnW, btnH),
-                Location  = new Point(630, (rowH - btnH) / 2),
+                Location  = new Point(initW - btnW - 10, (rowH - btnH) / 2),
+                Anchor    = AnchorStyles.Right | AnchorStyles.Top,
                 BackColor = Color.FromArgb(0, 164, 153),
                 ForeColor = Color.White,
                 FlatStyle = FlatStyle.Flat,
@@ -188,13 +198,31 @@ namespace JaneERP
 
         private string? PickSavePath(string defaultFileName)
         {
+            var settings       = AppSettings.Current;
+            var defaultDir     = settings.DefaultExportPath;
+            if (string.IsNullOrWhiteSpace(defaultDir) || !Directory.Exists(defaultDir))
+                defaultDir = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
+
+            // If a default path is configured, offer to use it directly
+            if (!string.IsNullOrWhiteSpace(settings.DefaultExportPath) &&
+                Directory.Exists(settings.DefaultExportPath))
+            {
+                var quickPath = Path.Combine(settings.DefaultExportPath, defaultFileName);
+                var choice = MessageBox.Show(this,
+                    $"Use default export folder?\n{settings.DefaultExportPath}\n\n" +
+                    $"File: {defaultFileName}\n\nYes = use default  |  No = choose location",
+                    "Export Location", MessageBoxButtons.YesNoCancel, MessageBoxIcon.Question);
+                if (choice == DialogResult.Cancel) return null;
+                if (choice == DialogResult.Yes)    return quickPath;
+            }
+
             using var dlg = new SaveFileDialog
             {
                 Title            = "Save CSV Export",
                 Filter           = "CSV files (*.csv)|*.csv|All files (*.*)|*.*",
                 DefaultExt       = "csv",
                 FileName         = defaultFileName,
-                InitialDirectory = Environment.GetFolderPath(Environment.SpecialFolder.Desktop)
+                InitialDirectory = defaultDir
             };
             return dlg.ShowDialog(this) == DialogResult.OK ? dlg.FileName : null;
         }
@@ -341,20 +369,26 @@ namespace JaneERP
 
         private void ExportSalesOrders(object? sender, EventArgs e)
         {
-            var path = PickSavePath($"sales_orders_{Date}.csv");
+            using var filter = new FormExportDateFilter("Export Sales Orders");
+            if (filter.ShowDialog(this) != DialogResult.OK) return;
+            var (from, to) = (filter.FromDate, filter.ToDate.AddDays(1).AddTicks(-1));
+
+            var path = PickSavePath($"sales_orders_{filter.FromDate:yyyyMMdd}_{filter.ToDate:yyyyMMdd}.csv");
             if (path == null) return;
             try
             {
                 using var db = OpenDb();
                 var rows = db.Query(@"
-                    SELECT  o.OrderNumber,
-                            o.CustomerName,
-                            o.CreatedAt   AS OrderDate,
-                            o.Status,
-                            o.TotalAmount AS Total,
-                            ISNULL(o.DiscountAmount, 0) AS Discount
-                    FROM    Orders o
-                    ORDER BY o.CreatedAt DESC").AsList();
+                    SELECT  so.OrderNumber,
+                            c.FullName     AS CustomerName,
+                            so.OrderDate,
+                            so.Status,
+                            so.TotalPrice  AS Total,
+                            ISNULL(so.DiscountAmount, 0) AS Discount
+                    FROM    SalesOrders so
+                    LEFT JOIN Customers c ON c.CustomerID = so.CustomerID
+                    WHERE   so.OrderDate >= @from AND so.OrderDate <= @to
+                    ORDER BY so.OrderDate DESC", new { from, to }).AsList();
 
                 var sb = new StringBuilder();
                 sb.AppendLine("OrderNumber,Customer,Date,Status,Total,Discount");
@@ -366,9 +400,53 @@ namespace JaneERP
             catch (Exception ex) { ShowError(ex); }
         }
 
+        private void ExportSalesOrderLineItems(object? sender, EventArgs e)
+        {
+            using var filter = new FormExportDateFilter("Export Sales Order Line Items");
+            if (filter.ShowDialog(this) != DialogResult.OK) return;
+            var (from, to) = (filter.FromDate, filter.ToDate.AddDays(1).AddTicks(-1));
+
+            var path = PickSavePath($"sales_order_line_items_{filter.FromDate:yyyyMMdd}_{filter.ToDate:yyyyMMdd}.csv");
+            if (path == null) return;
+            try
+            {
+                using var db = OpenDb();
+                var rows = db.Query(@"
+                    SELECT  so.OrderNumber,
+                            so.OrderDate,
+                            so.Status,
+                            ISNULL(soi.SKU, '')                             AS SKU,
+                            ISNULL(soi.Title, p.ProductName)                AS ProductName,
+                            soi.Quantity,
+                            soi.UnitPrice,
+                            soi.Quantity * soi.UnitPrice                    AS LineTotal,
+                            ISNULL(c.FullName, '')                          AS Customer
+                    FROM    SalesOrderItems soi
+                    JOIN    SalesOrders so ON so.SalesOrderID = soi.SalesOrderID
+                    LEFT JOIN Products   p  ON p.ProductID   = soi.ProductID
+                    LEFT JOIN Customers  c  ON c.CustomerID  = so.CustomerID
+                    WHERE   so.OrderDate >= @from AND so.OrderDate <= @to
+                    ORDER   BY so.OrderDate DESC, so.OrderNumber, soi.SalesOrderItemID",
+                    new { from, to }).AsList();
+
+                var sb = new StringBuilder();
+                sb.AppendLine("OrderNumber,Date,Status,Customer,SKU,Product,Qty,UnitPrice,LineTotal");
+                foreach (var r in rows)
+                    sb.AppendLine($"{r.OrderNumber},{r.OrderDate:yyyy-MM-dd},{Esc(r.Status)}," +
+                                  $"{Esc(r.Customer)},{Esc(r.SKU)},{Esc(r.ProductName)}," +
+                                  $"{r.Quantity},{r.UnitPrice},{r.LineTotal}");
+                WriteAndConfirm(path, sb.ToString());
+            }
+            catch (Exception ex) { ShowError(ex); }
+        }
+
         private void ExportPurchaseOrders(object? sender, EventArgs e)
         {
-            var path = PickSavePath($"purchase_orders_{Date}.csv");
+            using var filter = new FormExportDateFilter("Export Purchase Orders");
+            if (filter.ShowDialog(this) != DialogResult.OK) return;
+            var (from, to) = (filter.FromDate, filter.ToDate.AddDays(1).AddTicks(-1));
+
+            var path = PickSavePath($"purchase_orders_{filter.FromDate:yyyyMMdd}_{filter.ToDate:yyyyMMdd}.csv");
             if (path == null) return;
             try
             {
@@ -381,7 +459,8 @@ namespace JaneERP
                             po.TotalCost
                     FROM    PurchaseOrders po
                     LEFT JOIN Suppliers s ON s.SupplierID = po.SupplierID
-                    ORDER BY po.OrderDate DESC").AsList();
+                    WHERE   po.OrderDate >= @from AND po.OrderDate <= @to
+                    ORDER BY po.OrderDate DESC", new { from, to }).AsList();
 
                 var sb = new StringBuilder();
                 sb.AppendLine("PONumber,Supplier,Status,OrderDate,TotalCost");
@@ -401,19 +480,24 @@ namespace JaneERP
             {
                 using var db = OpenDb();
                 var rows = db.Query(@"
-                    SELECT  mo.WorkOrderNumber,
+                    SELECT  wo.WorkOrderID,
+                            mo.MONumber,
                             p.ProductName,
-                            mo.Quantity,
-                            mo.Status,
-                            ISNULL(mo.COGS, 0) AS COGS
-                    FROM    ManufacturingOrders mo
-                    LEFT JOIN Products p ON p.ProductID = mo.ProductID
-                    ORDER BY mo.CreatedAt DESC").AsList();
+                            wo.Quantity,
+                            wo.Status,
+                            ISNULL(wo.CostOfGoods, 0) AS COGS,
+                            wo.CompletedAt
+                    FROM    WorkOrders wo
+                    LEFT JOIN ManufacturingOrders mo ON mo.MOID    = wo.MOID
+                    LEFT JOIN Products            p  ON p.ProductID = wo.ProductID
+                    ORDER BY wo.WorkOrderID DESC").AsList();
 
                 var sb = new StringBuilder();
-                sb.AppendLine("WorkOrderNumber,Product,Quantity,Status,COGS");
+                sb.AppendLine("WorkOrderID,MONumber,Product,Quantity,Status,COGS,CompletedAt");
                 foreach (var r in rows)
-                    sb.AppendLine($"{Esc(r.WorkOrderNumber)},{Esc(r.ProductName)},{r.Quantity},{Esc(r.Status)},{r.COGS}");
+                    sb.AppendLine($"{r.WorkOrderID},{Esc(r.MONumber)},{Esc(r.ProductName)}," +
+                                  $"{r.Quantity},{Esc(r.Status)},{r.COGS}," +
+                                  $"{(r.CompletedAt != null ? ((DateTime)r.CompletedAt).ToString("yyyy-MM-dd") : "")}");
                 WriteAndConfirm(path, sb.ToString());
             }
             catch (Exception ex) { ShowError(ex); }
@@ -427,24 +511,27 @@ namespace JaneERP
             {
                 using var db = OpenDb();
                 var rows = db.Query(@"
-                    SELECT  mo.WorkOrderNumber,
+                    SELECT  wo.WorkOrderID,
+                            mo.MONumber,
                             p.ProductName,
-                            mo.Quantity,
-                            ISNULL(mo.COGS, 0)                       AS TotalCOGS,
-                            CASE WHEN mo.Quantity > 0
-                                 THEN ISNULL(mo.COGS, 0) / mo.Quantity
-                                 ELSE 0 END                           AS COGSPerUnit,
-                            mo.CompletedAt
-                    FROM    ManufacturingOrders mo
-                    LEFT JOIN Products p ON p.ProductID = mo.ProductID
-                    WHERE   mo.Status = 'Completed'
-                    ORDER BY mo.CompletedAt DESC").AsList();
+                            wo.Quantity,
+                            ISNULL(wo.CostOfGoods, 0)                        AS TotalCOGS,
+                            CASE WHEN wo.Quantity > 0
+                                 THEN ISNULL(wo.CostOfGoods, 0) / wo.Quantity
+                                 ELSE 0 END                                   AS COGSPerUnit,
+                            wo.CompletedAt
+                    FROM    WorkOrders wo
+                    LEFT JOIN ManufacturingOrders mo ON mo.MOID    = wo.MOID
+                    LEFT JOIN Products            p  ON p.ProductID = wo.ProductID
+                    WHERE   wo.Status = 'Complete'
+                    ORDER BY wo.CompletedAt DESC").AsList();
 
                 var sb = new StringBuilder();
-                sb.AppendLine("WorkOrderNumber,Product,Quantity,TotalCOGS,COGSPerUnit,CompletedAt");
+                sb.AppendLine("WorkOrderID,MONumber,Product,Quantity,TotalCOGS,COGSPerUnit,CompletedAt");
                 foreach (var r in rows)
-                    sb.AppendLine($"{Esc(r.WorkOrderNumber)},{Esc(r.ProductName)},{r.Quantity}," +
-                                  $"{r.TotalCOGS},{r.COGSPerUnit},{r.CompletedAt:yyyy-MM-dd}");
+                    sb.AppendLine($"{r.WorkOrderID},{Esc(r.MONumber)},{Esc(r.ProductName)},{r.Quantity}," +
+                                  $"{r.TotalCOGS},{r.COGSPerUnit}," +
+                                  $"{(r.CompletedAt != null ? ((DateTime)r.CompletedAt).ToString("yyyy-MM-dd") : "")}");
                 WriteAndConfirm(path, sb.ToString());
             }
             catch (Exception ex) { ShowError(ex); }
@@ -457,34 +544,20 @@ namespace JaneERP
             try
             {
                 using var db = OpenDb();
-                // Try with DiscountTier join; fall back to without if table doesn't exist
-                IEnumerable<dynamic> rows;
-                try
-                {
-                    rows = db.Query(@"
-                        SELECT  c.CustomerName AS Name,
-                                c.Email,
-                                c.Phone,
-                                ISNULL(dt.TierName, '') AS DiscountTier
-                        FROM    Customers c
-                        LEFT JOIN DiscountTiers dt ON dt.DiscountTierID = c.DiscountTierID
-                        ORDER BY c.CustomerName");
-                }
-                catch
-                {
-                    rows = db.Query(@"
-                        SELECT  CustomerName AS Name,
-                                Email,
-                                Phone,
-                                '' AS DiscountTier
-                        FROM    Customers
-                        ORDER BY CustomerName");
-                }
+                var rows = db.Query(@"
+                    SELECT  ISNULL(c.FullName, '') AS Name,
+                            ISNULL(c.Email,    '') AS Email,
+                            COUNT(so.SalesOrderID)        AS OrderCount,
+                            ISNULL(SUM(so.TotalPrice), 0) AS TotalSpent
+                    FROM    Customers c
+                    LEFT JOIN SalesOrders so ON so.CustomerID = c.CustomerID
+                    GROUP BY c.CustomerID, c.FullName, c.Email
+                    ORDER BY c.FullName").AsList();
 
                 var sb = new StringBuilder();
-                sb.AppendLine("Name,Email,Phone,DiscountTier");
+                sb.AppendLine("Name,Email,OrderCount,TotalSpent");
                 foreach (var r in rows)
-                    sb.AppendLine($"{Esc(r.Name)},{Esc(r.Email)},{Esc(r.Phone)},{Esc(r.DiscountTier)}");
+                    sb.AppendLine($"{Esc(r.Name)},{Esc(r.Email)},{r.OrderCount},{r.TotalSpent}");
                 WriteAndConfirm(path, sb.ToString());
             }
             catch (Exception ex) { ShowError(ex); }
@@ -496,20 +569,17 @@ namespace JaneERP
             if (path == null) return;
             try
             {
-                using var db = OpenDb();
-                var rows = db.Query(@"
-                    SELECT  Username,
-                            Action,
-                            Detail,
-                            LoggedAt
-                    FROM    AppLog
-                    WHERE   LoggedAt >= DATEADD(day, -30, GETDATE())
-                    ORDER BY LoggedAt DESC").AsList();
+                using var db = new AppDbContext();
+                var cutoff = DateTime.UtcNow.AddDays(-30);
+                var rows = db.AuditLogs
+                    .Where(a => a.When >= cutoff)
+                    .OrderByDescending(a => a.When)
+                    .ToList();
 
                 var sb = new StringBuilder();
-                sb.AppendLine("Username,Action,Detail,LoggedAt");
+                sb.AppendLine("Username,Action,Details,LoggedAt");
                 foreach (var r in rows)
-                    sb.AppendLine($"{Esc(r.Username)},{Esc(r.Action)},{Esc(r.Detail)},{r.LoggedAt:yyyy-MM-dd HH:mm:ss}");
+                    sb.AppendLine($"{Esc(r.User)},{Esc(r.Action)},{Esc(r.Details)},{r.When.ToLocalTime():yyyy-MM-dd HH:mm:ss}");
                 WriteAndConfirm(path, sb.ToString());
             }
             catch (Exception ex) { ShowError(ex); }
@@ -534,6 +604,74 @@ namespace JaneERP
             else
                 MessageBox.Show(this, $"Export failed: {ex.Message}", "Export Error",
                     MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+    }
+
+    /// <summary>Lightweight date-range picker shown before a filtered export.</summary>
+    internal sealed class FormExportDateFilter : Form
+    {
+        public DateTime FromDate => _dtpFrom.Value.Date;
+        public DateTime ToDate   => _dtpTo.Value.Date;
+
+        private DateTimePicker _dtpFrom = new();
+        private DateTimePicker _dtpTo   = new();
+
+        public FormExportDateFilter(string title)
+        {
+            Text            = title;
+            ClientSize      = new Size(340, 150);
+            FormBorderStyle = FormBorderStyle.FixedDialog;
+            MaximizeBox     = false;
+            MinimizeBox     = false;
+            StartPosition   = FormStartPosition.CenterParent;
+
+            Theme.Apply(this);
+            Theme.MakeBorderless(this);
+            Theme.AddCloseButton(this);
+
+            Controls.Add(new Label
+            {
+                Text      = title,
+                Font      = new Font("Segoe UI", 10F, FontStyle.Bold),
+                ForeColor = Theme.Gold,
+                Location  = new Point(12, 12),
+                AutoSize  = true
+            });
+
+            Controls.Add(new Label { Text = "From:", Location = new Point(12, 48), AutoSize = true });
+            _dtpFrom.Location = new Point(70, 44);
+            _dtpFrom.Size     = new Size(120, 24);
+            _dtpFrom.Format   = DateTimePickerFormat.Short;
+            _dtpFrom.Value    = new DateTime(DateTime.Today.Year, DateTime.Today.Month, 1);
+            Controls.Add(_dtpFrom);
+
+            Controls.Add(new Label { Text = "To:", Location = new Point(202, 48), AutoSize = true });
+            _dtpTo.Location = new Point(222, 44);
+            _dtpTo.Size     = new Size(104, 24);
+            _dtpTo.Format   = DateTimePickerFormat.Short;
+            _dtpTo.Value    = DateTime.Today;
+            Controls.Add(_dtpTo);
+
+            var btnOk = new Button
+            {
+                Text           = "Export",
+                Size           = new Size(90, 30),
+                Location       = new Point(140, 96),
+                DialogResult   = DialogResult.OK,
+                UseVisualStyleBackColor = true
+            };
+            var btnCancel = new Button
+            {
+                Text         = "Cancel",
+                Size         = new Size(80, 30),
+                Location     = new Point(246, 96),
+                DialogResult = DialogResult.Cancel,
+                UseVisualStyleBackColor = true
+            };
+            Controls.Add(btnOk);
+            Controls.Add(btnCancel);
+            AcceptButton = btnOk;
+            CancelButton = btnCancel;
         }
     }
 }

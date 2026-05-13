@@ -26,6 +26,7 @@ namespace JaneERP
         private BindingList<Order> _currentOrders = new BindingList<Order>();
         private SyncService? _syncService;
         private CancellationTokenSource? _syncCts;
+        private System.Windows.Forms.Timer? _syncRefreshTimer;
 
         // Persisted across form instances within the same session
         private static DateTime _lastFromDate = new DateTime(2026, 4, 1);
@@ -56,7 +57,13 @@ namespace JaneERP
             dtpTo.ValueChanged   += (_, _) => _lastToDate   = dtpTo.Value;
 
             InitializeGridColumns();
-            PopulateStoreFilter();
+
+            // Disable Sync if the user lacks permission — PopulateStoreFilter may further restrict it
+            // based on whether a store is selected, so evaluate permission first.
+            if (!Security.PermissionHelper.CanEdit("SalesOrders"))
+                btnSyncToERP.Enabled = false;
+
+            PopulateStoreFilter();   // sets initial store state and may disable Sync/Fetch buttons
             LoadCachedOrders();
 
             // Wire real-time filter events
@@ -64,9 +71,6 @@ namespace JaneERP
             dtpTo.ValueChanged      += (_, _) => ApplyFilters();
             txtMinAmount.TextChanged += (_, _) => ApplyFilters();
             txtMaxAmount.TextChanged += (_, _) => ApplyFilters();
-
-            // Permission: only Editors/Admins can sync to ERP
-            btnSyncToERP.Enabled = Security.PermissionHelper.CanEdit("SalesOrders");
 
             Shown += FormSalesDash_Shown;
         }
@@ -105,25 +109,33 @@ namespace JaneERP
                 case 0: // All Stores (Shopify cache)
                     _currentStore = null; _store = ""; _token = "";
                     _syncService?.Stop();
+                    _syncRefreshTimer?.Stop();
                     btnFetch.Enabled     = false;
-                    btnSyncToERP.Enabled = false;
+                    btnSyncToERP.Enabled = Security.PermissionHelper.CanEdit("SalesOrders");
                     Text = "Shopify Orders — All Stores";
+                    UpdateSyncLabel();
                     LoadCachedOrders();
                     break;
 
                 case 1: // Non-Shopify Orders
                     _currentStore = null; _store = ""; _token = "";
+                    _syncService?.Stop();
+                    _syncRefreshTimer?.Stop();
                     btnFetch.Enabled     = false;
-                    btnSyncToERP.Enabled = false;
+                    btnSyncToERP.Enabled = Security.PermissionHelper.CanEdit("SalesOrders");
                     Text = "ERP Orders — Non-Shopify";
+                    UpdateSyncLabel();
                     LoadErpOrders(null, nonShopifyOnly: true);
                     break;
 
                 case 2: // All ERP Orders
                     _currentStore = null; _store = ""; _token = "";
+                    _syncService?.Stop();
+                    _syncRefreshTimer?.Stop();
                     btnFetch.Enabled     = false;
-                    btnSyncToERP.Enabled = false;
+                    btnSyncToERP.Enabled = Security.PermissionHelper.CanEdit("SalesOrders");
                     Text = "ERP Orders — All";
+                    UpdateSyncLabel();
                     LoadErpOrders(null);
                     break;
 
@@ -133,7 +145,8 @@ namespace JaneERP
                     _store        = selected.StoreDomain;
                     _token        = selected.Token ?? "";
                     btnFetch.Enabled     = true;
-                    btnSyncToERP.Enabled = Security.PermissionHelper.CanEdit("SalesOrders");
+                    btnSyncToERP.Enabled = !string.IsNullOrEmpty(_store) &&
+                                          Security.PermissionHelper.CanEdit("SalesOrders");
                     Text = $"Shopify Orders — {selected.StoreName}";
                     if (!string.IsNullOrEmpty(_store) && !string.IsNullOrEmpty(_token))
                         StartBackgroundSync(_store, _token);
@@ -341,10 +354,77 @@ namespace JaneERP
         private void StartBackgroundSync(string store, string token)
         {
             _syncService?.Dispose();
+            _syncRefreshTimer?.Stop();
+            _syncRefreshTimer?.Dispose();
+
             _syncService = new SyncService(store, token, TimeSpan.FromMinutes(5));
             _syncService.SyncCompleted += SyncService_SyncCompleted;
+            _syncService.SyncStarted   += (_, _) =>
+            {
+                if (!IsHandleCreated || IsDisposed) return;
+                Invoke(UpdateSyncLabel);
+            };
             _syncService.Start();
-            AppLogger.Audit(store, "BackgroundSyncStarted", $"Interval=5m");
+            AppLogger.Audit(store, "BackgroundSyncStarted", "Interval=5m");
+
+            // Refresh the "X min ago" label every minute on the UI thread
+            _syncRefreshTimer = new System.Windows.Forms.Timer { Interval = 60_000 };
+            _syncRefreshTimer.Tick += (_, _) => UpdateSyncLabel();
+            _syncRefreshTimer.Start();
+
+            UpdateSyncLabel();
+        }
+
+        /// <summary>Updates lblLastSync with the current sync state. Must be called on the UI thread.</summary>
+        private void UpdateSyncLabel()
+        {
+            if (_syncService == null || !_syncService.IsRunning)
+            {
+                lblLastSync.Text  = "";
+                btnSyncNow.Enabled = false;
+                return;
+            }
+
+            btnSyncNow.Enabled = !_syncService.IsSyncing;
+
+            if (_syncService.IsSyncing)
+            {
+                lblLastSync.Text      = "Syncing\u2026";
+                lblLastSync.ForeColor = Theme.TextSecondary;
+                return;
+            }
+
+            var synced = _syncService.LastSyncAt;
+            if (synced == null)
+            {
+                lblLastSync.Text      = "Last synced: never";
+                lblLastSync.ForeColor = Theme.TextSecondary;
+                return;
+            }
+
+            var ago     = DateTime.Now - synced.Value;
+            string agoText = ago.TotalMinutes < 1  ? "just now"
+                           : ago.TotalMinutes < 60 ? $"{(int)ago.TotalMinutes} min ago"
+                           :                         $"{(int)ago.TotalHours}h ago";
+
+            if (_syncService.LastSyncFailed)
+            {
+                lblLastSync.Text      = $"Sync error \u00b7 {agoText}";
+                lblLastSync.ForeColor = Theme.Danger;
+            }
+            else
+            {
+                lblLastSync.Text      = $"Cached: {agoText}";
+                lblLastSync.ForeColor = Theme.Teal;
+            }
+        }
+
+        private void BtnSyncNow_Click(object? sender, EventArgs e)
+        {
+            if (_syncService == null || !_syncService.IsRunning) return;
+            _syncService.TriggerNow();
+            lblStatus.Text = "Manual refresh triggered\u2026";
+            UpdateSyncLabel();
         }
 
         private void SyncService_SyncCompleted(object? sender, SyncCompletedEventArgs e)
@@ -355,12 +435,12 @@ namespace JaneERP
             if (e.Success)
             {
                 Invoke(LoadCachedOrders);
-                Invoke(() => lblStatus.Text = $"Background sync: {e.Count} orders");
+                Invoke(() => { lblStatus.Text = $"Background sync: {e.Count} orders"; UpdateSyncLabel(); });
             }
             else
             {
-                Invoke(() => lblStatus.Text = $"Background sync failed: {e.Error?.Message}");
                 AppLogger.Audit("system", "BackgroundSyncFailed", e.Error?.ToString() ?? "unknown");
+                Invoke(() => { lblStatus.Text = $"Background sync failed: {e.Error?.Message}"; UpdateSyncLabel(); });
             }
         }
 
@@ -378,26 +458,17 @@ namespace JaneERP
         {
             if (e.RowIndex < 0 || e.RowIndex >= _currentOrders.Count) return;
 
-            // ERP-view mode: no Shopify API available — show basic ERP details
+            // ERP-view mode: open detail form with pricing breakdown and status change
             if (IsErpView)
             {
                 var o = _currentOrders[e.RowIndex];
-                var details = new System.Text.StringBuilder();
-                details.AppendLine($"Order #:    {o.OrderNumber}");
-                details.AppendLine($"Customer:   {o.Name}");
-                details.AppendLine($"Date:       {o.CreatedAt:yyyy-MM-dd}");
-                details.AppendLine($"Total:      {o.TotalPrice:C2} {o.Currency}");
-                if (o.DiscountAmount > 0)
+                using var frm = new FormErpOrderDetail(o);
+                frm.ShowDialog(this);
+                if (frm.StatusWasChanged)
                 {
-                    details.AppendLine($"Discount:   {o.DiscountType ?? "Discount"}" +
-                        (o.DiscountPercent > 0 ? $" ({o.DiscountPercent:N2}%)" : "") +
-                        $" → -{o.DiscountAmount:C2}");
+                    if (IsErpView) LoadErpOrders(null, cboStoreFilter.SelectedIndex == 1);
+                    else LoadCachedOrders();
                 }
-                details.AppendLine($"Status:     {o.ErpStatus ?? "—"}");
-                details.AppendLine($"Type:       {o.StoreName}");
-
-                MessageBox.Show(this, details.ToString().TrimEnd(),
-                    "ERP Order Details", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
 
@@ -764,11 +835,13 @@ namespace JaneERP
             btnFetch.Enabled      = false;
             lblStatus.Text        = $"Syncing 0/{orders.Count}...";
 
-            var syncService = new ShopifySyncService();
-            var store       = NormalizeStoreInput(_store);
+            var syncService  = new ShopifySyncService();
+            var store        = NormalizeStoreInput(_store);
+            bool allStoresMode = string.IsNullOrEmpty(_store);
 
-            // Max 3 concurrent to avoid Shopify rate limits (only needed for cache misses)
-            var sem          = new SemaphoreSlim(3, 3);
+            // Sequential (1 at a time) for API calls to respect Shopify's leaky-bucket rate limit.
+            // Cache hits are instant so the semaphore effectively throttles only API requests.
+            var sem          = new SemaphoreSlim(1, 1);
             var counts       = new int[3]; // [0]=saved  [1]=skipped  [2]=failed
             var savedNumbers = new System.Collections.Concurrent.ConcurrentBag<string>();
             bool cancelled   = false;
@@ -785,6 +858,37 @@ namespace JaneERP
                         await sem.WaitAsync(token);
                         acquired = true;
                         if (token.IsCancellationRequested) return;
+
+                        // When syncing all stores, resolve per-order store/token
+                        string orderStore   = store;
+                        string orderToken   = _token;
+                        int?   orderStoreId = _currentStore?.StoreID;
+                        if (allStoresMode)
+                        {
+                            if (!string.IsNullOrEmpty(order.StoreDomain))
+                            {
+                                var ms = _allStores.FirstOrDefault(s =>
+                                    string.Equals(s.StoreDomain, order.StoreDomain, StringComparison.OrdinalIgnoreCase));
+                                if (ms != null)
+                                {
+                                    orderStore   = NormalizeStoreInput(ms.StoreDomain);
+                                    orderToken   = ms.Token ?? "";
+                                    orderStoreId = ms.StoreID;
+                                }
+                                else
+                                {
+                                    // StoreDomain present but no matching configured store — skip
+                                    AppLogger.Info($"[SyncToERP] Skipping order #{order.OrderNumber}: store '{order.StoreDomain}' not configured.");
+                                    return;
+                                }
+                            }
+                            else
+                            {
+                                // No StoreDomain on order and in all-stores mode — skip to avoid blank credentials
+                                AppLogger.Info($"[SyncToERP] Skipping order #{order.OrderNumber}: no store domain and all-stores mode active.");
+                                return;
+                            }
+                        }
 
                         // Try SQLite cache first — avoids hitting Shopify rate limits
                         OrderDetails? details = null;
@@ -805,10 +909,12 @@ namespace JaneERP
                         {
                             using var http = new HttpClient();
                             var client2    = new ShopifyClient(http);
-                            details = await client2.GetOrderAsync(store, _token, order.Id).ConfigureAwait(false);
+                            details = await client2.GetOrderAsync(orderStore, orderToken, order.Id).ConfigureAwait(false);
+                            // Brief pause after each live API call to stay under Shopify's rate limit
+                            await Task.Delay(250, token).ConfigureAwait(false);
                         }
 
-                        var wasSaved = syncService.ProcessShopifyOrder(details, _currentStore?.StoreID);
+                        var wasSaved = syncService.ProcessShopifyOrder(details, orderStoreId);
                         if (wasSaved)
                         {
                             Interlocked.Increment(ref counts[0]);
@@ -848,7 +954,7 @@ namespace JaneERP
 
             btnSyncToERP.Enabled  = Security.PermissionHelper.CanEdit("SalesOrders");
             btnCancelSync.Enabled = false;
-            btnFetch.Enabled      = true;
+            btnFetch.Enabled      = _currentStore != null;
 
             // Refresh the grid so ERP Sync column updates immediately
             LoadCachedOrders();
@@ -875,6 +981,14 @@ namespace JaneERP
                 MessageBox.Show(this,
                     $"{saved} order(s) saved to ERP\n{skipped} already existed (skipped){ordersSummary}",
                     "Sync Complete", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+
+        protected override void OnFormClosed(FormClosedEventArgs e)
+        {
+            _syncRefreshTimer?.Stop();
+            _syncRefreshTimer?.Dispose();
+            _syncService?.Dispose();
+            base.OnFormClosed(e);
         }
 
         protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
@@ -946,7 +1060,24 @@ namespace JaneERP
             int done  = 0, failed = 0;
             foreach (var o in targets)
             {
-                try { if (svc.UpdateOrderStatus(o.ErpSalesOrderID!.Value, newStatus)) done++; else failed++; }
+                try
+                {
+                    if (newStatus == "Live" && o.ErpSalesOrderID.HasValue)
+                    {
+                        var lines = svc.GetSOReservationItems(o.ErpSalesOrderID.Value);
+                        if (lines.Count > 0)
+                        {
+                            using var resForm = new FormStockReservation(
+                                $"Reserve Inventory — Order #{o.OrderNumber}", lines);
+                            if (resForm.ShowDialog(this) != DialogResult.OK) { failed++; continue; }
+                            if (resForm.ConfirmedLines?.Count > 0)
+                                svc.SaveSOReservations(o.ErpSalesOrderID.Value, resForm.ConfirmedLines);
+                        }
+                    }
+
+                    if (svc.UpdateOrderStatus(o.ErpSalesOrderID!.Value, newStatus)) done++;
+                    else failed++;
+                }
                 catch { failed++; }
             }
 
@@ -963,6 +1094,376 @@ namespace JaneERP
             // Reload stores in case settings changed
             _allStores = new Data.StoreRepository().GetAll().ToList();
             PopulateStoreFilter();
+        }
+    }
+
+    /// <summary>
+    /// Full-screen ERP order detail view: line items, pricing breakdown (subtotal → discount →
+    /// shipping → total), and status-change workflow.
+    /// </summary>
+    internal class FormErpOrderDetail : Form
+    {
+        private readonly Order _order;
+
+        /// <summary>True if the user changed the order's status at least once during this session.</summary>
+        public bool StatusWasChanged { get; private set; }
+
+        // UI controls that need refreshing after a status change
+        private Label        lblStatusValue = new();
+        private Label        lblPaidValue   = new();
+        private Button       btnMarkPaid    = new();
+        private DataGridView dgvItems       = new();
+        private Label        lblSubtotal    = new();
+        private Label        lblDiscount    = new();
+        private Label        lblShipping    = new();
+        private Label        lblTotal       = new();
+
+        public FormErpOrderDetail(Order order)
+        {
+            _order = order;
+            BuildUI();
+            Theme.Apply(this);
+            Theme.MakeBorderless(this);
+            Theme.MakeResizable(this);
+            Theme.AddCloseButton(this);
+            LoadItems();
+        }
+
+        private void BuildUI()
+        {
+            Text          = $"ERP Order #{_order.OrderNumber}";
+            ClientSize    = new Size(720, 580);
+            MinimumSize   = new Size(540, 460);
+            StartPosition = FormStartPosition.CenterParent;
+
+            // ── Header ───────────────────────────────────────────────────────────────
+            var pnlHeader = new Panel { Dock = DockStyle.Top, Height = 36, BackColor = Theme.Header };
+            pnlHeader.Controls.Add(new Label
+            {
+                Text      = $"Sales Order  #{_order.OrderNumber}",
+                Font      = new Font("Segoe UI", 11F, FontStyle.Bold),
+                ForeColor = Theme.Gold,
+                Location  = new Point(12, 8),
+                AutoSize  = true
+            });
+            Theme.MakeDraggable(this, pnlHeader);
+            Controls.Add(pnlHeader);
+
+            // ── Info rows ─────────────────────────────────────────────────────────────
+            int y = 48, lx = 16;
+            AddInfoPair("Customer:",  _order.Name          ?? "—", lx,  y,
+                        "Date:",      _order.CreatedAt.ToString("yyyy-MM-dd"), 360, y);
+            y += 24;
+            AddInfoPair("Email:",     _order.ContactEmail  ?? "—", lx,  y,
+                        "Type:",      _order.StoreName     ?? "—", 360, y);
+            y += 24;
+            AddCaption("Status:", lx, y + 2);
+            lblStatusValue.Text      = _order.ErpStatus ?? "—";
+            lblStatusValue.Location  = new Point(lx + 96, y);
+            lblStatusValue.AutoSize  = true;
+            lblStatusValue.Font      = new Font("Segoe UI", 9F, FontStyle.Bold);
+            lblStatusValue.ForeColor = StatusColor(_order.ErpStatus);
+            Controls.Add(lblStatusValue);
+            y += 24;
+
+            AddCaption("Payment:", lx, y + 2);
+            lblPaidValue.Location  = new Point(lx + 96, y);
+            lblPaidValue.AutoSize  = true;
+            lblPaidValue.Font      = new Font("Segoe UI", 9F, FontStyle.Bold);
+            RefreshPaidLabel();
+            Controls.Add(lblPaidValue);
+
+            btnMarkPaid.Text     = "Mark as Paid";
+            btnMarkPaid.Size     = new Size(110, 24);
+            btnMarkPaid.Location = new Point(lx + 240, y - 1);
+            btnMarkPaid.Enabled  = !_order.IsPaid && _order.ErpSalesOrderID.HasValue;
+            btnMarkPaid.Click   += BtnMarkPaid_Click;
+            Theme.StyleSecondaryButton(btnMarkPaid);
+            Controls.Add(btnMarkPaid);
+            y += 30;
+
+            // ── Grid ─────────────────────────────────────────────────────────────────
+            Controls.Add(new Label
+            {
+                Text      = "Line Items",
+                Font      = new Font("Segoe UI", 9F, FontStyle.Bold),
+                ForeColor = Theme.Gold,
+                Location  = new Point(lx, y),
+                AutoSize  = true
+            });
+            y += 20;
+
+            dgvItems.AutoGenerateColumns   = false;
+            dgvItems.ReadOnly              = true;
+            dgvItems.AllowUserToAddRows    = false;
+            dgvItems.AllowUserToDeleteRows = false;
+            dgvItems.SelectionMode         = DataGridViewSelectionMode.FullRowSelect;
+            dgvItems.Location              = new Point(lx, y);
+            dgvItems.Anchor                = AnchorStyles.Top | AnchorStyles.Bottom
+                                           | AnchorStyles.Left | AnchorStyles.Right;
+            dgvItems.Size                  = new Size(ClientSize.Width - lx * 2, ClientSize.Height - y - 152);
+            dgvItems.Columns.Add(new DataGridViewTextBoxColumn { Name = "cSKU",   HeaderText = "SKU",        Width = 120 });
+            dgvItems.Columns.Add(new DataGridViewTextBoxColumn { Name = "cName",  HeaderText = "Product",    AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill });
+            dgvItems.Columns.Add(new DataGridViewTextBoxColumn { Name = "cQty",   HeaderText = "Qty",        Width = 55  });
+            dgvItems.Columns.Add(new DataGridViewTextBoxColumn { Name = "cPrice", HeaderText = "Unit Price", Width = 96  });
+            dgvItems.Columns.Add(new DataGridViewTextBoxColumn { Name = "cLine",  HeaderText = "Line Total", Width = 96  });
+            Theme.StyleGrid(dgvItems);
+            Controls.Add(dgvItems);
+
+            // ── Pricing summary (anchored bottom-left) ────────────────────────────────
+            lblSubtotal.Font      = new Font("Segoe UI", 9F);
+            lblSubtotal.ForeColor = Theme.TextSecondary;
+            lblSubtotal.Anchor    = AnchorStyles.Bottom | AnchorStyles.Left;
+            lblSubtotal.Location  = new Point(lx, ClientSize.Height - 136);
+            lblSubtotal.AutoSize  = true;
+            Controls.Add(lblSubtotal);
+
+            lblDiscount.Font      = new Font("Segoe UI", 9F);
+            lblDiscount.ForeColor = Theme.Teal;
+            lblDiscount.Anchor    = AnchorStyles.Bottom | AnchorStyles.Left;
+            lblDiscount.Location  = new Point(lx, ClientSize.Height - 114);
+            lblDiscount.AutoSize  = true;
+            Controls.Add(lblDiscount);
+
+            lblShipping.Font      = new Font("Segoe UI", 9F);
+            lblShipping.ForeColor = Theme.TextSecondary;
+            lblShipping.Anchor    = AnchorStyles.Bottom | AnchorStyles.Left;
+            lblShipping.Location  = new Point(lx, ClientSize.Height - 92);
+            lblShipping.AutoSize  = true;
+            Controls.Add(lblShipping);
+
+            lblTotal.Font      = new Font("Segoe UI", 11F, FontStyle.Bold);
+            lblTotal.ForeColor = Theme.Gold;
+            lblTotal.Anchor    = AnchorStyles.Bottom | AnchorStyles.Left;
+            lblTotal.Location  = new Point(lx, ClientSize.Height - 68);
+            lblTotal.AutoSize  = true;
+            Controls.Add(lblTotal);
+
+            // ── Action buttons (anchored bottom-right) ────────────────────────────────
+            var btnChangeStatus = new Button
+            {
+                Text     = "Change Status",
+                Size     = new Size(130, 30),
+                Anchor   = AnchorStyles.Bottom | AnchorStyles.Right,
+                Location = new Point(ClientSize.Width - 286, ClientSize.Height - 46)
+            };
+            btnChangeStatus.Click += BtnChangeStatus_Click;
+            Theme.StyleSecondaryButton(btnChangeStatus);
+            Controls.Add(btnChangeStatus);
+
+            var btnClose = new Button
+            {
+                Text     = "Close",
+                Size     = new Size(80, 30),
+                Anchor   = AnchorStyles.Bottom | AnchorStyles.Right,
+                Location = new Point(ClientSize.Width - 146, ClientSize.Height - 46)
+            };
+            btnClose.Click += (_, _) => Close();
+            Theme.StyleButton(btnClose);
+            Controls.Add(btnClose);
+        }
+
+        private void AddInfoPair(string cap1, string val1, int x1, int y,
+                                  string cap2, string val2, int x2, int y2)
+        {
+            AddCaption(cap1, x1, y + 2);
+            Controls.Add(new Label { Text = val1, Location = new Point(x1 + 96, y + 2), AutoSize = true });
+            AddCaption(cap2, x2, y2 + 2);
+            Controls.Add(new Label { Text = val2, Location = new Point(x2 + 76, y2 + 2), AutoSize = true });
+        }
+
+        private void AddCaption(string text, int x, int y)
+        {
+            Controls.Add(new Label
+            {
+                Text      = text,
+                Location  = new Point(x, y),
+                AutoSize  = true,
+                ForeColor = Theme.TextSecondary,
+                Font      = new Font("Segoe UI", 8F)
+            });
+        }
+
+        private static Color StatusColor(string? status) => status switch
+        {
+            "Complete" => Color.FromArgb(100, 210, 100),
+            "Live"     => Color.FromArgb(0, 180, 180),
+            "WIP"      => Color.FromArgb(210, 160, 50),
+            _          => Color.FromArgb(160, 160, 170)  // Draft / unknown
+        };
+
+        private void LoadItems()
+        {
+            if (!_order.ErpSalesOrderID.HasValue) return;
+            try
+            {
+                var items = new Services.ShopifySyncService().GetOrderItems(_order.ErpSalesOrderID.Value);
+                decimal subtotal = 0;
+                foreach (var item in items)
+                {
+                    decimal lineTotal = item.UnitPrice * item.Quantity;
+                    subtotal += lineTotal;
+                    int r   = dgvItems.Rows.Add();
+                    var row = dgvItems.Rows[r];
+                    row.Cells["cSKU"].Value   = item.SKU   ?? "";
+                    row.Cells["cName"].Value  = item.Title ?? "";
+                    row.Cells["cQty"].Value   = item.Quantity.ToString();
+                    row.Cells["cPrice"].Value = $"${item.UnitPrice:N2}";
+                    row.Cells["cLine"].Value  = $"${lineTotal:N2}";
+                }
+
+                string cur = _order.Currency ?? "CAD";
+                lblSubtotal.Text = $"Subtotal:   {subtotal:N2} {cur}";
+
+                lblDiscount.Text = _order.DiscountAmount > 0
+                    ? $"Discount:   -{_order.DiscountAmount:N2} {cur}" +
+                      (_order.DiscountType != null ? $"  ({_order.DiscountType})" : "")
+                    : "";
+
+                lblShipping.Text = _order.ShippingCost > 0
+                    ? $"Shipping:   +{_order.ShippingCost:N2} {cur}"
+                    : "";
+
+                lblTotal.Text = $"Total:   {_order.TotalPrice:N2} {cur}";
+            }
+            catch { /* non-fatal — form still useful for status changes */ }
+        }
+
+        private void BtnChangeStatus_Click(object? sender, EventArgs e)
+        {
+            if (!_order.ErpSalesOrderID.HasValue) return;
+            using var picker = new FormStatusPicker(_order.ErpStatus ?? "Draft");
+            if (picker.ShowDialog(this) != DialogResult.OK) return;
+
+            var svc = new Services.ShopifySyncService();
+            try
+            {
+                if (picker.ChosenStatus == "Live")
+                {
+                    var lines = svc.GetSOReservationItems(_order.ErpSalesOrderID.Value);
+                    if (lines.Count > 0)
+                    {
+                        using var resForm = new FormStockReservation(
+                            $"Reserve Inventory — Order #{_order.OrderNumber}", lines);
+                        if (resForm.ShowDialog(this) != DialogResult.OK) return;
+                        if (resForm.ConfirmedLines?.Count > 0)
+                            svc.SaveSOReservations(_order.ErpSalesOrderID.Value, resForm.ConfirmedLines);
+                    }
+                }
+
+                svc.UpdateOrderStatus(_order.ErpSalesOrderID.Value, picker.ChosenStatus);
+                _order.ErpStatus        = picker.ChosenStatus;
+                lblStatusValue.Text      = picker.ChosenStatus;
+                lblStatusValue.ForeColor = StatusColor(picker.ChosenStatus);
+                StatusWasChanged         = true;
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, ex.Message, "Status update failed",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        private void RefreshPaidLabel()
+        {
+            if (_order.IsPaid)
+            {
+                string date = _order.PaidAt.HasValue ? _order.PaidAt.Value.ToString("yyyy-MM-dd") : "";
+                lblPaidValue.Text      = $"PAID{(date.Length > 0 ? "  " + date : "")}";
+                lblPaidValue.ForeColor = Color.FromArgb(80, 210, 100);
+            }
+            else
+            {
+                lblPaidValue.Text      = "Unpaid";
+                lblPaidValue.ForeColor = Color.FromArgb(160, 160, 170);
+            }
+        }
+
+        private void BtnMarkPaid_Click(object? sender, EventArgs e)
+        {
+            if (!_order.ErpSalesOrderID.HasValue) return;
+            using var dlg = new FormMarkPaid(_order.TotalPrice, _order.Currency);
+            if (dlg.ShowDialog(this) != DialogResult.OK) return;
+            try
+            {
+                new Services.ShopifySyncService().MarkAsPaid(
+                    _order.ErpSalesOrderID.Value, dlg.PaymentMethod, dlg.Notes);
+                _order.IsPaid  = true;
+                _order.PaidAt  = DateTime.Now;
+                RefreshPaidLabel();
+                btnMarkPaid.Enabled = false;
+                StatusWasChanged    = true;
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, ex.Message, "Mark as Paid failed",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // Mark-as-Paid entry dialog
+    // ─────────────────────────────────────────────────────────────────────────────
+
+    internal sealed class FormMarkPaid : Form
+    {
+        public string? PaymentMethod { get; private set; }
+        public string? Notes         { get; private set; }
+
+        private ComboBox cboMethod = new();
+        private TextBox  txtNotes  = new();
+
+        public FormMarkPaid(decimal amount, string? currency)
+        {
+            BuildUI(amount, currency);
+            Theme.Apply(this);
+            Theme.MakeBorderless(this);
+            Theme.AddCloseButton(this);
+        }
+
+        private void BuildUI(decimal amount, string? currency)
+        {
+            Text          = "Mark as Paid";
+            ClientSize    = new Size(360, 210);
+            FormBorderStyle = FormBorderStyle.FixedDialog;
+            StartPosition = FormStartPosition.CenterParent;
+
+            Controls.Add(new Label
+            {
+                Text      = $"Mark order as paid — {amount:N2} {currency ?? "CAD"}",
+                Font      = new Font("Segoe UI", 10F, FontStyle.Bold),
+                ForeColor = Theme.Gold,
+                Location  = new Point(14, 14),
+                Size      = new Size(330, 22)
+            });
+
+            Controls.Add(new Label { Text = "Payment Method:", Location = new Point(14, 50), AutoSize = true, ForeColor = Theme.TextSecondary });
+            cboMethod.Location      = new Point(14, 70);
+            cboMethod.Size          = new Size(160, 24);
+            cboMethod.DropDownStyle = ComboBoxStyle.DropDownList;
+            cboMethod.Items.AddRange(new object[] { "Cash", "Credit/Debit Card", "EFT / Bank Transfer", "Cheque", "Other" });
+            cboMethod.SelectedIndex = 0;
+            Controls.Add(cboMethod);
+
+            Controls.Add(new Label { Text = "Notes (optional):", Location = new Point(14, 104), AutoSize = true, ForeColor = Theme.TextSecondary });
+            txtNotes.Location   = new Point(14, 124);
+            txtNotes.Size       = new Size(330, 23);
+            Controls.Add(txtNotes);
+
+            var btnOk = new Button { Text = "Confirm", Size = new Size(90, 28), Location = new Point(166, 166), UseVisualStyleBackColor = true };
+            btnOk.Click += (_, _) =>
+            {
+                PaymentMethod = cboMethod.SelectedItem?.ToString();
+                Notes         = string.IsNullOrWhiteSpace(txtNotes.Text) ? null : txtNotes.Text.Trim();
+                DialogResult  = DialogResult.OK;
+                Close();
+            };
+            Controls.Add(btnOk);
+
+            var btnCancel = new Button { Text = "Cancel", Size = new Size(80, 28), Location = new Point(264, 166), UseVisualStyleBackColor = true };
+            btnCancel.Click += (_, _) => { DialogResult = DialogResult.Cancel; Close(); };
+            Controls.Add(btnCancel);
         }
     }
 }

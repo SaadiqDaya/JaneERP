@@ -57,7 +57,7 @@ namespace JaneERP
             cmbFilter.Location         = new Point(64, 52);
             cmbFilter.Size             = new Size(160, 24);
             cmbFilter.DropDownStyle    = ComboBoxStyle.DropDownList;
-            cmbFilter.Items.AddRange(new object[] { "All", "Draft", "Sent", "PartiallyReceived", "Received", "Cancelled" });
+            cmbFilter.Items.AddRange(new object[] { "Draft + Sent", "All", "Draft", "Sent", "PartiallyReceived", "Received", "Cancelled" });
             cmbFilter.SelectedIndex    = 0;
             cmbFilter.SelectedIndexChanged += (_, _) => LoadOrders();
             Controls.Add(cmbFilter);
@@ -91,6 +91,22 @@ namespace JaneERP
                 frm.ShowDialog(this);
             };
             Controls.Add(btnSuppliers);
+
+            // ── Auto PO button ───────────────────────────────────────────────────
+            var btnAutoPO = new Button
+            {
+                Text     = "Auto PO",
+                Location = new Point(650, 48),
+                Size     = new Size(90, 30),
+                UseVisualStyleBackColor = true
+            };
+            btnAutoPO.Click += (_, _) =>
+            {
+                using var frm = new FormReorderReport();
+                frm.ShowDialog(this);
+                LoadOrders();   // always refresh — user may have created a PO from inside
+            };
+            Controls.Add(btnAutoPO);
 
             // ── DataGridView ─────────────────────────────────────────────────────
             dgvPOs.Anchor   = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
@@ -155,6 +171,14 @@ namespace JaneERP
                 "Sent"              => Theme.Teal,
                 _                   => Theme.TextPrimary
             };
+
+            // Overdue: past ExpectedDate and still actionable
+            bool isOverdue = order.ExpectedDate.HasValue
+                          && order.ExpectedDate.Value.Date < DateTime.Today
+                          && order.Status is not ("Received" or "Cancelled");
+            row.DefaultCellStyle.BackColor = isOverdue
+                ? Color.FromArgb(70, 15, 15)
+                : Color.Empty;
         }
 
         private void LoadOrders()
@@ -162,9 +186,18 @@ namespace JaneERP
             try
             {
                 string? filter = cmbFilter.SelectedItem?.ToString();
-                if (filter == "All") filter = null;
 
-                _orders = _repo.GetOrders(filter);
+                if (filter == "Draft + Sent")
+                {
+                    var all = _repo.GetOrders(null);
+                    _orders = all.Where(o => o.Status is "Draft" or "Sent").ToList();
+                }
+                else
+                {
+                    if (filter == "All") filter = null;
+                    _orders = _repo.GetOrders(filter);
+                }
+
                 dgvPOs.DataSource = null;
                 dgvPOs.DataSource = _orders;
                 lblStatus.Text    = $"{_orders.Count} order(s)";

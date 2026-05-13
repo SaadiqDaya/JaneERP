@@ -10,13 +10,16 @@ namespace JaneERP
         private readonly ErpTask        _task;
         private readonly List<string>   _users;
 
-        private Label    lblTitle       = new();
-        private Label    lblMeta        = new();
-        private ListBox  lstComments    = new();
-        private TextBox  txtComment     = new();
-        private Button   btnPostComment = new();
-        private Button   btnMarkDone    = new();
-        private Button   btnClose       = new();
+        private Label          lblTitle       = new();
+        private Label          lblMeta        = new();
+        private ListBox        lstComments    = new();
+        private TextBox        txtComment     = new();
+        private TextBox        txtDesc        = new();
+        private Button         btnPostComment = new();
+        private Button         btnMarkDone    = new();
+        private Button         btnClose       = new();
+        private DateTimePicker dtpDueDate     = new();
+        private Button         btnSaveDue     = new();
 
         // @-mention popup
         private ListBox  lstMention     = new();
@@ -34,6 +37,21 @@ namespace JaneERP
             Theme.MakeBorderless(this);
             Theme.AddCloseButton(this);
             Theme.MakeResizable(this);
+            // Header panel is the drag handle — entire header area moves the window
+            Load += (_, _) =>
+            {
+                if (Controls.Count > 0)
+                {
+                    foreach (Control c in Controls)
+                    {
+                        if (c is Panel p && p.Tag as string == "header")
+                        {
+                            Theme.MakeDraggable(this, p);
+                            break;
+                        }
+                    }
+                }
+            };
             LoadComments();
         }
 
@@ -46,42 +64,57 @@ namespace JaneERP
         private void BuildUI()
         {
             Text          = $"Task: {_task.Title}";
-            ClientSize    = new Size(620, 560);
-            MinimumSize   = new Size(520, 460);
+            ClientSize    = new Size(640, 580);
+            MinimumSize   = new Size(540, 520);
             StartPosition = FormStartPosition.CenterParent;
+
+            // ── Header panel (drag handle + title + meta + due date) ──────────────
+            var pnlHeader = new Panel
+            {
+                Tag      = "header",
+                Location = new Point(0, 0),
+                Size     = new Size(640, 76),
+                Anchor   = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right
+            };
 
             lblTitle.Text      = _task.Title;
             lblTitle.Font      = new Font("Segoe UI", 13F, FontStyle.Bold);
             lblTitle.ForeColor = Theme.Gold;
-            lblTitle.Location  = new Point(12, 12);
+            lblTitle.Location  = new Point(12, 8);
             lblTitle.Size      = new Size(580, 28);
-            Controls.Add(lblTitle);
+            pnlHeader.Controls.Add(lblTitle);
 
             lblMeta.Text      = BuildMetaText();
             lblMeta.Font      = new Font("Segoe UI", 8.5F);
             lblMeta.ForeColor = Theme.TextSecondary;
-            lblMeta.Location  = new Point(12, 44);
-            lblMeta.Size      = new Size(580, 18);
+            lblMeta.Location  = new Point(12, 40);
+            lblMeta.Size      = new Size(400, 18);
             lblMeta.AutoSize  = false;
-            Controls.Add(lblMeta);
+            pnlHeader.Controls.Add(lblMeta);
 
-            Controls.Add(new Label { Text = "Description:", Location = new Point(12, 70), AutoSize = true });
-            var txtDesc = new TextBox
-            {
-                Text       = _task.Description ?? "(none)",
-                ReadOnly   = true,
-                Multiline  = true,
-                ScrollBars = ScrollBars.Vertical,
-                Location   = new Point(12, 90),
-                Size       = new Size(596, 80),
-                Anchor     = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right
-            };
+            // ── Due date picker ───────────────────────────────────────────────────
+            pnlHeader.Controls.Add(new Label { Text = "Due:", Location = new Point(420, 42), AutoSize = true, ForeColor = Theme.TextSecondary, Font = new Font("Segoe UI", 8.5F) });
+            dtpDueDate.Location = new Point(448, 38);
+            dtpDueDate.Size     = new Size(148, 23);
+            dtpDueDate.Format   = DateTimePickerFormat.Short;
+            dtpDueDate.Value    = _task.DueDate;
+            pnlHeader.Controls.Add(dtpDueDate);
+
+            Controls.Add(pnlHeader);
+
+            Controls.Add(new Label { Text = "Description:", Location = new Point(12, 86), AutoSize = true });
+            txtDesc.Text       = _task.Description ?? "";
+            txtDesc.Multiline  = true;
+            txtDesc.ScrollBars = ScrollBars.Vertical;
+            txtDesc.Location   = new Point(12, 104);
+            txtDesc.Size       = new Size(614, 72);
+            txtDesc.Anchor     = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
             Controls.Add(txtDesc);
 
-            Controls.Add(new Label { Text = "Discussion (type @ to tag a user):", Location = new Point(12, 180), AutoSize = true });
+            Controls.Add(new Label { Text = "Discussion (type @ to tag a user):", Location = new Point(12, 184), AutoSize = true });
 
-            lstComments.Location      = new Point(12, 200);
-            lstComments.Size          = new Size(596, 230);
+            lstComments.Location      = new Point(12, 204);
+            lstComments.Size          = new Size(614, 240);
             lstComments.Anchor        = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
             lstComments.SelectionMode = SelectionMode.None;
             Controls.Add(lstComments);
@@ -119,6 +152,14 @@ namespace JaneERP
             btnMarkDone.Location = new Point(12, ClientSize.Height - 52);
             btnMarkDone.Click   += BtnMarkDone_Click;
             Controls.Add(btnMarkDone);
+
+            btnSaveDue.Text     = "Save Changes";
+            btnSaveDue.Size     = new Size(110, 28);
+            btnSaveDue.Anchor   = AnchorStyles.Bottom | AnchorStyles.Left;
+            btnSaveDue.Location = new Point(130, ClientSize.Height - 52);
+            btnSaveDue.UseVisualStyleBackColor = true;
+            btnSaveDue.Click   += BtnSaveDue_Click;
+            Controls.Add(btnSaveDue);
 
             btnClose.Text     = "Close";
             btnClose.Size     = new Size(80, 28);
@@ -322,6 +363,28 @@ namespace JaneERP
                     smtp.Send(msg);
                 }
                 catch (Exception ex) { JaneERP.Logging.AppLogger.Info($"[FormTaskDetail.SendMentionEmails]: {ex.Message}"); }
+            }
+        }
+
+        // ── Save Due Date ─────────────────────────────────────────────────────────
+
+        private void BtnSaveDue_Click(object? sender, EventArgs e)
+        {
+            try
+            {
+                _repo.UpdateDueDate(_task.TaskID, dtpDueDate.Value.Date);
+                _task.DueDate = dtpDueDate.Value.Date;
+
+                string newDesc = txtDesc.Text.Trim();
+                _repo.UpdateDescription(_task.TaskID, newDesc);
+                _task.Description = newDesc;
+
+                Changed      = true;
+                lblMeta.Text = BuildMetaText();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
 

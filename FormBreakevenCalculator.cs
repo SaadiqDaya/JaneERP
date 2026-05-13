@@ -18,6 +18,7 @@ namespace JaneERP
         private TextBox       txtOtherCosts     = new();
         private TextBox       txtOverhead       = new();
         private TextBox       txtTargetPrice    = new();
+        private TextBox       txtRequiredMargin = new();
 
         // ── Solve-for controls ────────────────────────────────────────────────
         private ComboBox      cboSolveFor       = new();
@@ -26,12 +27,13 @@ namespace JaneERP
         private Panel         pnlSolveRow       = new();
 
         // ── Output labels ─────────────────────────────────────────────────────
-        private Label lblTotalCostVal     = new();
-        private Label lblCostPerUnitVal   = new();
-        private Label lblBreakevenVal     = new();
-        private Label lblGrossMarginVal   = new();
-        private Label lblProfitPerUnitVal = new();
-        private Label lblTotalProfitVal   = new();
+        private Label lblTotalCostVal        = new();
+        private Label lblCostPerUnitVal      = new();
+        private Label lblBreakevenVal        = new();
+        private Label lblGrossMarginVal      = new();
+        private Label lblProfitPerUnitVal    = new();
+        private Label lblTotalProfitVal      = new();
+        private Label lblSuggestedRetailVal  = new();
 
         // ── Buttons ───────────────────────────────────────────────────────────
         private Button btnCalculate = new();
@@ -59,8 +61,8 @@ namespace JaneERP
         private void BuildUI()
         {
             Text          = "Breakeven Calculator";
-            ClientSize    = new Size(520, 600);
-            MinimumSize   = new Size(480, 560);
+            ClientSize    = new Size(780, 720);
+            MinimumSize   = new Size(620, 560);
             StartPosition = FormStartPosition.CenterParent;
 
             // ── Header ───────────────────────────────────────────────────────
@@ -141,6 +143,12 @@ namespace JaneERP
             pnl.Controls.Add(MakeLabel("Target Selling Price ($):", y));
             txtTargetPrice = MakeTextBox(ctlX, y, ctlW);
             pnl.Controls.Add(txtTargetPrice);
+            y += rowH;
+
+            pnl.Controls.Add(MakeLabel("Required Margin (%):", y));
+            txtRequiredMargin = MakeTextBox(ctlX, y, ctlW);
+            txtRequiredMargin.Text = "0";
+            pnl.Controls.Add(txtRequiredMargin);
             y += rowH + secGap;
 
             // ── Section: Solve for ────────────────────────────────────────────
@@ -158,7 +166,8 @@ namespace JaneERP
             };
             cboSolveFor.Items.AddRange(new object[]
             {
-                "None", "Unit Cost", "Other Direct Costs", "Overhead"
+                "None", "Unit Cost", "Other Direct Costs", "Overhead",
+                "Target Selling Price (from Margin %)", "Required Quantity (from Target Price)"
             });
             cboSolveFor.SelectedIndex = 0;
             cboSolveFor.SelectedIndexChanged += CboSolveFor_Changed;
@@ -205,12 +214,13 @@ namespace JaneERP
             // ── Section: Outputs ──────────────────────────────────────────────
             pnl.Controls.Add(MakeSectionLabel("RESULTS", ref y));
 
-            (lblTotalCostVal,     y) = AddOutputRow(pnl, "Total Cost ($):",          y, ctlX);
-            (lblCostPerUnitVal,   y) = AddOutputRow(pnl, "Cost Per Unit ($):",        y, ctlX);
-            (lblBreakevenVal,     y) = AddOutputRow(pnl, "Breakeven Price/Unit ($):", y, ctlX);
-            (lblGrossMarginVal,   y) = AddOutputRow(pnl, "Gross Margin:",             y, ctlX);
-            (lblProfitPerUnitVal, y) = AddOutputRow(pnl, "Profit Per Unit ($):",     y, ctlX);
-            (lblTotalProfitVal,   y) = AddOutputRow(pnl, "Total Profit ($):",        y, ctlX);
+            (lblTotalCostVal,       y) = AddOutputRow(pnl, "Total Cost ($):",           y, ctlX);
+            (lblCostPerUnitVal,     y) = AddOutputRow(pnl, "Cost Per Unit ($):",         y, ctlX);
+            (lblBreakevenVal,       y) = AddOutputRow(pnl, "Breakeven Price/Unit ($):",  y, ctlX);
+            (lblSuggestedRetailVal, y) = AddOutputRow(pnl, "Suggested Retail Price ($):", y, ctlX);
+            (lblGrossMarginVal,     y) = AddOutputRow(pnl, "Gross Margin:",              y, ctlX);
+            (lblProfitPerUnitVal,   y) = AddOutputRow(pnl, "Profit Per Unit ($):",       y, ctlX);
+            (lblTotalProfitVal,     y) = AddOutputRow(pnl, "Total Profit ($):",          y, ctlX);
 
             y += secGap;
 
@@ -253,8 +263,11 @@ namespace JaneERP
 
             pnlScroll.Controls.Add(pnl);
 
-            Controls.Add(pnlHeader);
             Controls.Add(pnlScroll);
+            Controls.Add(pnlHeader);
+
+            // Allow dragging the window via the header
+            Load += (_, _) => Theme.MakeDraggable(this, pnlHeader);
         }
 
         // ─────────────────────────────────────────────────────────────────────
@@ -346,9 +359,12 @@ namespace JaneERP
             pnlSolveRow.Visible = solving;
 
             // Re-enable all inputs, then disable the chosen one
-            txtUnitCost.Enabled   = true;
-            txtOtherCosts.Enabled = true;
-            txtOverhead.Enabled   = true;
+            txtUnitCost.Enabled       = true;
+            txtOtherCosts.Enabled     = true;
+            txtOverhead.Enabled       = true;
+            txtTargetPrice.Enabled    = true;
+            nudUnitQty.Enabled        = true;
+            txtRequiredMargin.Enabled = true;
 
             if (solving)
             {
@@ -357,6 +373,12 @@ namespace JaneERP
                     case "Unit Cost":          txtUnitCost.Enabled   = false; break;
                     case "Other Direct Costs": txtOtherCosts.Enabled = false; break;
                     case "Overhead":           txtOverhead.Enabled   = false; break;
+                    case "Target Selling Price (from Margin %)":
+                        txtTargetPrice.Enabled    = false;
+                        break;
+                    case "Required Quantity (from Target Price)":
+                        nudUnitQty.Enabled        = false;
+                        break;
                 }
             }
 
@@ -380,7 +402,8 @@ namespace JaneERP
             string solveFor = cboSolveFor.SelectedItem?.ToString() ?? "None";
             if (solveFor != "None" && pnlSolveRow.Visible)
             {
-                decimal targetTotal = ParseDecimal(txtTargetTotal.Text);
+                decimal targetTotal    = ParseDecimal(txtTargetTotal.Text);
+                decimal requiredMargin = ParseDecimal(txtRequiredMargin.Text);
                 decimal solved;
                 bool    ok = false;
 
@@ -389,25 +412,55 @@ namespace JaneERP
                     case "Unit Cost":
                         if (unitQty > 0)
                         {
-                            solved = (targetTotal - otherCosts - overhead) / unitQty;
+                            solved   = (targetTotal - otherCosts - overhead) / unitQty;
                             unitCost = solved;
-                            ok = true;
+                            ok       = true;
                             ShowSolved(solved, "$");
                         }
                         break;
 
                     case "Other Direct Costs":
-                        solved = targetTotal - (unitQty * unitCost) - overhead;
+                        solved     = targetTotal - (unitQty * unitCost) - overhead;
                         otherCosts = solved;
-                        ok = true;
+                        ok         = true;
                         ShowSolved(solved, "$");
                         break;
 
                     case "Overhead":
-                        solved = targetTotal - (unitQty * unitCost) - otherCosts;
+                        solved   = targetTotal - (unitQty * unitCost) - otherCosts;
                         overhead = solved;
-                        ok = true;
+                        ok       = true;
                         ShowSolved(solved, "$");
+                        break;
+
+                    // Solve for Target Selling Price given a required gross margin %
+                    // Formula: price = costPerUnit / (1 - margin/100)
+                    case "Target Selling Price (from Margin %)":
+                        if (unitQty > 0 && requiredMargin < 100m)
+                        {
+                            decimal totalCostTmp  = (unitQty * unitCost) + otherCosts + overhead;
+                            decimal costPerUnitTmp = totalCostTmp / unitQty;
+                            solved      = requiredMargin < 100m
+                                ? costPerUnitTmp / (1m - requiredMargin / 100m)
+                                : 0m;
+                            targetPrice = solved;
+                            ok          = true;
+                            ShowSolved(solved, "$");
+                        }
+                        break;
+
+                    // Solve for Required Quantity to break even at the given selling price
+                    // Formula: qty = (otherCosts + overhead) / (price - unitCost)  [fixed costs / contribution margin]
+                    case "Required Quantity (from Target Price)":
+                        decimal contribution = targetPrice - unitCost;
+                        if (contribution > 0m)
+                        {
+                            decimal fixedCosts = otherCosts + overhead;
+                            solved   = fixedCosts / contribution;
+                            unitQty  = Math.Ceiling(solved);
+                            ok       = true;
+                            ShowSolved(Math.Ceiling(solved), "");
+                        }
                         break;
                 }
 
@@ -428,23 +481,27 @@ namespace JaneERP
                 decimal grossMargin   = (profitPerUnit / targetPrice) * 100m;
                 decimal totalProfit   = profitPerUnit * unitQty;
 
-                lblGrossMarginVal.Text   = $"{grossMargin:F1} %";
-                lblProfitPerUnitVal.Text = Fmt(profitPerUnit);
-                lblTotalProfitVal.Text   = Fmt(totalProfit);
+                lblSuggestedRetailVal.Text      = Fmt(targetPrice);
+                lblSuggestedRetailVal.ForeColor = Theme.Gold;
+                lblGrossMarginVal.Text          = $"{grossMargin:F1} %";
+                lblProfitPerUnitVal.Text        = Fmt(profitPerUnit);
+                lblTotalProfitVal.Text          = Fmt(totalProfit);
 
                 // Colour code margin
-                lblGrossMarginVal.ForeColor = grossMargin >= 0 ? Theme.Teal : Theme.Danger;
-                lblProfitPerUnitVal.ForeColor = profitPerUnit >= 0 ? Theme.TextPrimary : Theme.Danger;
-                lblTotalProfitVal.ForeColor   = totalProfit >= 0 ? Theme.TextPrimary : Theme.Danger;
+                lblGrossMarginVal.ForeColor   = grossMargin >= 0 ? Theme.Teal : Theme.Danger;
+                lblProfitPerUnitVal.ForeColor  = profitPerUnit >= 0 ? Theme.TextPrimary : Theme.Danger;
+                lblTotalProfitVal.ForeColor    = totalProfit >= 0 ? Theme.TextPrimary : Theme.Danger;
             }
             else
             {
-                lblGrossMarginVal.Text       = "—";
-                lblProfitPerUnitVal.Text     = "—";
-                lblTotalProfitVal.Text       = "—";
-                lblGrossMarginVal.ForeColor  = Theme.TextPrimary;
-                lblProfitPerUnitVal.ForeColor = Theme.TextPrimary;
-                lblTotalProfitVal.ForeColor  = Theme.TextPrimary;
+                lblSuggestedRetailVal.Text      = "—";
+                lblSuggestedRetailVal.ForeColor = Theme.TextPrimary;
+                lblGrossMarginVal.Text          = "—";
+                lblProfitPerUnitVal.Text        = "—";
+                lblTotalProfitVal.Text          = "—";
+                lblGrossMarginVal.ForeColor     = Theme.TextPrimary;
+                lblProfitPerUnitVal.ForeColor   = Theme.TextPrimary;
+                lblTotalProfitVal.ForeColor     = Theme.TextPrimary;
             }
         }
 
@@ -457,14 +514,15 @@ namespace JaneERP
         private void BtnClear_Click(object? sender, EventArgs e)
         {
             _recalcSuppressed = true;
-            nudUnitQty.Value     = 100;
-            txtUnitCost.Text     = "0";
-            txtOtherCosts.Text   = "0";
-            txtOverhead.Text     = "0";
-            txtTargetPrice.Text  = "0";
-            txtTargetTotal.Text  = "0";
+            nudUnitQty.Value          = 100;
+            txtUnitCost.Text          = "0";
+            txtOtherCosts.Text        = "0";
+            txtOverhead.Text          = "0";
+            txtTargetPrice.Text       = "0";
+            txtRequiredMargin.Text    = "0";
+            txtTargetTotal.Text       = "0";
             cboSolveFor.SelectedIndex = 0;
-            _recalcSuppressed = false;
+            _recalcSuppressed         = false;
             Recalculate();
         }
 

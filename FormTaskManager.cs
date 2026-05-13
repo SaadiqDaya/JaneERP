@@ -110,6 +110,7 @@ namespace JaneERP
                 using var detail = new FormTaskDetail(_repo, task);
                 detail.ShowDialog(this);
                 if (detail.Changed) LoadTasks();
+                LoadMentions(); // refresh mentions after viewing/commenting on a task
             };
 
             Controls.Add(dgvTasks);
@@ -266,7 +267,10 @@ namespace JaneERP
         {
             using var frm = new FormAddTask(_repo);
             if (frm.ShowDialog(this) == DialogResult.OK)
+            {
                 LoadTasks();
+                LoadMentions(); // refresh immediately so new @mentions appear instantly
+            }
         }
 
         private void BtnDone_Click(object? sender, EventArgs e)

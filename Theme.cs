@@ -138,9 +138,9 @@ namespace JaneERP
         public static readonly Color Background    = Color.FromArgb(8,   10,  20);   // #080A14
         public static readonly Color Surface       = Color.FromArgb(14,  16,  30);   // #0E101E
         public static readonly Color Header        = Color.FromArgb(5,   6,   14);   // #05060E
-        public static readonly Color Gold          = Color.FromArgb(155, 55,  220);  // #9B37DC — violet accent
-        public static readonly Color GoldDark      = Color.FromArgb(105, 25,  165);  // #6919A5 — deep violet
-        public static readonly Color Teal          = Color.FromArgb(32,  184, 204);  // #20B8CC — keep teal
+        public static Color Gold          = Color.FromArgb(155, 55,  220);  // #9B37DC — violet accent
+        public static Color GoldDark      = Color.FromArgb(105, 25,  165);  // #6919A5 — deep violet
+        public static Color Teal          = Color.FromArgb(32,  184, 204);  // #20B8CC — keep teal
         public static readonly Color TextPrimary   = Color.FromArgb(234, 234, 234);  // #EAEAEA
         public static readonly Color TextSecondary = Color.FromArgb(170, 150, 200);  // #AA96C8 — soft lavender
         public static readonly Color TextMuted     = Color.FromArgb(90,  75,  120);  // #5A4B78 — muted violet
@@ -151,7 +151,35 @@ namespace JaneERP
         public static readonly Color Danger        = Color.FromArgb(200, 60,  50);   // #C83C32
 
         /// <summary>Semi-transparent glow colour used for neon border effects.</summary>
-        public static readonly Color GlowOuter = Color.FromArgb(90, 155, 55, 220);  // 35% alpha violet
+        public static Color GlowOuter = Color.FromArgb(90, 155, 55, 220);  // 35% alpha violet
+
+        /// <summary>
+        /// Applies custom accent/highlight colours loaded from <paramref name="settings"/>.
+        /// Call once at startup, after <see cref="AppSettings.Load"/>, before any form is shown.
+        /// Empty strings leave the default theme colours unchanged.
+        /// </summary>
+        public static void ApplyCustomColors(AppSettings settings)
+        {
+            if (!string.IsNullOrEmpty(settings.AccentColor))
+            {
+                try
+                {
+                    var c  = ColorTranslator.FromHtml(settings.AccentColor);
+                    Gold      = c;
+                    GoldDark  = Color.FromArgb(
+                        Math.Max(0, c.R - 50),
+                        Math.Max(0, c.G - 30),
+                        Math.Max(0, c.B - 55));
+                    GlowOuter = Color.FromArgb(90, c.R, c.G, c.B);
+                }
+                catch { /* keep defaults on parse failure */ }
+            }
+            if (!string.IsNullOrEmpty(settings.HighlightColor))
+            {
+                try { Teal = ColorTranslator.FromHtml(settings.HighlightColor); }
+                catch { }
+            }
+        }
 
         /// <summary>Recursively apply the dark theme to a control and all its children.</summary>
         public static void Apply(Control root)

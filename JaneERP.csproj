@@ -8,10 +8,12 @@
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
 
-  <!-- Exclude the test project subfolder from the main build -->
+  <!-- Exclude the test project and API project subfolders from the main build -->
   <ItemGroup>
     <Compile Remove="JaneERP.Tests\**" />
     <None Include="JaneERP.Tests\**" />
+    <Compile Remove="JaneERP.Api\**" />
+    <None Include="JaneERP.Api\**" />
   </ItemGroup>
 
   <ItemGroup>

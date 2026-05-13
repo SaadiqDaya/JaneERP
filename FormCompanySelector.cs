@@ -116,7 +116,7 @@ namespace JaneERP
 
             try
             {
-                using var conn = new SqlConnection(company.ConnectionString);
+                using var conn = new SqlConnection(company.ConnectionStringPlain);
                 conn.Open();
                 conn.Close();
                 CompanyManager.SetActive(company);
@@ -335,7 +335,7 @@ namespace JaneERP
                 lblStatus.ForeColor = Theme.Teal;
                 Application.DoEvents();
 
-                NewProfile   = new CompanyProfile { Name = name, ConnectionString = connStr };
+                NewProfile   = new CompanyProfile { Name = name, ConnectionStringPlain = connStr };
                 DialogResult = DialogResult.OK;
                 Close();
             }
