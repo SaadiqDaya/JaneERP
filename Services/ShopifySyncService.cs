@@ -205,6 +205,15 @@ namespace JaneERP.Services
                     "UPDATE SalesOrders SET Status = @s WHERE SalesOrderID = @id",
                     new { s = newStatus, id = salesOrderId }, tx);
 
+                // Record packing timestamp when entering Packing status
+                if (newStatus == "Packing" && currentStatus == "Picking")
+                {
+                    string packedBy = Security.AppSession.CurrentUser?.Username ?? "system";
+                    db.Execute(
+                        "UPDATE SalesOrders SET PackedBy = @packedBy, PackedAt = GETDATE() WHERE SalesOrderID = @id",
+                        new { packedBy, id = salesOrderId }, tx);
+                }
+
                 // Release stock reservations when completing or reverting to Draft from any active status
                 var activeStatuses = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
                     { "Live", "Picking", "Packing", "Shipped", "WIP" };

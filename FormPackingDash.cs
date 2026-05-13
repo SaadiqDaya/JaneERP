@@ -1,3 +1,5 @@
+using JaneERP.Infrastructure;
+using JaneERP.Interfaces;
 using JaneERP.Models;
 using JaneERP.Security;
 using JaneERP.Services;
@@ -12,7 +14,7 @@ namespace JaneERP
     /// </summary>
     internal class FormPackingDash : Form
     {
-        private readonly ShopifySyncService _svc = new();
+        private readonly IShopifySyncService _svc = AppServices.Get<IShopifySyncService>();
         private readonly Panel              _pnlHeader  = new();
         private readonly SplitContainer     _split      = new();
         private readonly DataGridView       _dgvOrders  = new();
@@ -384,7 +386,7 @@ namespace JaneERP
         private void BtnComplete_Click(object? sender, EventArgs e)
         {
             if (_current == null) return;
-            if (_current.Status != "Shipped" && _current.Status != "Packing") return;
+            if (_current.Status != "Shipped") return;
 
             var ans = MessageBox.Show(this,
                 $"Mark Order #{_current.OrderNumber} as Complete?\n\nThis will deduct inventory for all line items.",
@@ -413,7 +415,7 @@ namespace JaneERP
             bool hasShipped  = _current?.Status == "Shipped";
 
             _btnShip.Enabled     = hasPacking;
-            _btnComplete.Enabled = hasPacking || hasShipped;
+            _btnComplete.Enabled = hasShipped;
         }
 
         private static Label MakeSectionLabel(string text) => new()

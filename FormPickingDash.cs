@@ -1,3 +1,5 @@
+using JaneERP.Infrastructure;
+using JaneERP.Interfaces;
 using JaneERP.Models;
 using JaneERP.Security;
 using JaneERP.Services;
@@ -12,7 +14,7 @@ namespace JaneERP
     /// </summary>
     internal class FormPickingDash : Form
     {
-        private readonly ShopifySyncService  _svc     = new();
+        private readonly IShopifySyncService  _svc     = AppServices.Get<IShopifySyncService>();
         private readonly Panel               _pnlHeader = new();
         private readonly SplitContainer      _split   = new();
         private readonly DataGridView        _dgvOrders = new();
@@ -311,6 +313,18 @@ namespace JaneERP
         private void BtnStartPicking_Click(object? sender, EventArgs e)
         {
             if (_current == null || _current.Status != "Live") return;
+
+            // Show inventory reservation dialog so the picker can lock specific locations
+            var lines = _svc.GetSOReservationItems(_current.SalesOrderID);
+            if (lines.Count > 0)
+            {
+                using var resForm = new FormStockReservation(
+                    $"Lock Inventory — Order #{_current.OrderNumber}  ({_current.CustomerName})", lines);
+                if (resForm.ShowDialog(this) != DialogResult.OK) return;
+                if (resForm.ConfirmedLines?.Count > 0)
+                    _svc.SaveSOReservations(_current.SalesOrderID, resForm.ConfirmedLines);
+            }
+
             _svc.UpdateOrderStatus(_current.SalesOrderID, "Picking");
             Logging.AppLogger.Audit(AppSession.CurrentUser?.Username ?? "system",
                 "StartPicking", $"OrderID={_current.SalesOrderID} #{_current.OrderNumber}");
