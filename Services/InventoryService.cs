@@ -36,7 +36,7 @@ namespace JaneERP.Services
         }
 
         /// <inheritdoc/>
-        public int GetStockAtLocation(int productId, int locationId)
+        public virtual int GetStockAtLocation(int productId, int locationId)
         {
             using IDbConnection db = new SqlConnection(_cs);
             return db.ExecuteScalar<int>(@"

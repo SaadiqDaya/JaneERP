@@ -17,5 +17,9 @@ namespace JaneERP.Interfaces
 
         /// <summary>Parts whose current stock is at or below their reorder point.</summary>
         List<PartReorderRow> GetPartsAtReorderPoint();
+
+        // ── Unverified items workflow ─────────────────────────────────────────────
+        List<UnverifiedPart> GetUnverifiedParts();
+        void                 VerifyParts(IEnumerable<int> partIds);
     }
 }

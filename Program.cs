@@ -60,6 +60,7 @@ namespace JaneERP
             SchemaStep("Manufacturing",  () => new ManufacturingRepository().EnsureSchema());    // creates ManufacturingOrders, WorkOrders (FK to Products)
             SchemaStep("Tasks",         () => new TaskRepository().EnsureSchema());
             SchemaStep("CycleCount",    () => new CycleCountRepository().EnsureSchema());
+            SchemaStep("Accounting",    () => new AccountingRepository().EnsureSchema());
             SchemaStep("PackageComponents", () => new PackageRepository().EnsureSchema());
             SchemaStep("DiscountTiers",  () => { var r = new DiscountTierRepository(); r.EnsureSchema(); r.MigrateCustomerTier(); r.MigrateOrderDiscount(); });
             SchemaStep("PONotifiedAt",   () => new SupplierRepository().MigrateOverdueNotifiedColumn());
@@ -72,6 +73,13 @@ namespace JaneERP
             SchemaStep("FgEjuiceType",        () => DataMigrations.SetFgProductTypeEjuice());
             SchemaStep("FgBoms",              () => DataMigrations.SetFgProductBoms());
             SchemaStep("ProductPartsMigration", () => DataMigrations.EnsureAllProductsHaveParts());
+
+            // ── Performance hardening — runs once per database, safe to skip on failure ──
+            // RCSI first: eliminates reader/writer blocking for concurrent users.
+            // Indexes second: created after all schema steps so all tables exist.
+            SchemaStep("EnableRCSI",          () => DataMigrations.EnableReadCommittedSnapshot());
+            SchemaStep("PerformanceIndexes",  () => DataMigrations.AddPerformanceIndexes());
+            SchemaStep("RowVersion",          () => DataMigrations.AddRowVersionToProducts());
 
             // ── Auto-backup (runs after schema is ready, before login) ─────────────
             if (BackupService.IsBackupDue())

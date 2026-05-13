@@ -69,6 +69,8 @@ namespace JaneERP.Data
 
         // CurrentStock is 100% calculated from InventoryTransactions.
         // Pass locationId to scope the stock to a single location; null = all locations combined.
+        // Uses pre-aggregated derived-table JOINs instead of correlated subqueries so the stock
+        // totals are computed once per query rather than once per product row (critical at 8k products).
         public IEnumerable<Product> GetProducts(bool showInactive = false, int? locationId = null)
         {
             using IDbConnection db = new SqlConnection(_connectionString);
@@ -88,21 +90,23 @@ namespace JaneERP.Data
                         l.LocationName  AS DefaultLocationName,
                         p.DefaultVendorID,
                         v.VendorName    AS DefaultVendorName,
-                        ISNULL((
-                            SELECT SUM(t.QuantityChange)
-                            FROM   InventoryTransactions t
-                            WHERE  t.ProductID = p.ProductID
-                              AND  (@LocationID IS NULL OR t.LocationID = @LocationID)
-                        ), 0) AS CurrentStock,
-                        ISNULL((
-                            SELECT SUM(sr.Quantity)
-                            FROM   StockReservations sr
-                            WHERE  sr.ProductID = p.ProductID
-                        ), 0) AS ReservedQty
+                        ISNULL(inv.CurrentStock, 0) AS CurrentStock,
+                        ISNULL(res.ReservedQty,  0) AS ReservedQty
                 FROM    Products p
                 LEFT JOIN ProductTypes pt ON pt.ProductTypeID = p.ProductTypeID
                 LEFT JOIN Locations    l  ON l.LocationID     = p.DefaultLocationID
-                LEFT JOIN Vendors       v  ON v.VendorID      = p.DefaultVendorID
+                LEFT JOIN Vendors      v  ON v.VendorID       = p.DefaultVendorID
+                LEFT JOIN (
+                    SELECT ProductID, SUM(QuantityChange) AS CurrentStock
+                    FROM   InventoryTransactions
+                    WHERE  @LocationID IS NULL OR LocationID = @LocationID
+                    GROUP  BY ProductID
+                ) inv ON inv.ProductID = p.ProductID
+                LEFT JOIN (
+                    SELECT ProductID, SUM(Quantity) AS ReservedQty
+                    FROM   StockReservations
+                    GROUP  BY ProductID
+                ) res ON res.ProductID = p.ProductID
                 WHERE   {filter}",
                 new { LocationID = locationId }).ToList();
         }
@@ -119,6 +123,7 @@ namespace JaneERP.Data
                         l.LocationName AS DefaultLocationName,
                         p.DefaultVendorID,
                         v.VendorName   AS DefaultVendorName,
+                        p.RowVersion,
                         ISNULL((SELECT SUM(t.QuantityChange) FROM InventoryTransactions t
                                 WHERE t.ProductID = p.ProductID), 0) AS CurrentStock,
                         ISNULL((SELECT SUM(sr.Quantity) FROM StockReservations sr
@@ -429,7 +434,10 @@ namespace JaneERP.Data
                 if (skuExists > 0)
                     throw new InvalidOperationException($"Another product already uses SKU '{product.SKU}'. SKUs must be unique.");
 
-                db.Execute(@"
+                // Optimistic concurrency: if a RowVersion was loaded with the product, include it in
+                // the WHERE clause so the update fails (0 rows) if another user saved in the meantime.
+                // When RowVersion is null (pre-migration rows or list-loaded products), skip the check.
+                int affected = db.Execute(@"
                     UPDATE Products
                     SET SKU               = @SKU,
                         ProductName       = @ProductName,
@@ -440,7 +448,20 @@ namespace JaneERP.Data
                         ReorderPoint      = @ReorderPoint,
                         OrderUpTo         = @OrderUpTo,
                         DefaultVendorID   = @DefaultVendorID
-                    WHERE ProductID = @ProductID", product, tx);
+                    WHERE ProductID   = @ProductID
+                      AND (@RowVersion IS NULL OR RowVersion = @RowVersion)",
+                    new
+                    {
+                        product.SKU, product.ProductName, product.RetailPrice,
+                        product.WholesalePrice, product.DefaultLocationID, product.ProductTypeID,
+                        product.ReorderPoint, product.OrderUpTo, product.DefaultVendorID,
+                        product.ProductID, product.RowVersion
+                    }, tx);
+
+                if (affected == 0)
+                    throw new Infrastructure.ConcurrencyException(
+                        "This product was updated by another user while you had it open. " +
+                        "Please close and reopen the product to get the latest version, then save again.");
 
                 db.Execute("DELETE FROM ProductAttributes WHERE ProductID = @ProductID",
                     new { product.ProductID }, tx);
@@ -576,32 +597,92 @@ namespace JaneERP.Data
         public List<Models.ProductReorderRow> GetProductsAtReorderPoint()
         {
             using IDbConnection db = new SqlConnection(_connectionString);
+            // Pre-aggregate both tables once; filter on derived columns avoids 5 correlated subqueries.
             var rows = db.Query<Models.ProductReorderRow>(@"
                 SELECT  p.SKU,
                         p.ProductName,
                         p.RetailPrice,
                         p.WholesalePrice,
                         p.ReorderPoint,
-                        ISNULL((
-                            SELECT SUM(t.QuantityChange)
-                            FROM   InventoryTransactions t
-                            WHERE  t.ProductID = p.ProductID
-                        ), 0) AS CurrentStock,
-                        ISNULL((
-                            SELECT SUM(sr.Quantity)
-                            FROM   StockReservations sr
-                            WHERE  sr.ProductID = p.ProductID
-                        ), 0) AS ReservedQty
+                        ISNULL(inv.CurrentStock, 0) AS CurrentStock,
+                        ISNULL(res.ReservedQty,  0) AS ReservedQty
                 FROM    Products p
+                LEFT JOIN (
+                    SELECT ProductID, SUM(QuantityChange) AS CurrentStock
+                    FROM   InventoryTransactions
+                    GROUP  BY ProductID
+                ) inv ON inv.ProductID = p.ProductID
+                LEFT JOIN (
+                    SELECT ProductID, SUM(Quantity) AS ReservedQty
+                    FROM   StockReservations
+                    GROUP  BY ProductID
+                ) res ON res.ProductID = p.ProductID
                 WHERE   p.IsActive = 1
                   AND   p.ReorderPoint > 0
-                  AND   (ISNULL((SELECT SUM(t.QuantityChange) FROM InventoryTransactions t WHERE t.ProductID = p.ProductID), 0)
-                         - ISNULL((SELECT SUM(sr.Quantity) FROM StockReservations sr WHERE sr.ProductID = p.ProductID), 0)
-                        ) <= p.ReorderPoint
+                  AND   (ISNULL(inv.CurrentStock, 0) - ISNULL(res.ReservedQty, 0)) <= p.ReorderPoint
                 ORDER   BY p.SKU").ToList();
 
             foreach (var r in rows) r.Compute();
             return rows;
+        }
+
+        // ── Unverified items workflow ─────────────────────────────────────────────
+
+        public List<Models.UnverifiedProduct> GetUnverifiedProducts()
+        {
+            using IDbConnection db = new SqlConnection(_connectionString);
+            return db.Query<Models.UnverifiedProduct>(@"
+                SELECT p.ProductID, p.SKU, p.ProductName,
+                       ISNULL(pt.TypeName, '') AS TypeName,
+                       p.RetailPrice,
+                       ISNULL((SELECT SUM(QuantityChange) FROM InventoryTransactions WHERE ProductID = p.ProductID), 0) AS CurrentStock
+                FROM   Products p
+                LEFT JOIN ProductTypes pt ON pt.ProductTypeID = p.ProductTypeID
+                WHERE  p.IsAutoCreated = 1 AND p.IsVerified = 0 AND p.IsActive = 1
+                ORDER  BY p.SKU").ToList();
+        }
+
+        public void VerifyProducts(IEnumerable<int> productIds)
+        {
+            var ids = productIds.ToList();
+            if (ids.Count == 0) return;
+            using IDbConnection db = new SqlConnection(_connectionString);
+            db.Execute("UPDATE Products SET IsVerified = 1 WHERE ProductID IN @ids", new { ids });
+        }
+
+        public void BulkApplyTypeAndAttributes(IEnumerable<int> productIds, int? typeId,
+            IEnumerable<(string Name, string Value)> attrs)
+        {
+            var ids      = productIds.ToList();
+            var attrList = attrs.ToList();
+            if (ids.Count == 0) return;
+
+            using var db = new SqlConnection(_connectionString);
+            db.Open();
+            using var tx = db.BeginTransaction();
+            try
+            {
+                if (typeId.HasValue)
+                    db.Execute("UPDATE Products SET ProductTypeID = @typeId WHERE ProductID IN @ids",
+                        new { typeId = typeId.Value, ids }, tx);
+
+                foreach (int pid in ids)
+                {
+                    foreach (var (name, value) in attrList)
+                    {
+                        db.Execute(@"
+                            IF EXISTS (SELECT 1 FROM ProductAttributes WHERE ProductID=@pid AND AttributeName=@name)
+                                UPDATE ProductAttributes SET AttributeValue=@value WHERE ProductID=@pid AND AttributeName=@name
+                            ELSE
+                                INSERT INTO ProductAttributes (ProductID, AttributeName, AttributeValue)
+                                VALUES (@pid, @name, @value)",
+                            new { pid, name, value }, tx);
+                    }
+                }
+
+                tx.Commit();
+            }
+            catch { tx.Rollback(); throw; }
         }
     }
 }

@@ -219,5 +219,25 @@ namespace JaneERP.Data
             foreach (var r in rows) r.Compute();
             return rows;
         }
+
+        // ── Unverified items workflow ─────────────────────────────────────────────
+
+        public List<Models.UnverifiedPart> GetUnverifiedParts()
+        {
+            using IDbConnection db = new SqlConnection(_connectionString);
+            return db.Query<Models.UnverifiedPart>(@"
+                SELECT PartID, PartNumber, PartName, UnitCost, CurrentStock
+                FROM   Parts
+                WHERE  IsAutoCreated = 1 AND IsVerified = 0 AND IsActive = 1
+                ORDER  BY PartNumber").ToList();
+        }
+
+        public void VerifyParts(IEnumerable<int> partIds)
+        {
+            var ids = partIds.ToList();
+            if (ids.Count == 0) return;
+            using IDbConnection db = new SqlConnection(_connectionString);
+            db.Execute("UPDATE Parts SET IsVerified = 1 WHERE PartID IN @ids", new { ids });
+        }
     }
 }

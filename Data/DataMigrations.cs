@@ -131,6 +131,141 @@ namespace JaneERP.Data
         });
 
         /// <summary>
+        /// Creates performance indexes on the most-queried tables.
+        /// Safe to call on any database state — each CREATE INDEX is guarded by an existence check.
+        /// Only runs once — tracked by AppliedMigrations.
+        /// </summary>
+        public static void AddPerformanceIndexes() => RunOnce("AddPerformanceIndexes_v1", () =>
+        {
+            using var db = new SqlConnection(ConnStr);
+
+            // Helper: attempt an index creation; log and continue on any error so one bad
+            // table/column name doesn't block the rest of the indexes from being created.
+            void TryIndex(string sql)
+            {
+                try { db.Execute(sql); }
+                catch (Exception ex)
+                {
+                    Logging.AppLogger.Info($"[Indexes] skipped: {ex.Message}");
+                }
+            }
+
+            // InventoryTransactions — the most-queried table (stock lookups, reports, cycle counts)
+            TryIndex(@"IF NOT EXISTS (SELECT 1 FROM sys.indexes
+                            WHERE name = 'IX_InvTrans_ProductID_LocationID'
+                              AND object_id = OBJECT_ID('InventoryTransactions'))
+                        CREATE INDEX IX_InvTrans_ProductID_LocationID
+                            ON InventoryTransactions (ProductID, LocationID)
+                            INCLUDE (QuantityChange, TransactionType, TransactionDate);");
+
+            TryIndex(@"IF NOT EXISTS (SELECT 1 FROM sys.indexes
+                            WHERE name = 'IX_InvTrans_TransactionDate'
+                              AND object_id = OBJECT_ID('InventoryTransactions'))
+                        CREATE INDEX IX_InvTrans_TransactionDate
+                            ON InventoryTransactions (TransactionDate DESC)
+                            INCLUDE (ProductID, LocationID, QuantityChange, TransactionType);");
+
+            TryIndex(@"IF NOT EXISTS (SELECT 1 FROM sys.indexes
+                            WHERE name = 'IX_InvTrans_TransactionType'
+                              AND object_id = OBJECT_ID('InventoryTransactions'))
+                        CREATE INDEX IX_InvTrans_TransactionType
+                            ON InventoryTransactions (TransactionType)
+                            INCLUDE (ProductID, QuantityChange, TransactionDate);");
+
+            // StockReservations — reservation lookups per product
+            TryIndex(@"IF NOT EXISTS (SELECT 1 FROM sys.indexes
+                            WHERE name = 'IX_StockReservations_ProductID'
+                              AND object_id = OBJECT_ID('StockReservations'))
+                        CREATE INDEX IX_StockReservations_ProductID
+                            ON StockReservations (ProductID)
+                            INCLUDE (Quantity);");
+
+            // Products — filtered to active; covering SKU + ProductName avoids key lookups
+            TryIndex(@"IF NOT EXISTS (SELECT 1 FROM sys.indexes
+                            WHERE name = 'IX_Products_IsActive_SKU_Name'
+                              AND object_id = OBJECT_ID('Products'))
+                        CREATE INDEX IX_Products_IsActive_SKU_Name
+                            ON Products (IsActive)
+                            INCLUDE (SKU, ProductName, ReorderPoint, LastVerifiedAt);");
+
+            // Products — cycle-count overdue badge query
+            TryIndex(@"IF NOT EXISTS (SELECT 1 FROM sys.indexes
+                            WHERE name = 'IX_Products_LastVerifiedAt'
+                              AND object_id = OBJECT_ID('Products'))
+                        CREATE INDEX IX_Products_LastVerifiedAt
+                            ON Products (LastVerifiedAt)
+                            WHERE IsActive = 1;");
+
+            // SalesOrders — dashboard and customer order lookups
+            TryIndex(@"IF NOT EXISTS (SELECT 1 FROM sys.indexes
+                            WHERE name = 'IX_SalesOrders_Status'
+                              AND object_id = OBJECT_ID('SalesOrders'))
+                        CREATE INDEX IX_SalesOrders_Status
+                            ON SalesOrders (Status)
+                            INCLUDE (CustomerID, OrderDate, TotalAmount);");
+
+            TryIndex(@"IF NOT EXISTS (SELECT 1 FROM sys.indexes
+                            WHERE name = 'IX_SalesOrders_CustomerID_OrderDate'
+                              AND object_id = OBJECT_ID('SalesOrders'))
+                        CREATE INDEX IX_SalesOrders_CustomerID_OrderDate
+                            ON SalesOrders (CustomerID, OrderDate DESC);");
+
+            // WorkOrders — manufacturing dashboard queries
+            TryIndex(@"IF NOT EXISTS (SELECT 1 FROM sys.indexes
+                            WHERE name = 'IX_WorkOrders_ProductID_Status'
+                              AND object_id = OBJECT_ID('WorkOrders'))
+                        CREATE INDEX IX_WorkOrders_ProductID_Status
+                            ON WorkOrders (ProductID, Status);");
+
+            // ProductAttributes — attribute lookups by product
+            TryIndex(@"IF NOT EXISTS (SELECT 1 FROM sys.indexes
+                            WHERE name = 'IX_ProductAttributes_ProductID_Name'
+                              AND object_id = OBJECT_ID('ProductAttributes'))
+                        CREATE INDEX IX_ProductAttributes_ProductID_Name
+                            ON ProductAttributes (ProductID, AttributeName);");
+        });
+
+        /// <summary>
+        /// Adds a ROWVERSION column to Products for optimistic concurrency control.
+        /// SQL Server auto-generates and auto-updates the value on every write — no app code needed.
+        /// Only runs once — tracked by AppliedMigrations.
+        /// </summary>
+        public static void AddRowVersionToProducts() => RunOnce("AddRowVersionToProducts_v1", () =>
+        {
+            using var db = new SqlConnection(ConnStr);
+            db.Execute(@"
+                IF NOT EXISTS (SELECT 1 FROM sys.columns
+                               WHERE  object_id = OBJECT_ID('Products') AND name = 'RowVersion')
+                    ALTER TABLE Products ADD RowVersion ROWVERSION NOT NULL;");
+        });
+
+        /// <summary>
+        /// Enables Read Committed Snapshot Isolation (RCSI) on the current database.
+        /// RCSI lets readers never block writers and writers never block readers — critical for
+        /// 5+ concurrent users. Safe to run even if already enabled; guarded by a sys.databases check.
+        /// Only runs once — tracked by AppliedMigrations.
+        /// </summary>
+        public static void EnableReadCommittedSnapshot() => RunOnce("EnableReadCommittedSnapshot_v1", () =>
+        {
+            using var db = new SqlConnection(ConnStr);
+            try
+            {
+                db.Execute(@"
+                    IF (SELECT is_read_committed_snapshot_on
+                        FROM   sys.databases
+                        WHERE  name = DB_NAME()) = 0
+                    ALTER DATABASE CURRENT
+                        SET READ_COMMITTED_SNAPSHOT ON
+                        WITH ROLLBACK IMMEDIATE;");
+            }
+            catch (Exception ex)
+            {
+                // RCSI requires no other active connections; log and continue rather than blocking startup.
+                Logging.AppLogger.Info($"[RCSI] Could not enable Read Committed Snapshot: {ex.Message}");
+            }
+        });
+
+        /// <summary>
         /// One-time cleanup: for every product whose SKU starts with "FG", creates a BOM containing:
         ///   - The corresponding Part (PartNumber = SKU)
         ///   - A "Bottle" part at $0.50

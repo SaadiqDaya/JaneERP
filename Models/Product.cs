@@ -37,5 +37,13 @@ namespace JaneERP.Models
         public bool IsAutoCreated { get; set; }
         /// <summary>True once a user has reviewed and confirmed the auto-created record.</summary>
         public bool IsVerified    { get; set; }
+
+        /// <summary>
+        /// SQL Server ROWVERSION — auto-updated on every write.
+        /// Used for optimistic concurrency in UpdateProduct: if two users load the same product
+        /// and one saves first, the second save will see a RowVersion mismatch and fail safely.
+        /// Null when not loaded (e.g. from list queries that don't need concurrency control).
+        /// </summary>
+        public byte[]? RowVersion { get; set; }
     }
 }

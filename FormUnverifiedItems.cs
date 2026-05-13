@@ -1,11 +1,6 @@
-using System.Configuration;
-using System.Linq;
-using Dapper;
-using JaneERP.Data;
 using JaneERP.Infrastructure;
 using JaneERP.Interfaces;
 using JaneERP.Models;
-using Microsoft.Data.SqlClient;
 
 namespace JaneERP
 {
@@ -15,8 +10,9 @@ namespace JaneERP
     /// </summary>
     public class FormUnverifiedItems : Form
     {
-        private readonly string _connStr =
-            ConfigurationManager.ConnectionStrings["MyERP"]?.ConnectionString ?? "";
+        private readonly IProductRepository     _prodRepo     = AppServices.Get<IProductRepository>();
+        private readonly IPartRepository        _partRepo     = AppServices.Get<IPartRepository>();
+        private readonly IProductTypeRepository _typeRepo     = AppServices.Get<IProductTypeRepository>();
 
         private TabControl  tabCtrl       = new();
         private TabPage     tabProducts   = new();
@@ -99,7 +95,6 @@ namespace JaneERP
             dgvProducts.Columns.Add(new DataGridViewTextBoxColumn { Name = "colType",      HeaderText = "Type",        Width = 100 });
             dgvProducts.Columns.Add(new DataGridViewTextBoxColumn { Name = "colPrice",     HeaderText = "Retail",      Width = 80  });
             dgvProducts.Columns.Add(new DataGridViewTextBoxColumn { Name = "colStock",     HeaderText = "Stock",       Width = 65  });
-            // Inline verify button column
             dgvProducts.Columns.Add(new DataGridViewButtonColumn
             {
                 Name = "colVerify", HeaderText = "", Text = "Verify",
@@ -112,7 +107,7 @@ namespace JaneERP
                 if (e.RowIndex >= 0 && dgvProducts.Columns[e.ColumnIndex].Name == "colVerify")
                 {
                     if (int.TryParse(dgvProducts.Rows[e.RowIndex].Cells["colProductID"].Value?.ToString(), out int id))
-                        VerifyProductIds(new List<int> { id });
+                        DoVerifyProducts(new List<int> { id });
                 }
             };
 
@@ -153,13 +148,12 @@ namespace JaneERP
             btnVerifySelected.Click += (_, _) => VerifyProducts(getAllIds: false);
             pnlProductBottom.Controls.Add(btnVerifySelected);
 
-            // Anchor buttons to right edge
             pnlProductBottom.Resize += (_, _) =>
             {
                 int right = pnlProductBottom.ClientSize.Width - 8;
-                btnVerifySelected.Location = new Point(right - btnVerifySelected.Width, 7);
+                btnVerifySelected.Location    = new Point(right - btnVerifySelected.Width, 7);
                 btnVerifyAllProducts.Location = new Point(btnVerifySelected.Left - btnVerifyAllProducts.Width - 8, 7);
-                btnApplyAttrs.Location = new Point(btnVerifyAllProducts.Left - btnApplyAttrs.Width - 8, 7);
+                btnApplyAttrs.Location        = new Point(btnVerifyAllProducts.Left - btnApplyAttrs.Width - 8, 7);
             };
 
             tabProducts.Controls.Add(dgvProducts);
@@ -182,7 +176,6 @@ namespace JaneERP
             dgvParts.Columns.Add(new DataGridViewTextBoxColumn { Name = "colPartName",   HeaderText = "Part Name", AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill });
             dgvParts.Columns.Add(new DataGridViewTextBoxColumn { Name = "colCost",       HeaderText = "Unit Cost", Width = 90  });
             dgvParts.Columns.Add(new DataGridViewTextBoxColumn { Name = "colStock",      HeaderText = "Stock",     Width = 65  });
-            // Inline verify button column
             dgvParts.Columns.Add(new DataGridViewButtonColumn
             {
                 Name = "colVerify", HeaderText = "", Text = "Verify",
@@ -195,7 +188,7 @@ namespace JaneERP
                 if (e.RowIndex >= 0 && dgvParts.Columns[e.ColumnIndex].Name == "colVerify")
                 {
                     if (int.TryParse(dgvParts.Rows[e.RowIndex].Cells["colPartID"].Value?.ToString(), out int id))
-                        VerifyPartIds(new List<int> { id });
+                        DoVerifyParts(new List<int> { id });
                 }
             };
 
@@ -229,8 +222,8 @@ namespace JaneERP
             pnlPartsBottom.Resize += (_, _) =>
             {
                 int right = pnlPartsBottom.ClientSize.Width - 8;
-                btnVerifySelected.Location   = new Point(right - btnVerifySelected.Width, 7);
-                btnVerifyAllParts.Location   = new Point(btnVerifySelected.Left - btnVerifyAllParts.Width - 8, 7);
+                btnVerifySelected.Location = new Point(right - btnVerifySelected.Width, 7);
+                btnVerifyAllParts.Location = new Point(btnVerifySelected.Left - btnVerifyAllParts.Width - 8, 7);
             };
 
             tabParts.Controls.Add(dgvParts);
@@ -243,23 +236,11 @@ namespace JaneERP
         {
             try
             {
-                using var db = new SqlConnection(_connStr);
-                var rows = db.Query(@"
-                    SELECT p.ProductID, p.SKU, p.ProductName,
-                           ISNULL(pt.TypeName, '') AS TypeName,
-                           p.RetailPrice,
-                           ISNULL((SELECT SUM(QuantityChange) FROM InventoryTransactions WHERE ProductID = p.ProductID), 0) AS CurrentStock
-                    FROM Products p
-                    LEFT JOIN ProductTypes pt ON pt.ProductTypeID = p.ProductTypeID
-                    WHERE p.IsAutoCreated = 1 AND p.IsVerified = 0 AND p.IsActive = 1
-                    ORDER BY p.SKU").ToList();
-
+                var rows = _prodRepo.GetUnverifiedProducts();
                 dgvProducts.Rows.Clear();
                 foreach (var r in rows)
-                    dgvProducts.Rows.Add((int)r.ProductID, (string)r.SKU, (string)r.ProductName,
-                        (string)r.TypeName, ((decimal)r.RetailPrice).ToString("C"),
-                        ((int)r.CurrentStock).ToString());
-
+                    dgvProducts.Rows.Add(r.ProductID, r.SKU, r.ProductName,
+                        r.TypeName, r.RetailPrice.ToString("C"), r.CurrentStock.ToString());
                 lblProductCount.Text = $"{rows.Count} unverified product{(rows.Count == 1 ? "" : "s")}";
             }
             catch (Exception ex)
@@ -273,18 +254,11 @@ namespace JaneERP
         {
             try
             {
-                using var db = new SqlConnection(_connStr);
-                var rows = db.Query(@"
-                    SELECT PartID, PartNumber, PartName, UnitCost, CurrentStock
-                    FROM Parts
-                    WHERE IsAutoCreated = 1 AND IsVerified = 0 AND IsActive = 1
-                    ORDER BY PartNumber").ToList();
-
+                var rows = _partRepo.GetUnverifiedParts();
                 dgvParts.Rows.Clear();
                 foreach (var r in rows)
-                    dgvParts.Rows.Add((int)r.PartID, (string)r.PartNumber, (string)r.PartName,
-                        ((decimal)r.UnitCost).ToString("C"), ((int)r.CurrentStock).ToString());
-
+                    dgvParts.Rows.Add(r.PartID, r.PartNumber, r.PartName,
+                        r.UnitCost.ToString("C"), r.CurrentStock.ToString());
                 lblPartCount.Text = $"{rows.Count} unverified part{(rows.Count == 1 ? "" : "s")}";
             }
             catch (Exception ex)
@@ -303,10 +277,9 @@ namespace JaneERP
 
             try
             {
-                var repo    = AppServices.Get<IProductRepository>();
-                var product = repo.GetProducts().FirstOrDefault(p => p.ProductID == productId);
+                var product = _prodRepo.GetProductById(productId);
                 if (product == null) return;
-                product.Attributes = repo.GetAttributes(productId).ToList();
+                product.Attributes = _prodRepo.GetAttributes(productId).ToList();
 
                 using var frm = new FormAddProduct(product);
                 if (frm.ShowDialog(this) == DialogResult.OK)
@@ -325,11 +298,10 @@ namespace JaneERP
 
             try
             {
-                var repo = AppServices.Get<IPartRepository>();
-                var part = repo.GetById(partId);
+                var part = _partRepo.GetById(partId);
                 if (part == null) return;
 
-                using var frm = new FormEditPart(part, repo);
+                using var frm = new FormEditPart(part, _partRepo);
                 if (frm.ShowDialog(this) == DialogResult.OK)
                     LoadParts();
             }
@@ -351,16 +323,15 @@ namespace JaneERP
                     .Select(r => int.TryParse(r.Cells["colProductID"].Value?.ToString(), out int id) ? id : 0)
                     .Where(id => id > 0).ToList();
 
-            VerifyProductIds(ids);
+            DoVerifyProducts(ids);
         }
 
-        private void VerifyProductIds(List<int> ids)
+        private void DoVerifyProducts(List<int> ids)
         {
             if (ids.Count == 0) return;
             try
             {
-                using var db = new SqlConnection(_connStr);
-                db.Execute("UPDATE Products SET IsVerified = 1 WHERE ProductID IN @ids", new { ids });
+                _prodRepo.VerifyProducts(ids);
                 LoadProducts();
             }
             catch (Exception ex)
@@ -379,16 +350,15 @@ namespace JaneERP
                     .Select(r => int.TryParse(r.Cells["colPartID"].Value?.ToString(), out int id) ? id : 0)
                     .Where(id => id > 0).ToList();
 
-            VerifyPartIds(ids);
+            DoVerifyParts(ids);
         }
 
-        private void VerifyPartIds(List<int> ids)
+        private void DoVerifyParts(List<int> ids)
         {
             if (ids.Count == 0) return;
             try
             {
-                using var db = new SqlConnection(_connStr);
-                db.Execute("UPDATE Parts SET IsVerified = 1 WHERE PartID IN @ids", new { ids });
+                _partRepo.VerifyParts(ids);
                 LoadParts();
             }
             catch (Exception ex)
@@ -412,7 +382,7 @@ namespace JaneERP
                 return;
             }
 
-            using var dlg = new FormApplyProductAttributes(selectedIds, _connStr);
+            using var dlg = new FormApplyProductAttributes(selectedIds, _prodRepo, _typeRepo);
             if (dlg.ShowDialog(this) == DialogResult.OK)
                 LoadProducts();
         }
@@ -456,7 +426,7 @@ namespace JaneERP
                 y += 32;
             }
 
-            Controls.Add(new Label { Text = $"Edit Part", Font = new Font("Segoe UI", 11F, FontStyle.Bold), ForeColor = Theme.Gold, Location = new Point(x, y), AutoSize = true });
+            Controls.Add(new Label { Text = "Edit Part", Font = new Font("Segoe UI", 11F, FontStyle.Bold), ForeColor = Theme.Gold, Location = new Point(x, y), AutoSize = true });
             y += 34;
 
             AddField("Part Number:", txtPartNum, _part.PartNumber);
@@ -490,18 +460,21 @@ namespace JaneERP
 
     internal class FormApplyProductAttributes : Form
     {
-        private readonly List<int> _productIds;
-        private readonly string    _cs;
+        private readonly List<int>              _productIds;
+        private readonly IProductRepository     _prodRepo;
+        private readonly IProductTypeRepository _typeRepo;
 
         private ComboBox     cboType  = new();
         private DataGridView dgvAttrs = new();
 
         private List<ProductType> _types = new();
 
-        public FormApplyProductAttributes(List<int> productIds, string connStr)
+        public FormApplyProductAttributes(List<int> productIds, IProductRepository prodRepo,
+            IProductTypeRepository typeRepo)
         {
             _productIds = productIds;
-            _cs         = connStr;
+            _prodRepo   = prodRepo;
+            _typeRepo   = typeRepo;
             BuildUI();
             Theme.Apply(this);
             Theme.MakeBorderless(this);
@@ -556,7 +529,6 @@ namespace JaneERP
             Controls.Add(dgvAttrs);
             y += 278;
 
-            // When type is selected, load its attribute definitions into the grid
             cboType.SelectedIndexChanged += CboType_SelectedIndexChanged;
 
             var btnApply = new Button { Text = "Apply", Size = new Size(100, 30) };
@@ -586,7 +558,7 @@ namespace JaneERP
         {
             try
             {
-                _types = AppServices.Get<IProductTypeRepository>().GetAll();
+                _types = _typeRepo.GetAll();
                 cboType.Items.Clear();
                 cboType.Items.Add(new ProductType { ProductTypeID = 0, TypeName = "(no change)" });
                 foreach (var t in _types) cboType.Items.Add(t);
@@ -601,10 +573,7 @@ namespace JaneERP
             if (cboType.SelectedItem is not ProductType pt || pt.ProductTypeID == 0) return;
             try
             {
-                using var db = new SqlConnection(_cs);
-                var attrNames = db.Query<string>(
-                    "SELECT AttributeName FROM ProductTypeAttributes WHERE ProductTypeID = @id ORDER BY AttributeName",
-                    new { id = pt.ProductTypeID }).ToList();
+                var attrNames = _typeRepo.GetAttributeNamesForType(pt.ProductTypeID);
                 foreach (var name in attrNames)
                     dgvAttrs.Rows.Add(name, "");
             }
@@ -616,7 +585,6 @@ namespace JaneERP
             var selectedType = cboType.SelectedItem as ProductType;
             int? typeId      = (selectedType?.ProductTypeID > 0) ? selectedType.ProductTypeID : (int?)null;
 
-            // Collect attribute key-value pairs (skip blank values)
             var attrs = new List<(string Name, string Value)>();
             foreach (DataGridViewRow row in dgvAttrs.Rows)
             {
@@ -636,29 +604,7 @@ namespace JaneERP
 
             try
             {
-                using var db = new SqlConnection(_cs);
-                db.Open();
-                using var tx = db.BeginTransaction();
-
-                if (typeId.HasValue)
-                    db.Execute("UPDATE Products SET ProductTypeID = @typeId WHERE ProductID IN @ids",
-                        new { typeId = typeId.Value, ids = _productIds }, tx);
-
-                foreach (int pid in _productIds)
-                {
-                    foreach (var (name, value) in attrs)
-                    {
-                        db.Execute(@"
-                            IF EXISTS (SELECT 1 FROM ProductAttributes WHERE ProductID=@pid AND AttributeName=@name)
-                                UPDATE ProductAttributes SET AttributeValue=@value WHERE ProductID=@pid AND AttributeName=@name
-                            ELSE
-                                INSERT INTO ProductAttributes (ProductID, AttributeName, AttributeValue)
-                                VALUES (@pid, @name, @value)",
-                            new { pid, name, value }, tx);
-                    }
-                }
-
-                tx.Commit();
+                _prodRepo.BulkApplyTypeAndAttributes(_productIds, typeId, attrs);
                 MessageBox.Show(this,
                     $"Applied to {_productIds.Count} product{(_productIds.Count == 1 ? "" : "s")}.",
                     "Done", MessageBoxButtons.OK, MessageBoxIcon.Information);

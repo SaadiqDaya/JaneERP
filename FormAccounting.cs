@@ -1,8 +1,8 @@
-using System.Configuration;
-using Dapper;
+using JaneERP.Infrastructure;
+using JaneERP.Interfaces;
 using JaneERP.Logging;
+using JaneERP.Models;
 using JaneERP.Security;
-using Microsoft.Data.SqlClient;
 
 namespace JaneERP
 {
@@ -12,9 +12,7 @@ namespace JaneERP
     /// </summary>
     public class FormAccounting : Form
     {
-        private readonly string _cs =
-            ConfigurationManager.ConnectionStrings["MyERP"]?.ConnectionString
-            ?? throw new InvalidOperationException("Connection string 'MyERP' not found.");
+        private readonly IAccountingRepository _repo = AppServices.Get<IAccountingRepository>();
 
         // Date range
         private DateTimePicker _dtpFrom   = new();
@@ -39,59 +37,12 @@ namespace JaneERP
 
         public FormAccounting()
         {
-            EnsureSchema();
             BuildUI();
             Theme.Apply(this);
             Theme.MakeBorderless(this);
             Theme.AddCloseButton(this);
             Theme.MakeResizable(this);
             Load += (_, _) => LoadData();
-        }
-
-        // ── Schema ────────────────────────────────────────────────────────────────
-
-        private void EnsureSchema()
-        {
-            try
-            {
-                using var db = new SqlConnection(_cs);
-                db.Execute(@"
-                    IF NOT EXISTS (SELECT 1 FROM sysobjects WHERE name='ExpenseCategories' AND xtype='U')
-                    CREATE TABLE ExpenseCategories (
-                        CategoryID INT IDENTITY(1,1) PRIMARY KEY,
-                        Name       NVARCHAR(100) NOT NULL,
-                        IsActive   BIT NOT NULL DEFAULT 1
-                    );
-
-                    IF NOT EXISTS (SELECT 1 FROM sysobjects WHERE name='Expenses' AND xtype='U')
-                    CREATE TABLE Expenses (
-                        ExpenseID   INT IDENTITY(1,1) PRIMARY KEY,
-                        CategoryID  INT           NULL REFERENCES ExpenseCategories(CategoryID),
-                        Amount      DECIMAL(18,2) NOT NULL,
-                        Description NVARCHAR(500) NULL,
-                        ExpenseDate DATETIME      NOT NULL DEFAULT GETDATE(),
-                        CreatedAt   DATETIME      NOT NULL DEFAULT GETDATE(),
-                        CreatedBy   NVARCHAR(100) NULL
-                    );");
-
-                // Seed default categories if the table is empty
-                db.Execute(@"
-                    IF NOT EXISTS (SELECT 1 FROM ExpenseCategories)
-                    BEGIN
-                        INSERT INTO ExpenseCategories (Name) VALUES
-                            ('Rent / Utilities'),
-                            ('Payroll'),
-                            ('Supplies'),
-                            ('Marketing'),
-                            ('Shipping & Logistics'),
-                            ('Software & Tools'),
-                            ('Other')
-                    END");
-            }
-            catch (Exception ex)
-            {
-                AppLogger.Info($"[FormAccounting.EnsureSchema]: {ex.Message}");
-            }
         }
 
         // ── UI ────────────────────────────────────────────────────────────────────
@@ -225,7 +176,7 @@ namespace JaneERP
             _btnAddExp.UseVisualStyleBackColor = true;
             _btnAddExp.Click   += (_, _) =>
             {
-                using var dlg = new FormAddExpense(_cs);
+                using var dlg = new FormAddExpense(_repo);
                 dlg.ShowDialog(this);
                 LoadData();
             };
@@ -261,10 +212,10 @@ namespace JaneERP
             _dgvExpenses.MultiSelect     = false;
             _dgvExpenses.AutoGenerateColumns = false;
             _dgvExpenses.RowHeadersVisible   = false;
-            _dgvExpenses.Columns.Add(new DataGridViewTextBoxColumn { Name = "cDate",     HeaderText = "Date",      Width = 100 });
-            _dgvExpenses.Columns.Add(new DataGridViewTextBoxColumn { Name = "cCat",      HeaderText = "Category",  Width = 150 });
-            _dgvExpenses.Columns.Add(new DataGridViewTextBoxColumn { Name = "cAmount",   HeaderText = "Amount",    Width = 100 });
-            _dgvExpenses.Columns.Add(new DataGridViewTextBoxColumn { Name = "cDesc",     HeaderText = "Notes",     AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill });
+            _dgvExpenses.Columns.Add(new DataGridViewTextBoxColumn { Name = "cDate",   HeaderText = "Date",     Width = 100 });
+            _dgvExpenses.Columns.Add(new DataGridViewTextBoxColumn { Name = "cCat",    HeaderText = "Category", Width = 150 });
+            _dgvExpenses.Columns.Add(new DataGridViewTextBoxColumn { Name = "cAmount", HeaderText = "Amount",   Width = 100 });
+            _dgvExpenses.Columns.Add(new DataGridViewTextBoxColumn { Name = "cDesc",   HeaderText = "Notes",    AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill });
             Controls.Add(_dgvExpenses);
 
             // ── Status bar ─────────────────────────────────────────────────────────
@@ -285,61 +236,28 @@ namespace JaneERP
                 var from = _dtpFrom.Value.Date;
                 var to   = _dtpTo.Value.Date.AddDays(1).AddTicks(-1);
 
-                using var db = new SqlConnection(_cs);
+                var summary = _repo.GetSummary(from, to);
+                var rows    = _repo.GetExpenseRows(from, to);
 
-                // Revenue: sum of all completed (or paid) sales orders in the period
-                decimal revenue = db.ExecuteScalar<decimal>(@"
-                    SELECT ISNULL(SUM(TotalPrice), 0)
-                    FROM   SalesOrders
-                    WHERE  OrderDate >= @from AND OrderDate <= @to
-                      AND  (Status = 'Complete' OR IsPaid = 1)", new { from, to });
-
-                // COGS: from completed work orders
-                decimal cogs = db.ExecuteScalar<decimal>(@"
-                    SELECT ISNULL(SUM(CostOfGoods), 0)
-                    FROM   WorkOrders
-                    WHERE  Status = 'Complete'
-                      AND  CompletedAt >= @from AND CompletedAt <= @to
-                      AND  CostOfGoods IS NOT NULL", new { from, to });
-
-                // Expenses in period
-                decimal expenses = db.ExecuteScalar<decimal>(@"
-                    SELECT ISNULL(SUM(e.Amount), 0)
-                    FROM   Expenses e
-                    WHERE  e.ExpenseDate >= @from AND e.ExpenseDate <= @to", new { from, to });
-
-                decimal grossProfit = revenue - cogs;
-                decimal netProfit   = grossProfit - expenses;
-
-                _lblRevenue.Text     = $"${revenue:N2}";
-                _lblCOGS.Text        = $"${cogs:N2}";
-                _lblGrossProfit.Text = $"${grossProfit:N2}";
-                _lblExpenses.Text    = $"${expenses:N2}";
-                _lblNetProfit.Text   = $"${netProfit:N2}";
-                _lblNetProfit.ForeColor = netProfit >= 0
+                _lblRevenue.Text     = $"${summary.Revenue:N2}";
+                _lblCOGS.Text        = $"${summary.Cogs:N2}";
+                _lblGrossProfit.Text = $"${summary.GrossProfit:N2}";
+                _lblExpenses.Text    = $"${summary.Expenses:N2}";
+                _lblNetProfit.Text   = $"${summary.NetProfit:N2}";
+                _lblNetProfit.ForeColor = summary.NetProfit >= 0
                     ? Color.FromArgb(80, 210, 100)
                     : Color.FromArgb(210, 80, 80);
 
-                // Load expense rows
-                var rows = db.Query(@"
-                    SELECT e.ExpenseID, e.ExpenseDate, ISNULL(ec.Name, 'Uncategorised') AS Category,
-                           e.Amount, e.Description
-                    FROM   Expenses e
-                    LEFT JOIN ExpenseCategories ec ON ec.CategoryID = e.CategoryID
-                    WHERE  e.ExpenseDate >= @from AND e.ExpenseDate <= @to
-                    ORDER  BY e.ExpenseDate DESC", new { from, to }).ToList();
-
                 _dgvExpenses.Rows.Clear();
-                foreach (IDictionary<string, object> r in rows)
+                foreach (var r in rows)
                 {
                     int idx = _dgvExpenses.Rows.Add();
                     var row = _dgvExpenses.Rows[idx];
-                    row.Cells["cDate"].Value   = r["ExpenseDate"] is DateTime dt ? dt.ToString("yyyy-MM-dd") : "";
-                    row.Cells["cCat"].Value    = r["Category"];
-                    decimal amt = Convert.ToDecimal(r["Amount"]);
-                    row.Cells["cAmount"].Value = $"${amt:N2}";
-                    row.Cells["cDesc"].Value   = r["Description"] ?? "";
-                    row.Tag = (int)r["ExpenseID"];
+                    row.Cells["cDate"].Value   = r.ExpenseDate.ToString("yyyy-MM-dd");
+                    row.Cells["cCat"].Value    = r.Category;
+                    row.Cells["cAmount"].Value = $"${r.Amount:N2}";
+                    row.Cells["cDesc"].Value   = r.Description ?? "";
+                    row.Tag = r.ExpenseID;
                 }
 
                 _lblStatus.Text = $"Period: {from:yyyy-MM-dd} → {_dtpTo.Value:yyyy-MM-dd}  |  {rows.Count} expense(s)";
@@ -359,8 +277,7 @@ namespace JaneERP
                     MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
             try
             {
-                using var db = new SqlConnection(_cs);
-                db.Execute("DELETE FROM Expenses WHERE ExpenseID = @expenseId", new { expenseId });
+                _repo.DeleteExpense(expenseId);
                 AppLogger.Audit(AppSession.CurrentUser?.Username, "DeleteExpense", $"ExpenseID={expenseId}");
                 LoadData();
             }
@@ -378,8 +295,8 @@ namespace JaneERP
 
     internal sealed class FormAddExpense : Form
     {
-        private readonly string _cs;
-        private List<(int Id, string Name)> _categories = new();
+        private readonly IAccountingRepository _repo;
+        private List<Models.ExpenseCategory> _categories = new();
 
         private ComboBox       _cboCategory  = new();
         private NumericUpDown  _nudAmount    = new();
@@ -391,9 +308,9 @@ namespace JaneERP
         private Button         _btnDone      = new();
         private Button         _btnManageCat = new();
 
-        public FormAddExpense(string connectionString)
+        public FormAddExpense(IAccountingRepository repo)
         {
-            _cs = connectionString;
+            _repo = repo;
             BuildUI();
             Theme.Apply(this);
             Theme.MakeBorderless(this);
@@ -438,7 +355,7 @@ namespace JaneERP
             _btnManageCat.UseVisualStyleBackColor = true;
             _btnManageCat.Click   += (_, _) =>
             {
-                using var frm = new FormExpenseCategories(_cs);
+                using var frm = new FormExpenseCategories(_repo);
                 frm.ShowDialog(this);
                 LoadCategories();
             };
@@ -513,13 +430,10 @@ namespace JaneERP
         {
             try
             {
-                using var db = new SqlConnection(_cs);
-                _categories = db.Query("SELECT CategoryID, Name FROM ExpenseCategories WHERE IsActive = 1 ORDER BY Name")
-                    .Select(r => ((int)r.CategoryID, (string)r.Name)).ToList();
-
+                _categories = _repo.GetActiveCategories();
                 _cboCategory.Items.Clear();
-                foreach (var (_, name) in _categories)
-                    _cboCategory.Items.Add(name);
+                foreach (var cat in _categories)
+                    _cboCategory.Items.Add(cat.Name);
                 if (_cboCategory.Items.Count > 0 && _cboCategory.SelectedIndex < 0)
                     _cboCategory.SelectedIndex = 0;
             }
@@ -543,26 +457,20 @@ namespace JaneERP
 
             try
             {
-                var (catId, catName) = _categories[_cboCategory.SelectedIndex];
-                var desc  = string.IsNullOrWhiteSpace(_txtDesc.Text) ? (string?)null : _txtDesc.Text.Trim();
-                var date  = _dtpDate.Value.Date;
+                var cat    = _categories[_cboCategory.SelectedIndex];
+                var desc   = string.IsNullOrWhiteSpace(_txtDesc.Text) ? (string?)null : _txtDesc.Text.Trim();
+                var date   = _dtpDate.Value.Date;
                 var amount = _nudAmount.Value;
 
-                using var db = new SqlConnection(_cs);
-                db.Execute(@"
-                    INSERT INTO Expenses (CategoryID, Amount, Description, ExpenseDate, CreatedBy)
-                    VALUES (@CategoryID, @Amount, @Description, @ExpenseDate, @CreatedBy)",
-                    new { CategoryID = catId, Amount = amount, Description = desc,
-                          ExpenseDate = date, CreatedBy = AppSession.CurrentUser?.Username });
-
+                _repo.AddExpense(cat.CategoryID, amount, desc, date, AppSession.CurrentUser?.Username);
                 AppLogger.Audit(AppSession.CurrentUser?.Username, "AddExpense",
-                    $"Category={catName} Amount={amount:N2}");
+                    $"Category={cat.Name} Amount={amount:N2}");
 
                 // Add to the session list
                 int idx = _dgvAdded.Rows.Add();
                 var row = _dgvAdded.Rows[idx];
                 row.Cells["cDate"].Value = date.ToString("yyyy-MM-dd");
-                row.Cells["cCat"].Value  = catName;
+                row.Cells["cCat"].Value  = cat.Name;
                 row.Cells["cAmt"].Value  = $"${amount:N2}";
                 row.Cells["cDesc"].Value = desc ?? "";
                 _lblCount.Text = $"{_dgvAdded.Rows.Count} added";
@@ -586,14 +494,14 @@ namespace JaneERP
 
     internal sealed class FormExpenseCategories : Form
     {
-        private readonly string      _cs;
-        private DataGridView         _dgv    = new();
-        private TextBox              _txtNew = new();
-        private Button               _btnAdd = new();
+        private readonly IAccountingRepository _repo;
+        private DataGridView _dgv    = new();
+        private TextBox      _txtNew = new();
+        private Button       _btnAdd = new();
 
-        public FormExpenseCategories(string connectionString)
+        public FormExpenseCategories(IAccountingRepository repo)
         {
-            _cs = connectionString;
+            _repo = repo;
             BuildUI();
             Theme.Apply(this);
             Theme.MakeBorderless(this);
@@ -665,15 +573,14 @@ namespace JaneERP
             _dgv.Rows.Clear();
             try
             {
-                using var db = new SqlConnection(_cs);
-                var cats = db.Query("SELECT CategoryID, Name, IsActive FROM ExpenseCategories ORDER BY Name").ToList();
-                foreach (IDictionary<string, object> c in cats)
+                var cats = _repo.GetAllCategories();
+                foreach (var c in cats)
                 {
                     int idx = _dgv.Rows.Add();
                     var r   = _dgv.Rows[idx];
-                    r.Cells["cName"].Value   = c["Name"];
-                    r.Cells["cActive"].Value = Convert.ToBoolean(c["IsActive"]) ? "Yes" : "No";
-                    r.Tag = (int)c["CategoryID"];
+                    r.Cells["cName"].Value   = c.Name;
+                    r.Cells["cActive"].Value = c.IsActive ? "Yes" : "No";
+                    r.Tag = c.CategoryID;
                 }
             }
             catch (Exception ex) { MessageBox.Show(this, ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error); }
@@ -685,8 +592,7 @@ namespace JaneERP
             if (string.IsNullOrEmpty(name)) return;
             try
             {
-                using var db = new SqlConnection(_cs);
-                db.Execute("INSERT INTO ExpenseCategories (Name) VALUES (@name)", new { name });
+                _repo.AddCategory(name);
                 _txtNew.Clear();
                 LoadCategories();
             }
@@ -698,8 +604,7 @@ namespace JaneERP
             if (_dgv.CurrentRow?.Tag is not int catId) return;
             try
             {
-                using var db = new SqlConnection(_cs);
-                db.Execute("UPDATE ExpenseCategories SET IsActive = 1 - IsActive WHERE CategoryID = @catId", new { catId });
+                _repo.ToggleCategory(catId);
                 LoadCategories();
             }
             catch (Exception ex) { MessageBox.Show(this, ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error); }

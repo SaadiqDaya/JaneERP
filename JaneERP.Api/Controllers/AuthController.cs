@@ -3,6 +3,7 @@ using JaneERP.Api.Middleware;
 using JaneERP.Api.Models;
 using JaneERP.Api.Services;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace JaneERP.Api.Controllers;
 
@@ -30,6 +31,7 @@ public class AuthController : ControllerBase
 
     /// <summary>Authenticates against the selected company's database and returns a JWT.</summary>
     [HttpPost("login")]
+    [EnableRateLimiting("auth")]
     public IActionResult Login([FromBody] LoginRequest req)
     {
         if (string.IsNullOrWhiteSpace(req.Company) ||

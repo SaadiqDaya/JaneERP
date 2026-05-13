@@ -13,5 +13,6 @@ namespace JaneERP.Interfaces
         void         Add(string typeName, IEnumerable<ProductTypeAttr> attributes);
         void         Update(ProductType type);
         void         Delete(int id);
+        List<string> GetAttributeNamesForType(int typeId);
     }
 }

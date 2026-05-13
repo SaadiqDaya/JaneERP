@@ -182,5 +182,13 @@ namespace JaneERP.Data
             using IDbConnection db = new SqlConnection(_connectionString);
             db.Execute("DELETE FROM ProductTypes WHERE ProductTypeID = @id", new { id });
         }
+
+        public List<string> GetAttributeNamesForType(int typeId)
+        {
+            using IDbConnection db = new SqlConnection(_connectionString);
+            return db.Query<string>(
+                "SELECT AttributeName FROM ProductTypeAttributes WHERE ProductTypeID = @typeId ORDER BY AttributeName",
+                new { typeId }).ToList();
+        }
     }
 }

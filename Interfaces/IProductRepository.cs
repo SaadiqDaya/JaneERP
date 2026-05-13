@@ -28,5 +28,10 @@ namespace JaneERP.Interfaces
         void                          ClearBomSource(int productId);
         int                           CountProductsWithNoBOM();
         void                          DeleteProduct(int productId);
+
+        // ── Unverified items workflow ─────────────────────────────────────────────
+        List<UnverifiedProduct> GetUnverifiedProducts();
+        void                    VerifyProducts(IEnumerable<int> productIds);
+        void                    BulkApplyTypeAndAttributes(IEnumerable<int> productIds, int? typeId, IEnumerable<(string Name, string Value)> attrs);
     }
 }

@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Microsoft.Data.SqlClient;
 
 namespace JaneERP.Security
 {
@@ -61,7 +62,16 @@ namespace JaneERP.Security
 
         public static void SetActive(CompanyProfile company)
         {
-            ActiveConnectionString = company.ConnectionStringPlain;
+            // Inject pool and timeout settings so every part of the app benefits without each
+            // repository needing to configure this individually.
+            var builder = new SqlConnectionStringBuilder(company.ConnectionStringPlain)
+            {
+                ApplicationName = "JaneERP",
+                MinPoolSize     = 3,   // keep 3 connections warm — avoids cold-start latency
+                MaxPoolSize     = 20,  // 5 users × ~4 connections each; headroom for bursts
+                ConnectTimeout  = 30   // fail fast rather than hanging indefinitely
+            };
+            ActiveConnectionString = builder.ConnectionString;
             ActiveCompanyName      = company.Name;
         }
 
