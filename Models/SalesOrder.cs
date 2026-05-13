@@ -17,6 +17,7 @@ namespace JaneERP.Models
         public string   OrderType         { get; set; } = "Shopify";
         public bool     IsPaid            { get; set; }
         public DateTime? PaidAt           { get; set; }
-        public DateTime CreatedAt         { get; set; }
+        public DateTime CreatedAt              { get; set; }
+        public int?     OriginalSalesOrderID   { get; set; }
     }
 }

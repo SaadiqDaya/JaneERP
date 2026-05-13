@@ -1,21 +1,14 @@
-using System.Configuration;
-using System.Data;
 using System.Globalization;
 using System.Text;
-using Dapper;
-using JaneERP.Data;
 using JaneERP.Infrastructure;
 using JaneERP.Interfaces;
-using JaneERP.Models;
-using Microsoft.Data.SqlClient;
 
 namespace JaneERP
 {
     /// <summary>Centralised import hub — loads data from CSV files into the ERP.</summary>
     public class FormImports : Form
     {
-        private readonly string _connStr =
-            ConfigurationManager.ConnectionStrings["MyERP"]?.ConnectionString ?? "";
+        private readonly IImportRepository _repo = AppServices.Get<IImportRepository>();
 
         public FormImports()
         {
@@ -177,8 +170,6 @@ namespace JaneERP
             return dlg.ShowDialog(this) == DialogResult.OK ? dlg.FileName : null;
         }
 
-        private IDbConnection OpenDb() => new SqlConnection(_connStr);
-
         private void ShowResult(int inserted, int updated, int skipped, string? extraInfo = null)
         {
             var sb = new StringBuilder();
@@ -241,55 +232,18 @@ namespace JaneERP
             {
                 var rows = ReadCsv(path);
                 int inserted = 0, updated = 0, skipped = 0;
-                using var db = OpenDb();
                 foreach (var row in rows)
                 {
                     var sku  = row.GetValueOrDefault("SKU", "").Trim();
                     var name = row.GetValueOrDefault("ProductName", "").Trim();
                     if (string.IsNullOrWhiteSpace(sku) || string.IsNullOrWhiteSpace(name)) { skipped++; continue; }
 
-                    decimal.TryParse(row.GetValueOrDefault("RetailPrice", "0"), NumberStyles.Any, CultureInfo.InvariantCulture, out var retail);
+                    decimal.TryParse(row.GetValueOrDefault("RetailPrice",    "0"), NumberStyles.Any, CultureInfo.InvariantCulture, out var retail);
                     decimal.TryParse(row.GetValueOrDefault("WholesalePrice", "0"), NumberStyles.Any, CultureInfo.InvariantCulture, out var wholesale);
                     int.TryParse(row.GetValueOrDefault("ReorderPoint", "0"), out var reorder);
-                    int.TryParse(row.GetValueOrDefault("CurrentStock", "0"), out var stock);
+                    int.TryParse(row.GetValueOrDefault("CurrentStock",  "0"), out var stock);
 
-                    var existing = db.QueryFirstOrDefault<int?>("SELECT ProductID FROM Products WHERE SKU = @sku", new { sku });
-                    if (existing.HasValue)
-                    {
-                        db.Execute(@"UPDATE Products SET ProductName=@name, RetailPrice=@retail,
-                                     WholesalePrice=@wholesale, ReorderPoint=@reorder WHERE ProductID=@id",
-                            new { name, retail, wholesale, reorder, id = existing.Value });
-                        if (stock != 0)
-                            db.Execute("UPDATE Products SET CurrentStock = @stock WHERE ProductID = @id",
-                                new { stock, id = existing.Value });
-                        updated++;
-                    }
-                    else
-                    {
-                        int newId = db.QuerySingle<int>(@"
-                            INSERT INTO Products (SKU, ProductName, RetailPrice, WholesalePrice, ReorderPoint, IsActive)
-                            VALUES (@sku, @name, @retail, @wholesale, @reorder, 1);
-                            SELECT CAST(SCOPE_IDENTITY() AS INT);",
-                            new { sku, name, retail, wholesale, reorder });
-
-                        // Every product must have a Part and a BOM entry
-                        int? partId = db.QueryFirstOrDefault<int?>(
-                            "SELECT PartID FROM Parts WHERE PartNumber = @sku", new { sku });
-                        if (partId == null)
-                        {
-                            partId = db.QuerySingle<int>(@"
-                                INSERT INTO Parts (PartNumber, PartName, UnitCost, CurrentStock, IsActive)
-                                VALUES (@sku, @name, 0, 0, 1);
-                                SELECT CAST(SCOPE_IDENTITY() AS INT);",
-                                new { sku, name });
-                        }
-                        db.Execute(@"
-                            IF NOT EXISTS (SELECT 1 FROM ProductParts WHERE ProductID = @newId AND PartID = @partId)
-                            INSERT INTO ProductParts (ProductID, PartID, Quantity) VALUES (@newId, @partId, 1);",
-                            new { newId, partId });
-
-                        inserted++;
-                    }
+                    if (_repo.UpsertProduct(sku, name, retail, wholesale, reorder, stock)) inserted++; else updated++;
                 }
                 ShowResult(inserted, updated, skipped);
             }
@@ -302,33 +256,18 @@ namespace JaneERP
             if (path == null) return;
             try
             {
-                var repo = AppServices.Get<IPartRepository>();
                 var rows = ReadCsv(path);
                 int inserted = 0, updated = 0, skipped = 0;
-                using var db = OpenDb();
                 foreach (var row in rows)
                 {
                     var num  = row.GetValueOrDefault("PartNumber", "").Trim();
-                    var name = row.GetValueOrDefault("PartName", "").Trim();
+                    var name = row.GetValueOrDefault("PartName",   "").Trim();
                     if (string.IsNullOrWhiteSpace(num) || string.IsNullOrWhiteSpace(name)) { skipped++; continue; }
 
-                    decimal.TryParse(row.GetValueOrDefault("UnitCost", "0"), NumberStyles.Any, CultureInfo.InvariantCulture, out var cost);
+                    decimal.TryParse(row.GetValueOrDefault("UnitCost",     "0"), NumberStyles.Any, CultureInfo.InvariantCulture, out var cost);
                     int.TryParse(row.GetValueOrDefault("CurrentStock", "0"), out var stock);
 
-                    var existing = db.QueryFirstOrDefault<int?>("SELECT PartID FROM Parts WHERE PartNumber = @num", new { num });
-                    if (existing.HasValue)
-                    {
-                        db.Execute("UPDATE Parts SET PartName=@name, UnitCost=@cost WHERE PartID=@id",
-                            new { name, cost, id = existing.Value });
-                        if (stock != 0) db.Execute("UPDATE Parts SET CurrentStock=@stock WHERE PartID=@id", new { stock, id = existing.Value });
-                        updated++;
-                    }
-                    else
-                    {
-                        db.Execute(@"INSERT INTO Parts (PartNumber, PartName, UnitCost, CurrentStock, IsActive)
-                                     VALUES (@num, @name, @cost, @stock, 1)", new { num, name, cost, stock });
-                        inserted++;
-                    }
+                    if (_repo.UpsertPart(num, name, cost, stock)) inserted++; else updated++;
                 }
                 ShowResult(inserted, updated, skipped);
             }
@@ -341,34 +280,18 @@ namespace JaneERP
             if (path == null) return;
             try
             {
-                var repo = AppServices.Get<IDiscountTierRepository>();
                 var rows = ReadCsv(path);
                 int inserted = 0, updated = 0, skipped = 0;
-                using var db = OpenDb();
                 foreach (var row in rows)
                 {
                     var name = row.GetValueOrDefault("TierName", "").Trim();
                     if (string.IsNullOrWhiteSpace(name)) { skipped++; continue; }
                     if (!decimal.TryParse(row.GetValueOrDefault("DiscountPercent", ""),
-                        NumberStyles.Any, CultureInfo.InvariantCulture, out var pct) || pct < 0 || pct > 100)
+                            NumberStyles.Any, CultureInfo.InvariantCulture, out var pct) || pct < 0 || pct > 100)
                     { skipped++; continue; }
 
                     var desc = row.GetValueOrDefault("Description", "").Trim();
-                    var existing = db.QueryFirstOrDefault<int?>(
-                        "SELECT TierID FROM DiscountTiers WHERE TierName = @name", new { name });
-
-                    if (existing.HasValue)
-                    {
-                        db.Execute("UPDATE DiscountTiers SET DiscountPercent=@pct, Description=@desc WHERE TierID=@id",
-                            new { pct, desc, id = existing.Value });
-                        updated++;
-                    }
-                    else
-                    {
-                        db.Execute(@"INSERT INTO DiscountTiers (TierName, DiscountPercent, Description, IsActive)
-                                     VALUES (@name, @pct, @desc, 1)", new { name, pct, desc });
-                        inserted++;
-                    }
+                    if (_repo.UpsertDiscountTier(name, pct, desc)) inserted++; else updated++;
                 }
                 ShowResult(inserted, updated, skipped);
             }
@@ -383,34 +306,15 @@ namespace JaneERP
             {
                 var rows = ReadCsv(path);
                 int inserted = 0, updated = 0, skipped = 0;
-                using var db = OpenDb();
-                // Ensure Customers table has Email column (basic guard)
                 foreach (var row in rows)
                 {
                     var email = row.GetValueOrDefault("Email", "").Trim();
                     if (string.IsNullOrWhiteSpace(email) || !email.Contains('@')) { skipped++; continue; }
 
                     var fullName = row.GetValueOrDefault("FullName", "").Trim();
-                    var phone    = row.GetValueOrDefault("Phone", "").Trim();
+                    var phone    = row.GetValueOrDefault("Phone",    "").Trim();
 
-                    var existing = db.QueryFirstOrDefault<int?>(
-                        "SELECT CustomerID FROM Customers WHERE Email = @email", new { email });
-                    if (existing.HasValue)
-                    {
-                        db.Execute(@"UPDATE Customers SET CustomerName=@fullName, Phone=@phone WHERE CustomerID=@id",
-                            new { fullName, phone, id = existing.Value });
-                        updated++;
-                    }
-                    else
-                    {
-                        try
-                        {
-                            db.Execute(@"INSERT INTO Customers (Email, CustomerName, Phone)
-                                         VALUES (@email, @fullName, @phone)", new { email, fullName, phone });
-                            inserted++;
-                        }
-                        catch { skipped++; }
-                    }
+                    if (_repo.UpsertCustomer(email, fullName, phone)) inserted++; else updated++;
                 }
                 ShowResult(inserted, updated, skipped);
             }

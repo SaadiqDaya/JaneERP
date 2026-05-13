@@ -70,4 +70,31 @@ public class ApiWorkOrderRepository
         }
         catch { return null; }
     }
+
+    // Roles: admin, warehouse
+    public bool UpdateStatus(int workOrderId, string newStatus, string? username)
+    {
+        using var db = new SqlConnection(_ctx.ConnectionString);
+        db.Open();
+        using var tx = db.BeginTransaction();
+        try
+        {
+            var exists = db.QueryFirstOrDefault<int?>(
+                "SELECT WorkOrderID FROM WorkOrders WHERE WorkOrderID = @workOrderId",
+                new { workOrderId }, tx);
+            if (exists == null) { tx.Rollback(); return false; }
+
+            var extraSets = newStatus is "Complete" or "Completed"
+                ? ", CompletedAt = ISNULL(CompletedAt, GETDATE())"
+                : "";
+
+            db.Execute(
+                $"UPDATE WorkOrders SET Status = @newStatus{extraSets} WHERE WorkOrderID = @workOrderId",
+                new { newStatus, workOrderId }, tx);
+
+            tx.Commit();
+            return true;
+        }
+        catch { tx.Rollback(); throw; }
+    }
 }

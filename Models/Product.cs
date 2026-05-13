@@ -33,6 +33,9 @@ namespace JaneERP.Models
 
         public List<ProductAttribute> Attributes { get; set; } = [];
 
+        /// <summary>Unit of measure for this product (e.g. "ea", "mL", "g"). Matches Parts.UnitOfMeasure vocabulary.</summary>
+        public string? UnitOfMeasure { get; set; }
+
         /// <summary>True when the product was created automatically (Shopify sync, manual order, CSV import).</summary>
         public bool IsAutoCreated { get; set; }
         /// <summary>True once a user has reviewed and confirmed the auto-created record.</summary>

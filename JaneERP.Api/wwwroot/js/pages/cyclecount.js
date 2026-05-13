@@ -1,3 +1,74 @@
+// ── Offline queue (IndexedDB) ─────────────────────────────────────────────────
+const CycleQueue = (() => {
+  const DB = 'janeerp-cc-queue';
+  const STORE = 'verifications';
+
+  function open() {
+    return new Promise((res, rej) => {
+      const r = indexedDB.open(DB, 1);
+      r.onupgradeneeded = e => e.target.result.createObjectStore(STORE, { autoIncrement: true });
+      r.onsuccess = e => res(e.target.result);
+      r.onerror   = e => rej(e.target.error);
+    });
+  }
+
+  async function push(payload) {
+    const db = await open();
+    return new Promise((res, rej) => {
+      const tx = db.transaction(STORE, 'readwrite');
+      tx.objectStore(STORE).add(payload);
+      tx.oncomplete = res;
+      tx.onerror    = e => rej(e.target.error);
+    });
+  }
+
+  async function getAllWithKeys() {
+    const db = await open();
+    return new Promise((res, rej) => {
+      const results = [];
+      const tx = db.transaction(STORE, 'readonly');
+      tx.objectStore(STORE).openCursor().onsuccess = e => {
+        const c = e.target.result;
+        if (c) { results.push({ key: c.key, value: c.value }); c.continue(); }
+        else res(results);
+      };
+      tx.onerror = e => rej(e.target.error);
+    });
+  }
+
+  async function deleteKey(key) {
+    const db = await open();
+    return new Promise((res, rej) => {
+      const tx = db.transaction(STORE, 'readwrite');
+      tx.objectStore(STORE).delete(key);
+      tx.oncomplete = res;
+      tx.onerror    = e => rej(e.target.error);
+    });
+  }
+
+  async function flush() {
+    if (!navigator.onLine) return 0;
+    const items = await getAllWithKeys();
+    let flushed = 0;
+    for (const { key, value } of items) {
+      try {
+        await Api.post('/api/cycle-count/verify', value);
+        await deleteKey(key);
+        flushed++;
+      } catch { break; } // network error — stop and retry next time
+    }
+    return flushed;
+  }
+
+  async function count() {
+    const items = await getAllWithKeys();
+    return items.length;
+  }
+
+  return { push, flush, count };
+})();
+
+// ── Cycle Count page ──────────────────────────────────────────────────────────
 const CycleCountPage = (() => {
   let locations          = [];
   let entries            = [];
@@ -11,11 +82,17 @@ const CycleCountPage = (() => {
         <div class="page-header">
           <h1>Cycle Count</h1>
           <div class="header-actions">
+            <button class="btn-icon" id="cc-scan-btn" title="Scan barcode">
+              <svg viewBox="0 0 24 24"><path d="M1 5h2v14H1V5zm4 0h1v14H5V5zm2 0h3v14H7V5zm4 0h1v14h-1V5zm3 0h2v14h-2V5zm3 0h1v14h-1V5zm2 0h2v14h-2V5z"/></svg>
+            </button>
             <button class="btn-icon" id="cc-overdue-btn" title="Toggle overdue filter">
               <svg viewBox="0 0 24 24"><path d="M10 18h4v-2h-4v2zM3 6v2h18V6H3zm3 7h12v-2H6v2z"/></svg>
             </button>
           </div>
         </div>
+        <div id="cc-queue-banner" style="display:none;background:var(--warning-lt);color:var(--warning);
+             border-radius:8px;padding:8px 12px;font-size:13px;font-weight:600;
+             margin:8px 16px 0;text-align:center;"></div>
         <div class="content">
 
           <!-- Location navigator: arrows + dropdown in one row -->
@@ -41,6 +118,13 @@ const CycleCountPage = (() => {
           <div id="cc-list"></div>
         </div>
       </div>`;
+
+    // Flush offline queue + update banner on load
+    flushQueue();
+    window.addEventListener('online', flushQueue);
+
+    // Scan button
+    document.getElementById('cc-scan-btn').addEventListener('click', openBarcodeScanner);
 
     // Overdue toggle
     document.getElementById('cc-overdue-btn').addEventListener('click', () => {
@@ -234,8 +318,8 @@ const CycleCountPage = (() => {
   }
 
   async function verifyItem(idx, visible) {
-    const entry   = visible[idx];
-    const inp     = document.querySelector(`.cc-actual[data-idx="${idx}"]`);
+    const entry      = visible[idx];
+    const inp        = document.querySelector(`.cc-actual[data-idx="${idx}"]`);
     const actualQty  = inp && inp.value !== '' ? parseInt(inp.value, 10) : entry.systemQty;
     const locationId = entry.locationID ?? (allLocations[currentLocIdx]?.locationID ?? 0);
 
@@ -248,28 +332,149 @@ const CycleCountPage = (() => {
     btn.disabled    = true;
     btn.textContent = 'Saving…';
 
+    const payload = {
+      productId:  entry.productID,
+      locationId: locationId,
+      systemQty:  entry.systemQty,
+      actualQty:  actualQty,
+    };
+
     try {
-      await Api.post('/api/cycle-count/verify', {
-        productId:  entry.productID,
-        locationId: locationId,
-        systemQty:  entry.systemQty,
-        actualQty:  actualQty,
-      });
-
-      const card = document.getElementById(`cc-item-${idx}`);
-      card?.classList.add('verified');
-      btn.textContent = '✓ Verified';
-      btn.className   = 'verify-btn verified-state';
-
-      entry.lastVerifiedAt = new Date().toISOString();
-      entry.systemQty      = actualQty;
-
+      if (!navigator.onLine) throw new Error('offline');
+      await Api.post('/api/cycle-count/verify', payload);
+      markVerified(btn, entry, actualQty, idx);
       App.toast(`${entry.productName} verified`, 'success');
     } catch (err) {
-      App.toast(err.message, 'error');
-      btn.disabled    = false;
-      btn.textContent = 'Verify';
+      if (!navigator.onLine || err.message === 'offline') {
+        await CycleQueue.push(payload);
+        markVerified(btn, entry, actualQty, idx);
+        App.toast(`${entry.productName} queued (offline)`, '');
+        updateQueueBanner();
+      } else {
+        App.toast(err.message, 'error');
+        btn.disabled    = false;
+        btn.textContent = 'Verify';
+      }
     }
+  }
+
+  function markVerified(btn, entry, actualQty, idx) {
+    const card = document.getElementById(`cc-item-${idx}`);
+    card?.classList.add('verified');
+    btn.textContent = '✓ Verified';
+    btn.className   = 'verify-btn verified-state';
+    entry.lastVerifiedAt = new Date().toISOString();
+    entry.systemQty      = actualQty;
+  }
+
+  async function flushQueue() {
+    const flushed = await CycleQueue.flush();
+    if (flushed > 0)
+      App.toast(`Synced ${flushed} offline verification${flushed !== 1 ? 's' : ''}`, 'success');
+    updateQueueBanner();
+  }
+
+  async function updateQueueBanner() {
+    const banner = document.getElementById('cc-queue-banner');
+    if (!banner) return;
+    const n = await CycleQueue.count();
+    if (n > 0) {
+      banner.style.display = '';
+      banner.textContent   = `${n} verification${n !== 1 ? 's' : ''} queued offline — will sync when connected`;
+    } else {
+      banner.style.display = 'none';
+    }
+  }
+
+  // ── Barcode scanner ───────────────────────────────────────────────────────
+
+  async function openBarcodeScanner() {
+    if (!('BarcodeDetector' in window)) {
+      // Fallback: text input
+      const sku = prompt('Enter SKU or product name to find:');
+      if (sku) findAndHighlight(sku.trim());
+      return;
+    }
+
+    const overlay = document.createElement('div');
+    overlay.className = 'sheet-overlay';
+    overlay.innerHTML = `
+      <div class="sheet" style="max-height:85vh;">
+        <div class="sheet-handle"></div>
+        <h2 style="font-size:16px;font-weight:700;margin-bottom:12px;">Scan Item</h2>
+        <video id="scan-video" style="width:100%;border-radius:8px;background:#000;max-height:50vh;object-fit:cover;" autoplay muted playsinline></video>
+        <div id="scan-status" class="text-muted text-small mt-8" style="text-align:center;">Point camera at barcode…</div>
+        <button class="btn btn-outline btn-full mt-8" id="close-scan">Cancel</button>
+      </div>`;
+    document.body.appendChild(overlay);
+
+    const video    = document.getElementById('scan-video');
+    const statusEl = document.getElementById('scan-status');
+    let stream;
+
+    function stopAndClose() {
+      stream?.getTracks().forEach(t => t.stop());
+      overlay.remove();
+    }
+
+    document.getElementById('close-scan').addEventListener('click', stopAndClose);
+    overlay.addEventListener('click', e => { if (e.target === overlay) stopAndClose(); });
+
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+      video.srcObject = stream;
+
+      const detector = new BarcodeDetector({ formats: ['qr_code', 'code_128', 'ean_13', 'code_39', 'upc_a', 'upc_e'] });
+      let scanning = true;
+
+      const scan = async () => {
+        if (!scanning || !document.contains(video)) return;
+        if (video.readyState >= 2) {
+          try {
+            const found = await detector.detect(video);
+            if (found.length > 0) {
+              scanning = false;
+              stopAndClose();
+              findAndHighlight(found[0].rawValue);
+              return;
+            }
+          } catch { /* frame not ready */ }
+        }
+        requestAnimationFrame(scan);
+      };
+      requestAnimationFrame(scan);
+
+    } catch (err) {
+      statusEl.textContent = 'Camera unavailable: ' + err.message;
+    }
+  }
+
+  function findAndHighlight(barcode) {
+    const q = barcode.trim().toLowerCase();
+    // Search in full entries array (not just visible), then scroll the rendered card
+    const idx = entries.findIndex(e =>
+      e.sku?.toLowerCase() === q ||
+      e.productName?.toLowerCase().includes(q)
+    );
+    if (idx < 0) {
+      App.toast(`No item found for "${barcode}"`, 'error');
+      return;
+    }
+    // Re-render entries to make sure the item is visible (overdue filter may hide it)
+    showOverdueOnly = false;
+    document.getElementById('cc-overdue-bar').style.display = 'none';
+    renderEntries();
+
+    // Find the rendered card index (visible array may differ from entries index)
+    const visible = entries; // overdue filter is now off
+    const visIdx = visible.indexOf(entries[idx]);
+    const card = document.getElementById(`cc-item-${visIdx}`);
+    if (card) {
+      card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      card.style.outline = '3px solid var(--primary)';
+      setTimeout(() => { card.style.outline = ''; }, 2500);
+    }
+    App.toast(`Found: ${entries[idx].productName}`, 'success');
   }
 
   return { render };

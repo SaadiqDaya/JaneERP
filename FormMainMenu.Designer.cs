@@ -50,6 +50,8 @@ namespace JaneERP
         private Button btnCustomers;
         private Button btnVendors;
         private Button btnExitApp;
+        private Button btnExpiryTracker;
+        private Button btnBackorders;
 
         // ── Misc ──────────────────────────────────────────────────────────────
         private Label   lblSelectDept;
@@ -108,6 +110,8 @@ namespace JaneERP
             btnShopifyStores  = MakeIconButton("\U0001F6D2", "Shopify Stores",  btnShopifyStores_Click);
             btnCustomers      = MakeIconButton("\U0001F465", "Customers",        btnCustomers_Click);
             btnVendors        = MakeIconButton("\U0001F3ED", "Vendors",          btnVendors_Click);
+            btnExpiryTracker  = MakeIconButton("\u23F0",     "Expiry Tracker",   btnExpiryTracker_Click);
+            btnBackorders     = MakeIconButton("\U0001F4E6", "Backorders",       btnBackorders_Click);
 
             // Header quick-dial buttons — plain style (NOT MakeIconButton so no neon tile paint handler)
             btnJane   = new Button { Text = "\U0001F4DE Jane",    UseVisualStyleBackColor = false };
@@ -150,6 +154,8 @@ namespace JaneERP
             toolTip1.SetToolTip(btnJane,           "Dial Jane directly from this screen");
             toolTip1.SetToolTip(btnOphelia,        "Dial Ophelia directly from this screen");
             toolTip1.SetToolTip(btnProductSearch,  "Explore products with custom attribute filters");
+            toolTip1.SetToolTip(btnExpiryTracker, "View lot stock by expiry date — expired, critical, and upcoming");
+            toolTip1.SetToolTip(btnBackorders,    "View and fulfill open backorder lines");
 
             // ════════════════════════════════════════════════════════════════
             // BEGIN INIT
@@ -324,6 +330,7 @@ namespace JaneERP
             pnlGrid.Controls.Add(btnCustomers);
             pnlGrid.Controls.Add(btnVendors);
             pnlGrid.Controls.Add(btnShopifyStores);
+            pnlGrid.Controls.Add(btnBackorders);
             var sp1 = GrpSpacer(); pnlGrid.Controls.Add(sp1); pnlGrid.SetFlowBreak(sp1, true);
 
             // ── Section: Products & Inventory ────────────────────────────────
@@ -342,6 +349,7 @@ namespace JaneERP
             pnlGrid.Controls.Add(btnInventoryDash);
             pnlGrid.Controls.Add(btnReorderReport);
             pnlGrid.Controls.Add(btnUnverified);
+            pnlGrid.Controls.Add(btnExpiryTracker);
             var sp2 = GrpSpacer(); pnlGrid.Controls.Add(sp2); pnlGrid.SetFlowBreak(sp2, true);
 
             // ── Section: Manufacturing ───────────────────────────────────────

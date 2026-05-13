@@ -1,4 +1,4 @@
-using JaneERP.Data;
+using JaneERP.Infrastructure;
 using JaneERP.Interfaces;
 using JaneERP.Models;
 
@@ -7,8 +7,9 @@ namespace JaneERP
     /// <summary>CRUD for Parts.</summary>
     public class FormPartsManager : Form
     {
-        private readonly PartRepository   _repo        = new();
-        private readonly VendorRepository _vendorRepo  = new();
+        private readonly IPartRepository   _repo        = AppServices.Get<IPartRepository>();
+        private readonly IVendorRepository _vendorRepo  = AppServices.Get<IVendorRepository>();
+        private readonly IUomRepository    _uomRepo     = AppServices.Get<IUomRepository>();
 
         private DataGridView  dgvParts   = new();
         private Label         lblEdit    = new();
@@ -18,6 +19,7 @@ namespace JaneERP
         private TextBox       txtCost    = new();
         private NumericUpDown nudStock   = new();
         private ComboBox      cboVendor  = new();
+        private ComboBox      cboUom     = new();
         private CheckBox      chkActive  = new();
         private Button        btnSave    = new();
         private Button        btnNew     = new();
@@ -90,10 +92,18 @@ namespace JaneERP
 
             Controls.Add(new Label { AutoSize = true, Location = new Point(x, y), Text = "Default Vendor:" });
             y += 20;
-            cboVendor.Location     = new Point(x, y);
-            cboVendor.Size         = new Size(350, 23);
+            cboVendor.Location      = new Point(x, y);
+            cboVendor.Size          = new Size(350, 23);
             cboVendor.DropDownStyle = ComboBoxStyle.DropDownList;
             Controls.Add(cboVendor);
+            y += 34;
+
+            Controls.Add(new Label { AutoSize = true, Location = new Point(x, y), Text = "Unit of Measure:" });
+            y += 20;
+            cboUom.Location      = new Point(x, y);
+            cboUom.Size          = new Size(180, 23);
+            cboUom.DropDownStyle = ComboBoxStyle.DropDown;
+            Controls.Add(cboUom);
             y += 34;
 
             chkActive.AutoSize = true;
@@ -149,6 +159,7 @@ namespace JaneERP
             txtCost.Enabled    = enabled;
             nudStock.Enabled   = enabled;
             cboVendor.Enabled  = enabled;
+            cboUom.Enabled     = enabled;
             chkActive.Enabled  = enabled;
             btnSave.Enabled    = enabled;
         }
@@ -163,6 +174,16 @@ namespace JaneERP
                     .Concat(vendors).ToList();
                 cboVendor.DisplayMember = "VendorName";
                 cboVendor.ValueMember   = "VendorID";
+
+                // Populate UOM dropdown
+                try
+                {
+                    var abbrevs = _uomRepo.GetAbbreviations();
+                    cboUom.Items.Clear();
+                    cboUom.Items.Add("");
+                    foreach (var u in abbrevs) cboUom.Items.Add(u);
+                }
+                catch { /* non-fatal — table may not exist yet */ }
 
                 var parts = _repo.GetAll(includeInactive: true);
                 dgvParts.DataSource = parts.ToList();
@@ -188,7 +209,8 @@ namespace JaneERP
             txtCost.Text      = part.UnitCost.ToString("G");
             nudStock.Value    = Math.Min(part.CurrentStock, (int)nudStock.Maximum);
             cboVendor.SelectedValue = part.DefaultVendorID ?? 0;
-            chkActive.Checked = part.IsActive;
+            cboUom.Text             = part.UnitOfMeasure ?? "";
+            chkActive.Checked       = part.IsActive;
             SetEditEnabled(true);
         }
 
@@ -206,6 +228,7 @@ namespace JaneERP
 
             try
             {
+                string? uom = string.IsNullOrWhiteSpace(cboUom.Text) ? null : cboUom.Text.Trim();
                 if (_editing == null)
                 {
                     _repo.Add(new Part
@@ -216,7 +239,8 @@ namespace JaneERP
                         UnitCost        = cost,
                         CurrentStock    = (int)nudStock.Value,
                         IsActive        = chkActive.Checked,
-                        DefaultVendorID = vendorId
+                        DefaultVendorID = vendorId,
+                        UnitOfMeasure   = uom
                     });
                 }
                 else
@@ -227,6 +251,7 @@ namespace JaneERP
                     _editing.UnitCost        = cost;
                     _editing.IsActive        = chkActive.Checked;
                     _editing.DefaultVendorID = vendorId;
+                    _editing.UnitOfMeasure   = uom;
                     _repo.Update(_editing);
                 }
 
@@ -497,8 +522,8 @@ namespace JaneERP
     /// </summary>
     internal class FormBomExplorer : Form
     {
-        private readonly ProductRepository _productRepo = new();
-        private readonly PartRepository    _partRepo    = new();
+        private readonly IProductRepository _productRepo = AppServices.Get<IProductRepository>();
+        private readonly IPartRepository    _partRepo    = AppServices.Get<IPartRepository>();
         private Product? _current;
         private List<Product> _all = new();
 

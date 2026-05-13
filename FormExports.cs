@@ -1,18 +1,14 @@
-using System.Configuration;
-using System.Data;
-using System.Linq;
 using System.Text;
-using Dapper;
 using JaneERP.Data;
-using Microsoft.Data.SqlClient;
+using JaneERP.Infrastructure;
+using JaneERP.Interfaces;
 
 namespace JaneERP
 {
     /// <summary>Centralised export hub — generates CSV files from live ERP data.</summary>
     public class FormExports : Form
     {
-        private readonly string _connStr =
-            ConfigurationManager.ConnectionStrings["MyERP"]?.ConnectionString ?? "";
+        private readonly IExportRepository _repo = AppServices.Get<IExportRepository>();
 
         public FormExports()
         {
@@ -241,8 +237,6 @@ namespace JaneERP
 
         private static string Date => DateTime.Today.ToString("yyyyMMdd");
 
-        private IDbConnection OpenDb() => new SqlConnection(_connStr);
-
         // ── Export implementations ────────────────────────────────────────────────
 
         private void ExportProductsCsv(object? sender, EventArgs e)
@@ -251,30 +245,13 @@ namespace JaneERP
             if (path == null) return;
             try
             {
-                using var db = OpenDb();
-                var rows = db.Query(@"
-                    SELECT  p.SKU,
-                            p.ProductName,
-                            p.RetailPrice,
-                            p.WholesalePrice,
-                            p.ReorderPoint,
-                            ISNULL(p.OrderUpTo, 0) AS OrderUpTo,
-                            ISNULL((SELECT SUM(t.QuantityChange) FROM InventoryTransactions t WHERE t.ProductID = p.ProductID), 0) AS CurrentStock,
-                            pt.TypeName   AS [Type],
-                            l.LocationName AS Location
-                    FROM    Products p
-                    LEFT JOIN ProductTypes pt ON pt.ProductTypeID = p.ProductTypeID
-                    LEFT JOIN Locations    l  ON l.LocationID     = p.DefaultLocationID
-                    WHERE   p.IsActive = 1
-                    ORDER BY p.SKU").AsList();
-
+                var rows = _repo.GetProductsForExport().ToList();
                 var sb = new StringBuilder();
-                sb.AppendLine("SKU,Name,RetailPrice,WholesalePrice,ReorderPoint,OrderUpTo,CurrentStock,Type,Location");
+                sb.AppendLine("SKU,Name,UOM,RetailPrice,WholesalePrice,ReorderPoint,OrderUpTo,CurrentStock,Type,Location");
                 foreach (var r in rows)
-                {
-                    sb.AppendLine($"{Esc(r.SKU)},{Esc(r.ProductName)},{r.RetailPrice},{r.WholesalePrice}," +
+                    sb.AppendLine($"{Esc(r.SKU)},{Esc(r.ProductName)},{Esc(r.UnitOfMeasure)}," +
+                                  $"{r.RetailPrice},{r.WholesalePrice}," +
                                   $"{r.ReorderPoint},{r.OrderUpTo},{r.CurrentStock},{Esc(r.Type)},{Esc(r.Location)}");
-                }
                 WriteAndConfirm(path, sb.ToString());
             }
             catch (Exception ex) { ShowError(ex); }
@@ -286,19 +263,7 @@ namespace JaneERP
             if (path == null) return;
             try
             {
-                using var db = OpenDb();
-                var rows = db.Query(@"
-                    SELECT  p.SKU,
-                            p.ProductName,
-                            l.LocationName,
-                            SUM(t.QuantityChange) AS StockQty
-                    FROM    InventoryTransactions t
-                    JOIN    Products  p ON p.ProductID  = t.ProductID
-                    JOIN    Locations l ON l.LocationID = t.LocationID
-                    WHERE   p.IsActive = 1
-                    GROUP BY p.SKU, p.ProductName, l.LocationName
-                    ORDER BY p.SKU, l.LocationName").AsList();
-
+                var rows = _repo.GetInventoryByLocationForExport().ToList();
                 var sb = new StringBuilder();
                 sb.AppendLine("SKU,ProductName,Location,StockQty");
                 foreach (var r in rows)
@@ -314,18 +279,7 @@ namespace JaneERP
             if (path == null) return;
             try
             {
-                using var db = OpenDb();
-                var rows = db.Query(@"
-                    SELECT  p.SKU,
-                            p.ProductName,
-                            ISNULL((SELECT SUM(t.QuantityChange) FROM InventoryTransactions t WHERE t.ProductID = p.ProductID), 0) AS CurrentStock,
-                            p.ReorderPoint,
-                            p.ReorderPoint - ISNULL((SELECT SUM(t.QuantityChange) FROM InventoryTransactions t WHERE t.ProductID = p.ProductID), 0) AS Shortfall
-                    FROM    Products p
-                    WHERE   p.IsActive = 1
-                      AND   ISNULL((SELECT SUM(t.QuantityChange) FROM InventoryTransactions t WHERE t.ProductID = p.ProductID), 0) <= p.ReorderPoint
-                    ORDER BY Shortfall DESC").AsList();
-
+                var rows = _repo.GetReorderSummaryForExport().ToList();
                 if (!rows.Any())
                 {
                     MessageBox.Show(this, "No products currently at or below reorder point.", "Reorder Summary",
@@ -347,21 +301,11 @@ namespace JaneERP
             if (path == null) return;
             try
             {
-                using var db = OpenDb();
-                var rows = db.Query(@"
-                    SELECT  PartNumber,
-                            PartName,
-                            CurrentStock,
-                            UnitCost,
-                            ReorderPoint
-                    FROM    Parts
-                    WHERE   IsActive = 1
-                    ORDER BY PartNumber").AsList();
-
+                var rows = _repo.GetPartsForExport().ToList();
                 var sb = new StringBuilder();
-                sb.AppendLine("PartNumber,PartName,CurrentStock,UnitCost,ReorderPoint");
+                sb.AppendLine("PartNumber,PartName,UOM,CurrentStock,UnitCost,ReorderPoint");
                 foreach (var r in rows)
-                    sb.AppendLine($"{Esc(r.PartNumber)},{Esc(r.PartName)},{r.CurrentStock},{r.UnitCost},{r.ReorderPoint}");
+                    sb.AppendLine($"{Esc(r.PartNumber)},{Esc(r.PartName)},{Esc(r.UnitOfMeasure)},{r.CurrentStock},{r.UnitCost},{r.ReorderPoint}");
                 WriteAndConfirm(path, sb.ToString());
             }
             catch (Exception ex) { ShowError(ex); }
@@ -372,24 +316,11 @@ namespace JaneERP
             using var filter = new FormExportDateFilter("Export Sales Orders");
             if (filter.ShowDialog(this) != DialogResult.OK) return;
             var (from, to) = (filter.FromDate, filter.ToDate.AddDays(1).AddTicks(-1));
-
             var path = PickSavePath($"sales_orders_{filter.FromDate:yyyyMMdd}_{filter.ToDate:yyyyMMdd}.csv");
             if (path == null) return;
             try
             {
-                using var db = OpenDb();
-                var rows = db.Query(@"
-                    SELECT  so.OrderNumber,
-                            c.FullName     AS CustomerName,
-                            so.OrderDate,
-                            so.Status,
-                            so.TotalPrice  AS Total,
-                            ISNULL(so.DiscountAmount, 0) AS Discount
-                    FROM    SalesOrders so
-                    LEFT JOIN Customers c ON c.CustomerID = so.CustomerID
-                    WHERE   so.OrderDate >= @from AND so.OrderDate <= @to
-                    ORDER BY so.OrderDate DESC", new { from, to }).AsList();
-
+                var rows = _repo.GetSalesOrdersForExport(from, to).ToList();
                 var sb = new StringBuilder();
                 sb.AppendLine("OrderNumber,Customer,Date,Status,Total,Discount");
                 foreach (var r in rows)
@@ -405,30 +336,11 @@ namespace JaneERP
             using var filter = new FormExportDateFilter("Export Sales Order Line Items");
             if (filter.ShowDialog(this) != DialogResult.OK) return;
             var (from, to) = (filter.FromDate, filter.ToDate.AddDays(1).AddTicks(-1));
-
             var path = PickSavePath($"sales_order_line_items_{filter.FromDate:yyyyMMdd}_{filter.ToDate:yyyyMMdd}.csv");
             if (path == null) return;
             try
             {
-                using var db = OpenDb();
-                var rows = db.Query(@"
-                    SELECT  so.OrderNumber,
-                            so.OrderDate,
-                            so.Status,
-                            ISNULL(soi.SKU, '')                             AS SKU,
-                            ISNULL(soi.Title, p.ProductName)                AS ProductName,
-                            soi.Quantity,
-                            soi.UnitPrice,
-                            soi.Quantity * soi.UnitPrice                    AS LineTotal,
-                            ISNULL(c.FullName, '')                          AS Customer
-                    FROM    SalesOrderItems soi
-                    JOIN    SalesOrders so ON so.SalesOrderID = soi.SalesOrderID
-                    LEFT JOIN Products   p  ON p.ProductID   = soi.ProductID
-                    LEFT JOIN Customers  c  ON c.CustomerID  = so.CustomerID
-                    WHERE   so.OrderDate >= @from AND so.OrderDate <= @to
-                    ORDER   BY so.OrderDate DESC, so.OrderNumber, soi.SalesOrderItemID",
-                    new { from, to }).AsList();
-
+                var rows = _repo.GetSalesOrderLineItemsForExport(from, to).ToList();
                 var sb = new StringBuilder();
                 sb.AppendLine("OrderNumber,Date,Status,Customer,SKU,Product,Qty,UnitPrice,LineTotal");
                 foreach (var r in rows)
@@ -445,23 +357,11 @@ namespace JaneERP
             using var filter = new FormExportDateFilter("Export Purchase Orders");
             if (filter.ShowDialog(this) != DialogResult.OK) return;
             var (from, to) = (filter.FromDate, filter.ToDate.AddDays(1).AddTicks(-1));
-
             var path = PickSavePath($"purchase_orders_{filter.FromDate:yyyyMMdd}_{filter.ToDate:yyyyMMdd}.csv");
             if (path == null) return;
             try
             {
-                using var db = OpenDb();
-                var rows = db.Query(@"
-                    SELECT  po.PONumber,
-                            s.SupplierName,
-                            po.Status,
-                            po.OrderDate,
-                            po.TotalCost
-                    FROM    PurchaseOrders po
-                    LEFT JOIN Suppliers s ON s.SupplierID = po.SupplierID
-                    WHERE   po.OrderDate >= @from AND po.OrderDate <= @to
-                    ORDER BY po.OrderDate DESC", new { from, to }).AsList();
-
+                var rows = _repo.GetPurchaseOrdersForExport(from, to).ToList();
                 var sb = new StringBuilder();
                 sb.AppendLine("PONumber,Supplier,Status,OrderDate,TotalCost");
                 foreach (var r in rows)
@@ -478,20 +378,7 @@ namespace JaneERP
             if (path == null) return;
             try
             {
-                using var db = OpenDb();
-                var rows = db.Query(@"
-                    SELECT  wo.WorkOrderID,
-                            mo.MONumber,
-                            p.ProductName,
-                            wo.Quantity,
-                            wo.Status,
-                            ISNULL(wo.CostOfGoods, 0) AS COGS,
-                            wo.CompletedAt
-                    FROM    WorkOrders wo
-                    LEFT JOIN ManufacturingOrders mo ON mo.MOID    = wo.MOID
-                    LEFT JOIN Products            p  ON p.ProductID = wo.ProductID
-                    ORDER BY wo.WorkOrderID DESC").AsList();
-
+                var rows = _repo.GetWorkOrdersForExport().ToList();
                 var sb = new StringBuilder();
                 sb.AppendLine("WorkOrderID,MONumber,Product,Quantity,Status,COGS,CompletedAt");
                 foreach (var r in rows)
@@ -509,23 +396,7 @@ namespace JaneERP
             if (path == null) return;
             try
             {
-                using var db = OpenDb();
-                var rows = db.Query(@"
-                    SELECT  wo.WorkOrderID,
-                            mo.MONumber,
-                            p.ProductName,
-                            wo.Quantity,
-                            ISNULL(wo.CostOfGoods, 0)                        AS TotalCOGS,
-                            CASE WHEN wo.Quantity > 0
-                                 THEN ISNULL(wo.CostOfGoods, 0) / wo.Quantity
-                                 ELSE 0 END                                   AS COGSPerUnit,
-                            wo.CompletedAt
-                    FROM    WorkOrders wo
-                    LEFT JOIN ManufacturingOrders mo ON mo.MOID    = wo.MOID
-                    LEFT JOIN Products            p  ON p.ProductID = wo.ProductID
-                    WHERE   wo.Status = 'Complete'
-                    ORDER BY wo.CompletedAt DESC").AsList();
-
+                var rows = _repo.GetCogsSummaryForExport().ToList();
                 var sb = new StringBuilder();
                 sb.AppendLine("WorkOrderID,MONumber,Product,Quantity,TotalCOGS,COGSPerUnit,CompletedAt");
                 foreach (var r in rows)
@@ -543,17 +414,7 @@ namespace JaneERP
             if (path == null) return;
             try
             {
-                using var db = OpenDb();
-                var rows = db.Query(@"
-                    SELECT  ISNULL(c.FullName, '') AS Name,
-                            ISNULL(c.Email,    '') AS Email,
-                            COUNT(so.SalesOrderID)        AS OrderCount,
-                            ISNULL(SUM(so.TotalPrice), 0) AS TotalSpent
-                    FROM    Customers c
-                    LEFT JOIN SalesOrders so ON so.CustomerID = c.CustomerID
-                    GROUP BY c.CustomerID, c.FullName, c.Email
-                    ORDER BY c.FullName").AsList();
-
+                var rows = _repo.GetCustomerListForExport().ToList();
                 var sb = new StringBuilder();
                 sb.AppendLine("Name,Email,OrderCount,TotalSpent");
                 foreach (var r in rows)

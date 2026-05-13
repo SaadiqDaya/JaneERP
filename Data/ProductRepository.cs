@@ -79,6 +79,7 @@ namespace JaneERP.Data
                 SELECT  p.ProductID,
                         p.SKU,
                         p.ProductName,
+                        p.UnitOfMeasure,
                         p.RetailPrice,
                         p.WholesalePrice,
                         p.ReorderPoint,
@@ -116,7 +117,8 @@ namespace JaneERP.Data
         {
             using IDbConnection db = new SqlConnection(_connectionString);
             return db.QueryFirstOrDefault<Product>(@"
-                SELECT  p.ProductID, p.SKU, p.ProductName, p.RetailPrice, p.WholesalePrice,
+                SELECT  p.ProductID, p.SKU, p.ProductName, p.UnitOfMeasure,
+                        p.RetailPrice, p.WholesalePrice,
                         p.ReorderPoint, ISNULL(p.OrderUpTo, 0) AS OrderUpTo,
                         p.IsActive, p.DefaultLocationID, p.ProductTypeID,
                         pt.TypeName    AS ProductTypeName,
@@ -173,7 +175,9 @@ namespace JaneERP.Data
                     IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('Products') AND name='BomSourceID')
                         ALTER TABLE Products ADD BomSourceID INT NULL REFERENCES Products(ProductID);
                     IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('Products') AND name='BomNumber')
-                        ALTER TABLE Products ADD BomNumber NVARCHAR(20) NULL;");
+                        ALTER TABLE Products ADD BomNumber NVARCHAR(20) NULL;
+                    IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('Products') AND name='UnitOfMeasure')
+                        ALTER TABLE Products ADD UnitOfMeasure NVARCHAR(20) NULL;");
             }
             catch (Exception ex) { Logging.AppLogger.Info($"MigrateProductColumns warning: {ex.Message}"); }
 
@@ -289,8 +293,8 @@ namespace JaneERP.Data
                     throw new InvalidOperationException($"A product with SKU '{product.SKU}' already exists. SKUs must be unique.");
 
                 int newId = db.QuerySingle<int>(@"
-                    INSERT INTO Products (SKU, ProductName, RetailPrice, WholesalePrice, IsActive, DefaultLocationID, ProductTypeID, ReorderPoint, OrderUpTo, DefaultVendorID)
-                    VALUES (@SKU, @ProductName, @RetailPrice, @WholesalePrice, @IsActive, @DefaultLocationID, @ProductTypeID, @ReorderPoint, @OrderUpTo, @DefaultVendorID);
+                    INSERT INTO Products (SKU, ProductName, RetailPrice, WholesalePrice, IsActive, DefaultLocationID, ProductTypeID, ReorderPoint, OrderUpTo, DefaultVendorID, UnitOfMeasure)
+                    VALUES (@SKU, @ProductName, @RetailPrice, @WholesalePrice, @IsActive, @DefaultLocationID, @ProductTypeID, @ReorderPoint, @OrderUpTo, @DefaultVendorID, @UnitOfMeasure);
                     SELECT CAST(SCOPE_IDENTITY() AS INT);", product, tx);
 
                 // Opening stock becomes the very first ledger transaction
@@ -447,7 +451,8 @@ namespace JaneERP.Data
                         ProductTypeID     = @ProductTypeID,
                         ReorderPoint      = @ReorderPoint,
                         OrderUpTo         = @OrderUpTo,
-                        DefaultVendorID   = @DefaultVendorID
+                        DefaultVendorID   = @DefaultVendorID,
+                        UnitOfMeasure     = @UnitOfMeasure
                     WHERE ProductID   = @ProductID
                       AND (@RowVersion IS NULL OR RowVersion = @RowVersion)",
                     new

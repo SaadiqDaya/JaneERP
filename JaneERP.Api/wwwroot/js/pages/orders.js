@@ -1,6 +1,8 @@
 // ── Orders list ───────────────────────────────────────────────────────────────
 const OrdersPage = (() => {
   let currentStatus = '';
+  let searchQ = '';
+  let searchTimer = null;
 
   async function render(container) {
     container.innerHTML = `
@@ -14,8 +16,14 @@ const OrdersPage = (() => {
           </div>
         </div>
         <div class="content">
+          <div class="search-bar">
+            <div class="search-icon">
+              <svg viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27A6.47 6.47 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
+            </div>
+            <input id="orders-search" type="search" placeholder="Search by customer or order #…" autocomplete="off" value="${searchQ}">
+          </div>
           <div class="filter-row" id="status-filters">
-            ${['', 'Draft', 'Live', 'WIP', 'Complete'].map(s => `
+            ${['', 'Draft', 'Live', 'WIP', 'Packed', 'Shipped', 'Complete'].map(s => `
               <button class="filter-chip${s === currentStatus ? ' active' : ''}" data-status="${s}">
                 ${s || 'All'}
               </button>`).join('')}
@@ -25,10 +33,15 @@ const OrdersPage = (() => {
       </div>`;
 
     document.getElementById('new-order-btn').addEventListener('click', () => App.navigate('orders/new'));
+    document.getElementById('orders-search').addEventListener('input', e => {
+      clearTimeout(searchTimer);
+      searchQ = e.target.value.trim();
+      searchTimer = setTimeout(loadOrders, 350);
+    });
     document.getElementById('status-filters').addEventListener('click', async e => {
       const chip = e.target.closest('.filter-chip');
       if (!chip) return;
-      document.querySelectorAll('.filter-chip').forEach(c => c.classList.remove('active'));
+      document.querySelectorAll('#status-filters .filter-chip').forEach(c => c.classList.remove('active'));
       chip.classList.add('active');
       currentStatus = chip.dataset.status;
       await loadOrders();
@@ -41,7 +54,10 @@ const OrdersPage = (() => {
     const listEl = document.getElementById('orders-list');
     listEl.innerHTML = App.skeletonCards(5);
     try {
-      const url = `/api/orders${currentStatus ? '?status=' + currentStatus : ''}`;
+      const params = new URLSearchParams();
+      if (currentStatus) params.set('status', currentStatus);
+      if (searchQ)        params.set('q', searchQ);
+      const url = `/api/orders${params.toString() ? '?' + params : ''}`;
       const data = await Api.get(url);
       const orders = data.items;
 
@@ -80,7 +96,7 @@ const OrdersPage = (() => {
 
 // ── Order detail ──────────────────────────────────────────────────────────────
 const OrderDetailPage = (() => {
-  const STATUSES = ['Draft', 'Live', 'WIP', 'Complete'];
+  const STATUSES = ['Draft', 'Live', 'WIP', 'Packed', 'Shipped', 'Complete'];
 
   async function render(container, orderId) {
     container.innerHTML = `
@@ -113,7 +129,8 @@ const OrderDetailPage = (() => {
     try {
       const o = await Api.get(`/api/orders/${orderId}`);
       const subtotal = o.items.reduce((s, i) => s + i.quantity * i.unitPrice, 0);
-      const canPick  = ['Live', 'WIP'].includes(o.status);
+      const canPick    = ['Live', 'WIP'].includes(o.status);
+      const isPacked   = o.status === 'Packed';
 
       contentEl.innerHTML = `
         <!-- Status & Customer -->
@@ -156,7 +173,7 @@ const OrderDetailPage = (() => {
           </div>
         </div>
 
-        <!-- Pick & Pack (shown for Live and WIP orders) -->
+        <!-- Pick (Live / WIP orders) -->
         ${canPick ? `
         <div class="card" id="pick-section">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
@@ -169,13 +186,23 @@ const OrderDetailPage = (() => {
               </button>` : ''}
           </div>
           <div id="pick-list-content" style="color:var(--text-2);font-size:13px;">Loading pick list…</div>
-          <button class="btn btn-success btn-full mt-12" id="complete-order-btn" disabled>
-            ✓ Mark as Complete
+          <button class="btn btn-primary btn-full mt-12" id="complete-order-btn" disabled>
+            ✓ Mark as Packed
           </button>
         </div>` : ''}
 
-        <!-- Status buttons (for non-pick statuses) -->
-        ${!canPick ? `
+        <!-- Pack → Ship (Packed orders) -->
+        ${isPacked ? `
+        <div class="card" style="background:var(--primary-lt);border-color:var(--primary);">
+          <div style="font-weight:700;font-size:14px;margin-bottom:6px;">Ready to Ship</div>
+          <div class="text-muted text-small" style="margin-bottom:12px;">
+            All items packed. Mark as shipped when dispatched.
+          </div>
+          <button class="btn btn-success btn-full" id="ship-order-btn">Mark as Shipped</button>
+        </div>` : ''}
+
+        <!-- Status buttons (Draft / Shipped / Complete and other non-pick statuses) -->
+        ${!canPick && !isPacked ? `
         <div class="card">
           <div style="font-weight:700;font-size:14px;margin-bottom:10px;">Update Status</div>
           <div style="display:flex;gap:8px;flex-wrap:wrap;" id="status-btns">
@@ -205,6 +232,20 @@ const OrderDetailPage = (() => {
             App.toast(err.message, 'error');
           }
         });
+      });
+
+      // Ship button (Packed → Shipped)
+      document.getElementById('ship-order-btn')?.addEventListener('click', async () => {
+        const btn = document.getElementById('ship-order-btn');
+        btn.disabled = true; btn.textContent = 'Saving…';
+        try {
+          await Api.patch(`/api/orders/${orderId}/status`, { status: 'Shipped' });
+          App.toast('Order shipped! Inventory updated.', 'success');
+          await loadDetail(orderId);
+        } catch (err) {
+          App.toast(err.message, 'error');
+          btn.disabled = false; btn.textContent = 'Mark as Shipped';
+        }
       });
 
       // Load pick list for Live / WIP orders
@@ -277,16 +318,16 @@ const OrderDetailPage = (() => {
       });
 
       complBtn?.addEventListener('click', async () => {
-        complBtn.disabled  = true;
-        complBtn.textContent = 'Completing…';
+        complBtn.disabled    = true;
+        complBtn.textContent = 'Saving…';
         try {
-          await Api.patch(`/api/orders/${orderId}/status`, { status: 'Complete' });
-          App.toast('Order completed! Inventory updated.', 'success');
+          await Api.patch(`/api/orders/${orderId}/status`, { status: 'Packed' });
+          App.toast('Order packed — ready to ship!', 'success');
           await loadDetail(orderId);
         } catch (err) {
           App.toast(err.message, 'error');
           complBtn.disabled    = false;
-          complBtn.textContent = '✓ Mark as Complete';
+          complBtn.textContent = '✓ Mark as Packed';
         }
       });
     } catch (err) {

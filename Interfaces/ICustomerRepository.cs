@@ -13,5 +13,11 @@ namespace JaneERP.Interfaces
 
         /// <summary>Line items for a given sales order with computed LineTotal.</summary>
         List<CustomerOrderItem> GetOrderLineItems(int salesOrderId);
+
+        // ── CRM Notes ────────────────────────────────────────────────────────
+        void EnsureNotesSchema();
+        List<CustomerNote> GetNotes(int customerId);
+        void AddNote(CustomerNote note);
+        void DeleteNote(int noteId);
     }
 }

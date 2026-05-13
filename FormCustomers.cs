@@ -6,16 +6,21 @@ namespace JaneERP
 {
     public class FormCustomers : Form
     {
-        private readonly ICustomerRepository _custRepo = AppServices.Get<ICustomerRepository>();
+        private readonly ICustomerRepository _custRepo   = AppServices.Get<ICustomerRepository>();
+        private readonly IReturnRepository   _returnRepo = AppServices.Get<IReturnRepository>();
 
         private DataGridView _dgvCustomers = new();
         private DataGridView _dgvOrders    = new();
+        private DataGridView _dgvNotes     = new();
         private TextBox      _txtSearch    = new();
         private Label        _lblName      = new();
         private Label        _lblEmail     = new();
         private Label        _lblStats     = new();
         private Label        _lblStatus    = new();
+        private Button       _btnAddNote   = new();
+        private Button       _btnDelNote   = new();
 
+        private int _selectedCustomerId = -1;
         private List<CustomerSummary> _allCustomers = [];
 
         public FormCustomers()
@@ -100,9 +105,10 @@ namespace JaneERP
                 AutoSize  = true
             });
 
+            // Orders grid — reduced height to make room for notes panel
             _dgvOrders.Location        = new Point(x, 166);
-            _dgvOrders.Size            = new Size(554, 422);
-            _dgvOrders.Anchor          = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
+            _dgvOrders.Size            = new Size(554, 240);
+            _dgvOrders.Anchor          = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
             _dgvOrders.ReadOnly        = true;
             _dgvOrders.AllowUserToAddRows    = false;
             _dgvOrders.AllowUserToDeleteRows = false;
@@ -119,6 +125,61 @@ namespace JaneERP
             _dgvOrders.Columns.Add(new DataGridViewTextBoxColumn { Name = "colPaid",   HeaderText = "Payment",    AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill, ReadOnly = true });
             _dgvOrders.CellDoubleClick += DgvOrders_CellDoubleClick;
             Controls.Add(_dgvOrders);
+
+            // "Create Return" button — appears below orders grid, only enabled when an order is selected
+            var btnReturn = new Button
+            {
+                Text     = "Create Return",
+                Location = new Point(x, 414),
+                Size     = new Size(120, 27),
+                Tag      = "btnReturn"
+            };
+            btnReturn.Click += BtnReturn_Click;
+            Theme.StyleButton(btnReturn);
+            Controls.Add(btnReturn);
+
+            // ── Notes panel ─────────────────────────────────────────────────
+            Controls.Add(new Label
+            {
+                Text      = "CRM Notes:",
+                Font      = new Font("Segoe UI", 9F, FontStyle.Bold),
+                ForeColor = Theme.TextSecondary,
+                Location  = new Point(x, 450),
+                AutoSize  = true
+            });
+
+            _btnAddNote.Text     = "+ Add Note";
+            _btnAddNote.Location = new Point(x + 80, 446);
+            _btnAddNote.Size     = new Size(90, 23);
+            _btnAddNote.Click   += BtnAddNote_Click;
+            _btnAddNote.Enabled  = false;
+            Theme.StyleButton(_btnAddNote);
+            Controls.Add(_btnAddNote);
+
+            _btnDelNote.Text     = "Delete";
+            _btnDelNote.Location = new Point(x + 178, 446);
+            _btnDelNote.Size     = new Size(70, 23);
+            _btnDelNote.Click   += BtnDelNote_Click;
+            _btnDelNote.Enabled  = false;
+            Theme.StyleButton(_btnDelNote);
+            Controls.Add(_btnDelNote);
+
+            _dgvNotes.Location        = new Point(x, 474);
+            _dgvNotes.Size            = new Size(554, 112);
+            _dgvNotes.Anchor          = AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
+            _dgvNotes.ReadOnly        = true;
+            _dgvNotes.AllowUserToAddRows    = false;
+            _dgvNotes.AllowUserToDeleteRows = false;
+            _dgvNotes.AutoGenerateColumns   = false;
+            _dgvNotes.RowHeadersVisible     = false;
+            _dgvNotes.SelectionMode         = DataGridViewSelectionMode.FullRowSelect;
+            _dgvNotes.Columns.Add(new DataGridViewTextBoxColumn { Name = "colNoteType", HeaderText = "Type",    Width = 70,  ReadOnly = true });
+            _dgvNotes.Columns.Add(new DataGridViewTextBoxColumn { Name = "colNoteText", HeaderText = "Note",    AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill, ReadOnly = true });
+            _dgvNotes.Columns.Add(new DataGridViewTextBoxColumn { Name = "colNoteBy",   HeaderText = "By",      Width = 80,  ReadOnly = true });
+            _dgvNotes.Columns.Add(new DataGridViewTextBoxColumn { Name = "colNoteDate", HeaderText = "Date",    Width = 95,  ReadOnly = true });
+            _dgvNotes.SelectionChanged += (_, _) => _btnDelNote.Enabled = _dgvNotes.SelectedRows.Count > 0;
+            Theme.StyleGrid(_dgvNotes);
+            Controls.Add(_dgvNotes);
 
             _lblStatus.Anchor   = AnchorStyles.Bottom | AnchorStyles.Left;
             _lblStatus.Location = new Point(12, ClientSize.Height - 24);
@@ -176,9 +237,13 @@ namespace JaneERP
             var row = _dgvCustomers.SelectedRows[0];
             if (row.Tag is not int customerId) return;
 
+            _selectedCustomerId = customerId;
+            _btnAddNote.Enabled = true;
+
             _lblName.Text  = row.Cells["colName"].Value?.ToString() ?? "(No Name)";
             _lblEmail.Text = row.Cells["colEmail"].Value?.ToString() ?? "";
 
+            LoadNotes(customerId);
             _dgvOrders.Rows.Clear();
             try
             {
@@ -227,6 +292,103 @@ namespace JaneERP
             if (row.Tag is not int salesOrderId) return;
             string orderNum = row.Cells["colON"].Value?.ToString() ?? $"#{salesOrderId}";
             ShowOrderDetail(salesOrderId, orderNum);
+        }
+
+        private void LoadNotes(int customerId)
+        {
+            _dgvNotes.Rows.Clear();
+            try
+            {
+                var notes = _custRepo.GetNotes(customerId);
+                foreach (var n in notes)
+                {
+                    int idx = _dgvNotes.Rows.Add();
+                    var r   = _dgvNotes.Rows[idx];
+                    r.Cells["colNoteType"].Value = n.NoteType;
+                    r.Cells["colNoteText"].Value = n.NoteText;
+                    r.Cells["colNoteBy"].Value   = n.CreatedBy;
+                    r.Cells["colNoteDate"].Value = n.CreatedAt.ToString("yyyy-MM-dd");
+                    r.Tag = n.NoteID;
+                }
+            }
+            catch { /* non-fatal */ }
+        }
+
+        private void BtnAddNote_Click(object? sender, EventArgs e)
+        {
+            if (_selectedCustomerId < 0) return;
+
+            using var dlg = new Form
+            {
+                Text          = "Add Note",
+                ClientSize    = new Size(440, 220),
+                StartPosition = FormStartPosition.CenterParent,
+                Font          = this.Font
+            };
+            Theme.Apply(dlg);
+            Theme.MakeBorderless(dlg);
+            Theme.AddCloseButton(dlg);
+
+            var lblType = new Label { Text = "Type:", Location = new Point(12, 12), AutoSize = true };
+            var cboType = new ComboBox
+            {
+                Location      = new Point(12, 32),
+                Size          = new Size(130, 23),
+                DropDownStyle = ComboBoxStyle.DropDownList
+            };
+            cboType.Items.AddRange(new object[] { "Note", "Call", "Email", "Visit" });
+            cboType.SelectedIndex = 0;
+
+            var lblText = new Label { Text = "Note:", Location = new Point(12, 64), AutoSize = true };
+            var txtText = new TextBox
+            {
+                Location  = new Point(12, 84),
+                Size      = new Size(416, 80),
+                Multiline = true
+            };
+
+            var btnSave = new Button { Text = "Save", Location = new Point(12, 174), Size = new Size(80, 28) };
+            btnSave.Click += (_, _) =>
+            {
+                if (string.IsNullOrWhiteSpace(txtText.Text)) return;
+                _custRepo.AddNote(new CustomerNote
+                {
+                    CustomerID = _selectedCustomerId,
+                    NoteType   = cboType.SelectedItem?.ToString() ?? "Note",
+                    NoteText   = txtText.Text.Trim()
+                });
+                dlg.DialogResult = DialogResult.OK;
+                dlg.Close();
+            };
+            Theme.StyleButton(btnSave);
+
+            dlg.Controls.AddRange(new Control[] { lblType, cboType, lblText, txtText, btnSave });
+            if (dlg.ShowDialog(this) == DialogResult.OK)
+                LoadNotes(_selectedCustomerId);
+        }
+
+        private void BtnDelNote_Click(object? sender, EventArgs e)
+        {
+            if (_dgvNotes.SelectedRows.Count == 0) return;
+            if (_dgvNotes.SelectedRows[0].Tag is not int noteId) return;
+
+            var confirm = MessageBox.Show(this, "Delete this note?", "Confirm",
+                MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
+            if (confirm != DialogResult.Yes) return;
+
+            _custRepo.DeleteNote(noteId);
+            LoadNotes(_selectedCustomerId);
+        }
+
+        private void BtnReturn_Click(object? sender, EventArgs e)
+        {
+            if (_dgvOrders.SelectedRows.Count == 0) return;
+            var row = _dgvOrders.SelectedRows[0];
+            if (row.Tag is not int salesOrderId) return;
+            string orderNum = row.Cells["colON"].Value?.ToString() ?? $"#{salesOrderId}";
+
+            using var frm = new FormCreateReturn(salesOrderId, orderNum);
+            frm.ShowDialog(this);
         }
 
         private void ShowOrderDetail(int salesOrderId, string orderNumber)

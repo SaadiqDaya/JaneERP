@@ -14,17 +14,18 @@ public class ApiOrderRepository
     private IDbConnection Connect() => new SqlConnection(_ctx.ConnectionString);
 
     public (List<OrderListItem> Items, int Total) GetOrders(
-        string? status, DateTime? from, DateTime? to, int page, int pageSize = 40)
+        string? status, string? q, DateTime? from, DateTime? to, int page, int pageSize = 40)
     {
         using var db = Connect();
         var conditions = new List<string>();
         if (!string.IsNullOrEmpty(status)) conditions.Add("so.Status = @status");
+        if (!string.IsNullOrEmpty(q))      conditions.Add("(c.FullName LIKE @q OR CAST(so.OrderNumber AS NVARCHAR) LIKE @q)");
         if (from.HasValue)                 conditions.Add("so.OrderDate >= @from");
         if (to.HasValue)                   conditions.Add("so.OrderDate <= @to");
 
         var where = conditions.Count > 0 ? "WHERE " + string.Join(" AND ", conditions) : "";
         var offset = (page - 1) * pageSize;
-        var param  = new { status, from, to, offset, pageSize };
+        var param  = new { status, q = string.IsNullOrEmpty(q) ? null : $"%{q}%", from, to, offset, pageSize };
 
         var total = db.ExecuteScalar<int>($@"
             SELECT COUNT(*) FROM SalesOrders so
@@ -170,8 +171,8 @@ public class ApiOrderRepository
             db.Execute("UPDATE SalesOrders SET Status = @s WHERE SalesOrderID = @id",
                 new { s = newStatus, id = salesOrderId }, tx);
 
-            // Deduct inventory when completing (mirrors desktop app behaviour)
-            if (newStatus == "Complete" && !wasAffected)
+            // Deduct inventory when completing or shipping (mirrors desktop app behaviour)
+            if ((newStatus == "Complete" || newStatus == "Shipped") && !wasAffected)
             {
                 var items = db.Query<(int ProductID, string SKU, int Quantity)>(@"
                     SELECT ProductID, SKU, Quantity FROM SalesOrderItems WHERE SalesOrderID = @id",
@@ -200,8 +201,8 @@ public class ApiOrderRepository
                 catch { /* InventoryAffected column may not exist on older DBs */ }
             }
 
-            // Release stock reservations when completing or reverting to Draft
-            if (newStatus == "Complete" ||
+            // Release stock reservations when completing/shipping or reverting to Draft
+            if (newStatus == "Complete" || newStatus == "Shipped" ||
                 (newStatus == "Draft" && (currentStatus == "Live" || currentStatus == "WIP")))
             {
                 try

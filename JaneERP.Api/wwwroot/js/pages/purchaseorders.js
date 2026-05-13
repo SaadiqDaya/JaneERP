@@ -1,6 +1,8 @@
 // ── PO List ───────────────────────────────────────────────────────────────────
 const PurchaseOrdersPage = (() => {
   let currentFilter = 'active';
+  let searchQ = '';
+  let searchTimer = null;
 
   async function render(container) {
     container.innerHTML = `
@@ -9,6 +11,12 @@ const PurchaseOrdersPage = (() => {
           <h1>Purchase Orders</h1>
         </div>
         <div class="content">
+          <div class="search-bar">
+            <div class="search-icon">
+              <svg viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27A6.47 6.47 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
+            </div>
+            <input id="po-search" type="search" placeholder="Search supplier or PO #…" autocomplete="off" value="${searchQ}">
+          </div>
           <div class="filter-row" id="po-filters">
             ${[['active','Active'],['pending','To Receive'],['','All']].map(([v,l]) => `
               <button class="filter-chip${v === currentFilter ? ' active' : ''}" data-filter="${v}">${l}</button>`).join('')}
@@ -17,6 +25,11 @@ const PurchaseOrdersPage = (() => {
         </div>
       </div>`;
 
+    document.getElementById('po-search').addEventListener('input', e => {
+      clearTimeout(searchTimer);
+      searchQ = e.target.value.trim();
+      searchTimer = setTimeout(loadPOs, 350);
+    });
     document.getElementById('po-filters').addEventListener('click', async e => {
       const chip = e.target.closest('.filter-chip');
       if (!chip) return;
@@ -33,7 +46,10 @@ const PurchaseOrdersPage = (() => {
     const listEl = document.getElementById('po-list');
     listEl.innerHTML = App.skeletonCards(4);
     try {
-      const url = `/api/purchase-orders${currentFilter ? '?status=' + currentFilter : ''}`;
+      const params = new URLSearchParams();
+      if (currentFilter) params.set('status', currentFilter);
+      if (searchQ)        params.set('q', searchQ);
+      const url = `/api/purchase-orders${params.toString() ? '?' + params : ''}`;
       const pos = await Api.get(url);
 
       if (pos.length === 0) {

@@ -33,6 +33,8 @@ namespace JaneERP
             nudOrderUpTo        = new NumericUpDown();
             lblVendor           = new Label();
             cboVendor           = new ComboBox();
+            lblUom              = new Label();
+            cboUom              = new ComboBox();
             lblAttributes       = new Label();
             dgvAttributes       = new DataGridView();
             colProperty         = new DataGridViewComboBoxColumn();
@@ -181,10 +183,23 @@ namespace JaneERP
             cboVendor.Size          = new Size(260, 23);
             cboVendor.TabIndex      = 9;
 
+            // lblUom
+            lblUom.AutoSize = true;
+            lblUom.Location = new Point(20, 369);
+            lblUom.Name     = "lblUom";
+            lblUom.Text     = "Unit of Measure:";
+
+            // cboUom
+            cboUom.DropDownStyle = ComboBoxStyle.DropDown;
+            cboUom.Location      = new Point(150, 366);
+            cboUom.Name          = "cboUom";
+            cboUom.Size          = new Size(180, 23);
+            cboUom.TabIndex      = 10;
+
             // lblAttributes
             lblAttributes.AutoSize = true;
             lblAttributes.Font     = new Font("Segoe UI", 9F, FontStyle.Bold);
-            lblAttributes.Location = new Point(20, 369);
+            lblAttributes.Location = new Point(20, 404);
             lblAttributes.Name     = "lblAttributes";
             lblAttributes.Text     = "Custom Attributes:";
 
@@ -205,14 +220,14 @@ namespace JaneERP
             dgvAttributes.AllowUserToDeleteRows = true;
             dgvAttributes.ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.AutoSize;
             dgvAttributes.Columns.AddRange(new DataGridViewColumn[] { colProperty, colValue });
-            dgvAttributes.Location          = new Point(20, 389);
+            dgvAttributes.Location          = new Point(20, 424);
             dgvAttributes.Name              = "dgvAttributes";
             dgvAttributes.RowTemplate.Height = 23;
             dgvAttributes.Size              = new Size(410, 148);
-            dgvAttributes.TabIndex          = 10;
+            dgvAttributes.TabIndex          = 11;
 
             // pnlPackage — shown only when product type is Package
-            pnlPackage.Location  = new Point(20, 547);
+            pnlPackage.Location  = new Point(20, 582);
             pnlPackage.Name      = "pnlPackage";
             pnlPackage.Size      = new Size(410, 180);
             pnlPackage.TabIndex  = 14;
@@ -272,29 +287,29 @@ namespace JaneERP
             pnlPackage.Controls.Add(lblPackageNote);
 
             // btnManageBOM — only shown in edit mode
-            btnManageBOM.Location            = new Point(20, 555);
+            btnManageBOM.Location            = new Point(20, 590);
             btnManageBOM.Name                = "btnManageBOM";
             btnManageBOM.Size                = new Size(160, 30);
-            btnManageBOM.TabIndex            = 11;
+            btnManageBOM.TabIndex            = 12;
             btnManageBOM.Text                = "Manage BOM / Parts";
             btnManageBOM.UseVisualStyleBackColor = true;
             btnManageBOM.Visible             = false;
             btnManageBOM.Click              += btnManageBOM_Click;
 
             // btnSave
-            btnSave.Location            = new Point(200, 555);
+            btnSave.Location            = new Point(200, 590);
             btnSave.Name                = "btnSave";
             btnSave.Size                = new Size(110, 30);
-            btnSave.TabIndex            = 12;
+            btnSave.TabIndex            = 13;
             btnSave.Text                = "Save Product";
             btnSave.UseVisualStyleBackColor = true;
             btnSave.Click              += btnSave_Click;
 
             // btnCancel
-            btnCancel.Location          = new Point(320, 555);
+            btnCancel.Location          = new Point(320, 590);
             btnCancel.Name              = "btnCancel";
             btnCancel.Size              = new Size(110, 30);
-            btnCancel.TabIndex          = 13;
+            btnCancel.TabIndex          = 14;
             btnCancel.Text              = "Cancel";
             btnCancel.UseVisualStyleBackColor = true;
             btnCancel.Click            += btnCancel_Click;
@@ -302,7 +317,7 @@ namespace JaneERP
             // FormAddProduct
             AutoScaleDimensions = new SizeF(7F, 15F);
             AutoScaleMode       = AutoScaleMode.Font;
-            ClientSize          = new Size(450, 605);
+            ClientSize          = new Size(450, 640);
             Controls.Add(lblSKU);
             Controls.Add(txtSKU);
             Controls.Add(lblProductName);
@@ -323,6 +338,8 @@ namespace JaneERP
             Controls.Add(nudOrderUpTo);
             Controls.Add(lblVendor);
             Controls.Add(cboVendor);
+            Controls.Add(lblUom);
+            Controls.Add(cboUom);
             Controls.Add(lblAttributes);
             Controls.Add(dgvAttributes);
             Controls.Add(pnlPackage);
@@ -363,6 +380,8 @@ namespace JaneERP
         private NumericUpDown    nudOrderUpTo;
         private Label      lblVendor;
         private ComboBox   cboVendor;
+        private Label      lblUom;
+        private ComboBox   cboUom;
         private Label      lblAttributes;
         private DataGridView dgvAttributes;
         private DataGridViewComboBoxColumn colProperty;

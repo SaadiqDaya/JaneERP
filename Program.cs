@@ -65,6 +65,9 @@ namespace JaneERP
             SchemaStep("DiscountTiers",  () => { var r = new DiscountTierRepository(); r.EnsureSchema(); r.MigrateCustomerTier(); r.MigrateOrderDiscount(); });
             SchemaStep("PONotifiedAt",   () => new SupplierRepository().MigrateOverdueNotifiedColumn());
             SchemaStep("POShipping",     () => new SupplierRepository().MigrateShippingCost());
+            SchemaStep("CustomerNotes", () => new CustomerRepository().EnsureNotesSchema());
+            SchemaStep("ReturnOrders",  () => new ReturnRepository().EnsureSchema());
+            SchemaStep("Backorders",    () => new BackorderRepository().EnsureSchema());
 
             // ── Migration version table (must run before any RunOnce migrations) ──
             SchemaStep("MigrationTable", () => DataMigrations.EnsureMigrationTable());
@@ -80,6 +83,7 @@ namespace JaneERP
             SchemaStep("EnableRCSI",          () => DataMigrations.EnableReadCommittedSnapshot());
             SchemaStep("PerformanceIndexes",  () => DataMigrations.AddPerformanceIndexes());
             SchemaStep("RowVersion",          () => DataMigrations.AddRowVersionToProducts());
+            SchemaStep("ReturnSupport",       () => DataMigrations.AddReturnSupport());
 
             // ── Auto-backup (runs after schema is ready, before login) ─────────────
             if (BackupService.IsBackupDue())

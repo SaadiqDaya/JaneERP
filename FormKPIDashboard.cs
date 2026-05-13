@@ -1,7 +1,5 @@
-using System.Configuration;
-using System.Data;
-using Dapper;
-using Microsoft.Data.SqlClient;
+using JaneERP.Infrastructure;
+using JaneERP.Interfaces;
 
 namespace JaneERP
 {
@@ -10,9 +8,7 @@ namespace JaneERP
     /// </summary>
     public class FormKPIDashboard : Form
     {
-        private readonly string _cs =
-            ConfigurationManager.ConnectionStrings["MyERP"]?.ConnectionString
-            ?? throw new InvalidOperationException("Connection string 'MyERP' not found in App.config.");
+        private readonly IKPIRepository _repo = AppServices.Get<IKPIRepository>();
 
         // Tile labels (large number + description)
         private Label lblOrdersTodayVal     = new();
@@ -197,90 +193,25 @@ namespace JaneERP
             btnRefresh.Enabled = false;
             try
             {
-                using IDbConnection db = new SqlConnection(_cs);
+                var kpi = _repo.GetKPIs();
 
-                // 1. Orders Today
-                int ordersToday = SafeQueryScalar<int>(db,
-                    "SELECT COUNT(*) FROM SalesOrders WHERE CAST(OrderDate AS DATE) = CAST(GETDATE() AS DATE)");
-                lblOrdersTodayVal.Text = ordersToday.ToString("N0");
+                lblOrdersTodayVal.Text     = kpi.OrdersToday.ToString("N0");
+                lblRevenueTodayVal.Text    = kpi.RevenueToday.ToString("C");
+                lblPendingOrdersVal.Text   = kpi.PendingOrders.ToString("N0");
+                lblProductsInStockVal.Text = kpi.InStock.ToString("N0");
 
-                // 2. Revenue Today
-                decimal revenueToday = SafeQueryScalar<decimal>(db,
-                    "SELECT ISNULL(SUM(TotalPrice),0) FROM SalesOrders WHERE CAST(OrderDate AS DATE) = CAST(GETDATE() AS DATE)");
-                lblRevenueTodayVal.Text = revenueToday.ToString("C");
+                lblOutOfStockVal.Text   = kpi.OutOfStock.ToString("N0");
+                pnlOutOfStock.BackColor = kpi.OutOfStock > 0 ? TileRed : TileGreen;
 
-                // 3. Pending Orders (Draft or Live)
-                int pending = SafeQueryScalar<int>(db,
-                    "SELECT COUNT(*) FROM SalesOrders WHERE Status IN ('Draft','Live')");
-                lblPendingOrdersVal.Text = pending.ToString("N0");
+                lblLowStockVal.Text   = kpi.LowStock.ToString("N0");
+                pnlLowStock.BackColor = kpi.LowStock > 0 ? TileAmber : TileGreen;
 
-                // 4. Products In Stock (ledger subquery)
-                int inStock = SafeQueryScalar<int>(db, @"
-                    SELECT COUNT(*)
-                    FROM   Products p
-                    WHERE  p.IsActive = 1
-                      AND  ISNULL((
-                               SELECT SUM(t.QuantityChange)
-                               FROM   InventoryTransactions t
-                               WHERE  t.ProductID = p.ProductID
-                           ), 0) > 0");
-                lblProductsInStockVal.Text = inStock.ToString("N0");
+                lblOpenWorkOrdersVal.Text  = kpi.OpenWorkOrders.ToString("N0");
 
-                // 5. Out of Stock
-                int outOfStock = SafeQueryScalar<int>(db, @"
-                    SELECT COUNT(*)
-                    FROM   Products p
-                    WHERE  p.IsActive = 1
-                      AND  ISNULL((
-                               SELECT SUM(t.QuantityChange)
-                               FROM   InventoryTransactions t
-                               WHERE  t.ProductID = p.ProductID
-                           ), 0) <= 0");
-                lblOutOfStockVal.Text    = outOfStock.ToString("N0");
-                pnlOutOfStock.BackColor  = outOfStock > 0 ? TileRed : TileGreen;
+                lblTasksOverdueVal.Text    = kpi.TasksOverdue.ToString("N0");
+                pnlTaskOverdue.BackColor   = kpi.TasksOverdue > 0 ? TileRed : TilePurple;
 
-                // 6. Low Stock
-                int lowStock = SafeQueryScalar<int>(db, @"
-                    SELECT COUNT(*)
-                    FROM   Products p
-                    WHERE  p.IsActive = 1
-                      AND  p.ReorderPoint > 0
-                      AND  ISNULL((
-                               SELECT SUM(t.QuantityChange)
-                               FROM   InventoryTransactions t
-                               WHERE  t.ProductID = p.ProductID
-                           ), 0) > 0
-                      AND  ISNULL((
-                               SELECT SUM(t.QuantityChange)
-                               FROM   InventoryTransactions t
-                               WHERE  t.ProductID = p.ProductID
-                           ), 0) <= p.ReorderPoint");
-                lblLowStockVal.Text    = lowStock.ToString("N0");
-                pnlLowStock.BackColor  = lowStock > 0 ? TileAmber : TileGreen;
-
-                // 7. Open Work Orders
-                int openWOs = SafeQueryScalar<int>(db,
-                    "SELECT COUNT(*) FROM WorkOrders WHERE Status <> 'Complete'");
-                lblOpenWorkOrdersVal.Text = openWOs.ToString("N0");
-
-                // 8. Tasks Overdue
-                int overdue = SafeQueryScalar<int>(db,
-                    "SELECT COUNT(*) FROM Tasks WHERE Status <> 'Done' AND DueDate < GETDATE()");
-                lblTasksOverdueVal.Text    = overdue.ToString("N0");
-                pnlTaskOverdue.BackColor   = overdue > 0 ? TileRed : TilePurple;
-
-                // 9. Inventory Value  SUM(CurrentStock * WholesalePrice)
-                decimal invValue = SafeQueryScalar<decimal>(db, @"
-                    SELECT ISNULL(SUM(
-                               ISNULL((
-                                   SELECT SUM(t.QuantityChange)
-                                   FROM   InventoryTransactions t
-                                   WHERE  t.ProductID = p.ProductID
-                               ), 0) * p.WholesalePrice
-                           ), 0)
-                    FROM   Products p
-                    WHERE  p.IsActive = 1");
-                lblInventoryValueVal.Text = invValue.ToString("C");
+                lblInventoryValueVal.Text = kpi.InventoryValue.ToString("C");
 
                 lblStatus.Text = $"Last refreshed: {DateTime.Now:HH:mm:ss}";
             }
@@ -292,13 +223,6 @@ namespace JaneERP
             {
                 btnRefresh.Enabled = true;
             }
-        }
-
-        /// <summary>Execute a scalar query, returning default(T) on any error (e.g. table doesn't exist yet).</summary>
-        private static T SafeQueryScalar<T>(IDbConnection db, string sql)
-        {
-            try { return db.ExecuteScalar<T>(sql) ?? default!; }
-            catch { return default!; }
         }
     }
 }

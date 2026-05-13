@@ -1,9 +1,15 @@
+using JaneERP.Infrastructure;
+using JaneERP.Interfaces;
+using JaneERP.Models;
+
 namespace JaneERP
 {
     /// <summary>Admin-accessible settings form for customising the logo, phone numbers, and currencies.</summary>
     public class FormSettings : Form
     {
-        private readonly AppSettings _settings;
+        private readonly AppSettings    _settings;
+        private readonly IUomRepository _uomRepo = AppServices.Get<IUomRepository>();
+        private DataGridView            _dgvUom  = new();
         private TextBox    _txtBackupFolder    = new();
         private ComboBox   _cboBackupSchedule  = new();
         private Label      _lblLastBackup      = new();
@@ -58,6 +64,7 @@ namespace JaneERP
             LoadCurrencies();
             LoadOrderTypes();
             LoadShippingMethods();
+            LoadUoms();
         }
 
         private void BuildUI()
@@ -529,7 +536,69 @@ namespace JaneERP
             tabSystem.Controls.Add(grpExports);
 
             // ──────────────────────────────────────────────────────────────────────
-            // TAB 7: Backup
+            // TAB 7: Units of Measure
+            // ──────────────────────────────────────────────────────────────────────
+            var tabUom = new TabPage("Units of Measure") { Padding = new Padding(12) };
+            tabs.TabPages.Add(tabUom);
+            y = 12;
+
+            tabUom.Controls.Add(new Label
+            {
+                Text      = "Units of Measure",
+                Font      = new Font("Segoe UI", 11F, FontStyle.Bold),
+                ForeColor = Theme.Gold,
+                Location  = new Point(12, y),
+                AutoSize  = true
+            });
+            y += 28;
+
+            tabUom.Controls.Add(new Label
+            {
+                Text      = "ConversionFactor = how many base units equal 1 of this unit  (e.g. kg → g: factor = 1000)",
+                ForeColor = Theme.TextSecondary,
+                Location  = new Point(12, y),
+                AutoSize  = true
+            });
+            y += 22;
+
+            _dgvUom.AutoGenerateColumns = false;
+            _dgvUom.Columns.Add(new DataGridViewTextBoxColumn    { Name = "colUomID",     Visible = false });
+            _dgvUom.Columns.Add(new DataGridViewTextBoxColumn    { Name = "colName",       HeaderText = "Name",              Width = 110 });
+            _dgvUom.Columns.Add(new DataGridViewTextBoxColumn    { Name = "colAbbr",       HeaderText = "Abbreviation",      Width = 90  });
+            _dgvUom.Columns.Add(new DataGridViewTextBoxColumn    { Name = "colBase",       HeaderText = "Base Unit",         Width = 80  });
+            _dgvUom.Columns.Add(new DataGridViewTextBoxColumn    { Name = "colFactor",     HeaderText = "Conversion Factor", Width = 110 });
+            _dgvUom.Columns.Add(new DataGridViewTextBoxColumn    { Name = "colOrder",      HeaderText = "Display Order",     Width = 90  });
+            _dgvUom.Columns.Add(new DataGridViewCheckBoxColumn   { Name = "colUomActive",  HeaderText = "Active",            Width = 58  });
+            _dgvUom.AllowUserToAddRows    = false;
+            _dgvUom.AllowUserToDeleteRows = false;
+            _dgvUom.SelectionMode         = DataGridViewSelectionMode.FullRowSelect;
+            _dgvUom.Location              = new Point(12, y);
+            _dgvUom.Size                  = new Size(548, 280);
+            _dgvUom.Anchor                = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
+            tabUom.Controls.Add(_dgvUom);
+            y += 290;
+
+            var btnAddUomRow = new Button { Text = "+ Add Row",       Size = new Size(90, 28), Location = new Point(12, y) };
+            var btnDelUomRow = new Button { Text = "Delete Selected", Size = new Size(120, 28), Location = new Point(110, y) };
+            var btnSaveUoms  = new Button { Text = "Save Changes",    Size = new Size(120, 28), Location = new Point(440, y) };
+            btnAddUomRow.Click += (_, _) =>
+            {
+                int nextOrder = _dgvUom.Rows.Count * 10;
+                int idx = _dgvUom.Rows.Add(0, "New Unit", "unit", "unit", "1", nextOrder.ToString(), true);
+                _dgvUom.ClearSelection();
+                _dgvUom.Rows[idx].Selected = true;
+                _dgvUom.CurrentCell = _dgvUom.Rows[idx].Cells["colName"];
+                _dgvUom.BeginEdit(true);
+            };
+            btnDelUomRow.Click += BtnDelUomRow_Click;
+            btnSaveUoms.Click  += BtnSaveUoms_Click;
+            Theme.StyleButton(btnSaveUoms);
+            tabUom.Controls.Add(btnAddUomRow);
+            tabUom.Controls.Add(btnDelUomRow);
+            tabUom.Controls.Add(btnSaveUoms);
+
+            // ──────────────────────────────────────────────────────────────────────
+            // TAB 8: Backup
             // ──────────────────────────────────────────────────────────────────────
             var tabBackup = new TabPage("Backup") { Padding = new Padding(12) };
             tabs.TabPages.Add(tabBackup);
@@ -815,6 +884,101 @@ namespace JaneERP
             if (lstShippingMethods.SelectedItem is not string selected) return;
             _settings.ShippingMethods.Remove(selected);
             LoadShippingMethods();
+        }
+
+        // ── UOM helpers ───────────────────────────────────────────────────────────
+
+        private void LoadUoms()
+        {
+            _dgvUom.Rows.Clear();
+            try
+            {
+                var uoms = _uomRepo.GetAll(includeInactive: true);
+                foreach (var u in uoms)
+                {
+                    int idx = _dgvUom.Rows.Add(
+                        u.UOMID, u.Name, u.Abbreviation, u.BaseUnit ?? "",
+                        u.ConversionFactor.ToString("G"), u.DisplayOrder, u.IsActive);
+                }
+            }
+            catch (Exception ex)
+            {
+                // Non-fatal on first boot — table may not exist yet
+                System.Diagnostics.Debug.WriteLine($"[FormSettings.LoadUoms] {ex.Message}");
+            }
+        }
+
+        private void BtnDelUomRow_Click(object? sender, EventArgs e)
+        {
+            if (_dgvUom.SelectedRows.Count == 0) return;
+            var row = _dgvUom.SelectedRows[0];
+            if (!int.TryParse(row.Cells["colUomID"].Value?.ToString(), out int id) || id <= 0)
+            {
+                // Unsaved new row — just remove from grid
+                _dgvUom.Rows.Remove(row);
+                return;
+            }
+            if (MessageBox.Show(this, $"Delete '{row.Cells["colName"].Value}'?", "Confirm Delete",
+                    MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
+            try
+            {
+                _uomRepo.Delete(id);
+                _dgvUom.Rows.Remove(row);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, "Delete failed: " + ex.Message, "Error",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        private void BtnSaveUoms_Click(object? sender, EventArgs e)
+        {
+            int saved = 0, errors = 0;
+            foreach (DataGridViewRow row in _dgvUom.Rows)
+            {
+                if (row.IsNewRow) continue;
+                var name  = row.Cells["colName"].Value?.ToString()?.Trim() ?? "";
+                var abbr  = row.Cells["colAbbr"].Value?.ToString()?.Trim() ?? "";
+                if (string.IsNullOrWhiteSpace(name) || string.IsNullOrWhiteSpace(abbr)) { errors++; continue; }
+
+                int.TryParse(row.Cells["colUomID"].Value?.ToString(), out int id);
+                decimal.TryParse(row.Cells["colFactor"].Value?.ToString(),
+                    System.Globalization.NumberStyles.Any,
+                    System.Globalization.CultureInfo.InvariantCulture, out decimal factor);
+                if (factor <= 0) factor = 1;
+                int.TryParse(row.Cells["colOrder"].Value?.ToString(), out int order);
+                bool active = row.Cells["colUomActive"].Value is true;
+                string? baseUnit = row.Cells["colBase"].Value?.ToString()?.Trim();
+                if (string.IsNullOrWhiteSpace(baseUnit)) baseUnit = abbr;
+
+                var uom = new UnitOfMeasure
+                {
+                    UOMID            = id,
+                    Name             = name,
+                    Abbreviation     = abbr,
+                    BaseUnit         = baseUnit,
+                    ConversionFactor = factor,
+                    DisplayOrder     = order,
+                    IsActive         = active
+                };
+                try
+                {
+                    if (id == 0) _uomRepo.Add(uom);
+                    else         _uomRepo.Update(uom);
+                    saved++;
+                }
+                catch { errors++; }
+            }
+
+            if (errors > 0)
+                MessageBox.Show(this, $"{saved} saved, {errors} skipped (missing name/abbreviation or DB error).", "UOM Save",
+                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            else
+                MessageBox.Show(this, $"{saved} unit(s) of measure saved.", "UOM Save",
+                    MessageBoxButtons.OK, MessageBoxIcon.Information);
+
+            LoadUoms();
         }
 
         private void BtnSave_Click(object? sender, EventArgs e)

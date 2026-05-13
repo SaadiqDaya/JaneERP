@@ -163,14 +163,32 @@ const WorkOrderDetailPage = (() => {
           </div>` : ''}
         </div>
 
-        <div class="card" style="background:var(--primary-lt);border-color:var(--primary);">
-          <div style="font-size:13px;color:var(--primary-dk);">
-            <svg viewBox="0 0 24 24" style="width:16px;height:16px;fill:currentColor;vertical-align:middle;margin-right:4px;"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg>
-            Work orders are managed in the desktop app. This is a read-only view.
-          </div>
-        </div>`;
+        ${wo.status === 'Pending' ? `
+          <button class="btn btn-primary btn-full" id="wo-start-btn">Start Work Order</button>
+        ` : wo.status === 'InProgress' ? `
+          <button class="btn btn-success btn-full" id="wo-complete-btn">Mark Complete</button>
+        ` : ''}`;
+      // Bind action buttons
+      document.getElementById('wo-start-btn')?.addEventListener('click', () =>
+        updateWOStatus(woId, 'InProgress', 'Starting…'));
+      document.getElementById('wo-complete-btn')?.addEventListener('click', () =>
+        updateWOStatus(woId, 'Complete', 'Completing…'));
+
     } catch (err) {
       content.innerHTML = `<div class="empty-state"><p>${err.message}</p></div>`;
+    }
+  }
+
+  async function updateWOStatus(woId, newStatus, loadingLabel) {
+    const btn = document.getElementById(newStatus === 'InProgress' ? 'wo-start-btn' : 'wo-complete-btn');
+    if (btn) { btn.disabled = true; btn.textContent = loadingLabel; }
+    try {
+      await Api.patch(`/api/work-orders/${woId}/status`, { status: newStatus });
+      App.toast(newStatus === 'Complete' ? 'Work order completed' : 'Work order started', 'success');
+      await loadDetail(woId);
+    } catch (err) {
+      App.toast(err.message, 'error');
+      if (btn) { btn.disabled = false; btn.textContent = btn.textContent.replace('…', ''); }
     }
   }
 

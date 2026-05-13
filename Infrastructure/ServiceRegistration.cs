@@ -39,6 +39,17 @@ namespace JaneERP.Infrastructure
             // ── Manufacturing ─────────────────────────────────────────────────────
             services.AddSingleton<IManufacturingRepository, ManufacturingRepository>();
 
+            // ── Analytics / Export / Import / UOM ────────────────────────────────
+            services.AddSingleton<IKPIRepository,    KPIRepository>();
+            services.AddSingleton<IExportRepository, ExportRepository>();
+            services.AddSingleton<IImportRepository, ImportRepository>();
+            services.AddSingleton<IUomRepository,    UomRepository>();
+
+            // ── Expiry, Returns, Backorders ───────────────────────────────────────
+            services.AddSingleton<IExpiryRepository,    ExpiryRepository>();
+            services.AddSingleton<IReturnRepository,    ReturnRepository>();
+            services.AddSingleton<IBackorderRepository, BackorderRepository>();
+
             // ── Services ──────────────────────────────────────────────────────────
             services.AddSingleton<IShopifySyncService,  ShopifySyncService>();
             services.AddSingleton<IInventoryService,    InventoryService>();

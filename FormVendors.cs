@@ -1,18 +1,12 @@
-using System.Configuration;
-using Dapper;
-using JaneERP.Data;
+using JaneERP.Infrastructure;
+using JaneERP.Interfaces;
 using JaneERP.Models;
-using Microsoft.Data.SqlClient;
 
 namespace JaneERP
 {
     public class FormVendors : Form
     {
-        private readonly string _cs =
-            ConfigurationManager.ConnectionStrings["MyERP"]?.ConnectionString
-            ?? throw new InvalidOperationException("Connection string 'MyERP' not found.");
-
-        private readonly VendorRepository _repo = new();
+        private readonly IVendorRepository _repo = AppServices.Get<IVendorRepository>();
 
         private DataGridView _dgvVendors = new();
         private DataGridView _dgvParts   = new();
@@ -243,22 +237,15 @@ namespace JaneERP
             _dgvParts.Rows.Clear();
             try
             {
-                using var db = new SqlConnection(_cs);
-                var parts = db.Query(
-                    @"SELECT PartNumber, PartName, CurrentStock, UnitCost
-                      FROM Parts
-                      WHERE DefaultVendorID = @vendorId AND IsActive = 1
-                      ORDER BY PartNumber",
-                    new { vendorId }).ToList();
-
-                foreach (IDictionary<string, object> row in parts)
+                var parts = _repo.GetPartsByVendor(vendorId);
+                foreach (var p in parts)
                 {
                     int idx = _dgvParts.Rows.Add();
                     var r   = _dgvParts.Rows[idx];
-                    r.Cells["colPN"].Value    = row["PartNumber"];
-                    r.Cells["colPName"].Value = row["PartName"];
-                    r.Cells["colStock"].Value = row["CurrentStock"];
-                    r.Cells["colCost"].Value  = Convert.ToDecimal(row["UnitCost"]).ToString("N2");
+                    r.Cells["colPN"].Value    = p.PartNumber;
+                    r.Cells["colPName"].Value = p.PartName;
+                    r.Cells["colStock"].Value = p.CurrentStock;
+                    r.Cells["colCost"].Value  = p.UnitCost.ToString("N2");
                 }
             }
             catch { /* best-effort */ }
@@ -339,15 +326,7 @@ namespace JaneERP
         {
             try
             {
-                using var db = new SqlConnection(_cs);
-                int imported = db.Execute(@"
-                    INSERT INTO Vendors (VendorName, ContactName, Email, Phone, IsActive)
-                    SELECT s.SupplierName, s.ContactName, s.Email, s.Phone, s.IsActive
-                    FROM   Suppliers s
-                    WHERE  NOT EXISTS (
-                               SELECT 1 FROM Vendors v
-                               WHERE  v.VendorName = s.SupplierName)");
-
+                int imported = _repo.ImportFromSuppliers();
                 if (imported == 0)
                     MessageBox.Show(this, "All PO suppliers are already in the vendor list.", "Import",
                         MessageBoxButtons.OK, MessageBoxIcon.Information);

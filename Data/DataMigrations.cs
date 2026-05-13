@@ -272,6 +272,20 @@ namespace JaneERP.Data
         /// Only applies to products that currently have an empty BOM.
         /// Only runs once — tracked by AppliedMigrations.
         /// </summary>
+        /// <summary>
+        /// Adds OriginalSalesOrderID to SalesOrders so return orders can link back to the
+        /// order they are reversing.  Only runs once.
+        /// </summary>
+        public static void AddReturnSupport() => RunOnce("AddReturnSupport_v1", () =>
+        {
+            using var db = new SqlConnection(ConnStr);
+            db.Execute(@"
+                IF NOT EXISTS (SELECT 1 FROM sys.columns
+                               WHERE  object_id = OBJECT_ID('SalesOrders')
+                                 AND  name = 'OriginalSalesOrderID')
+                    ALTER TABLE SalesOrders ADD OriginalSalesOrderID INT NULL;");
+        });
+
         public static void SetFgProductBoms() => RunOnce("FgProductBoms", () =>
         {
             using var db = new SqlConnection(ConnStr);

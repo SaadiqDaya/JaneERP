@@ -120,6 +120,7 @@ builder.Services.AddScoped<ApiCycleCountRepository>();
 builder.Services.AddScoped<ApiLocationRepository>();
 builder.Services.AddScoped<ApiCustomerRepository>();
 builder.Services.AddScoped<ApiWorkOrderRepository>();
+builder.Services.AddScoped<ApiCookingRepository>();
 builder.Services.AddScoped<ApiAccountingRepository>();
 builder.Services.AddScoped<ApiReportingRepository>();
 #pragma warning disable CA1416 // API always runs on Windows (same machine as WinForms app)

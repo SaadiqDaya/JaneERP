@@ -13,16 +13,22 @@ public class ApiPurchaseOrderRepository
 
     private IDbConnection Connect() => new SqlConnection(_ctx.ConnectionString);
 
-    public List<PurchaseOrderListItem> GetOrders(string? statusFilter)
+    public List<PurchaseOrderListItem> GetOrders(string? statusFilter, string? q = null)
     {
         using var db = Connect();
-        var where = statusFilter switch
+        var statusClause = statusFilter switch
         {
-            "active"  => "WHERE po.Status IN ('Draft', 'Sent', 'PartiallyReceived')",
-            "pending" => "WHERE po.Status IN ('Sent', 'PartiallyReceived')",
-            null or "" => "",
-            _          => "WHERE po.Status = @statusFilter"
+            "active"   => "po.Status IN ('Draft', 'Sent', 'PartiallyReceived')",
+            "pending"  => "po.Status IN ('Sent', 'PartiallyReceived')",
+            null or "" => null,
+            _          => "po.Status = @statusFilter"
         };
+        var qClause = !string.IsNullOrEmpty(q)
+            ? "(s.SupplierName LIKE @q OR po.PONumber LIKE @q)"
+            : null;
+
+        var parts = new[] { statusClause, qClause }.Where(x => x != null);
+        var where = parts.Any() ? "WHERE " + string.Join(" AND ", parts) : "";
 
         return db.Query<PurchaseOrderListItem>($@"
             SELECT  po.POID, po.PONumber, s.SupplierName,
@@ -36,7 +42,7 @@ public class ApiPurchaseOrderRepository
             JOIN    Suppliers s ON s.SupplierID = po.SupplierID
             {where}
             ORDER   BY po.CreatedAt DESC",
-            new { statusFilter }).ToList();
+            new { statusFilter, q = string.IsNullOrEmpty(q) ? null : $"%{q}%" }).ToList();
     }
 
     public PurchaseOrderDetail? GetOrderDetail(int poid)

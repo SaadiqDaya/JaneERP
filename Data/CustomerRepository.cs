@@ -3,11 +3,12 @@ using System.Data;
 using Dapper;
 using JaneERP.Interfaces;
 using JaneERP.Models;
+using JaneERP.Security;
 using Microsoft.Data.SqlClient;
 
 namespace JaneERP.Data
 {
-    /// <summary>Customer read queries. EnsureSchema is handled by ShopifySyncService.</summary>
+    /// <summary>Customer read queries and CRM notes. EnsureSchema for Customers is handled by ShopifySyncService.</summary>
     public class CustomerRepository : ICustomerRepository
     {
         private readonly string _cs =
@@ -55,6 +56,59 @@ namespace JaneERP.Data
                 WHERE  soi.SalesOrderID = @salesOrderId
                 ORDER  BY soi.SalesOrderItemID",
                 new { salesOrderId }).ToList();
+        }
+
+        // ── CRM Notes ────────────────────────────────────────────────────────
+
+        public void EnsureNotesSchema()
+        {
+            using var db = new SqlConnection(_cs);
+            db.Execute(@"
+                IF NOT EXISTS (SELECT 1 FROM sysobjects WHERE name='CustomerNotes' AND xtype='U')
+                CREATE TABLE CustomerNotes (
+                    NoteID     INT           NOT NULL IDENTITY PRIMARY KEY,
+                    CustomerID INT           NOT NULL,
+                    NoteText   NVARCHAR(MAX) NOT NULL,
+                    NoteType   NVARCHAR(50)  NOT NULL DEFAULT 'Note',
+                    CreatedBy  NVARCHAR(100) NULL,
+                    CreatedAt  DATETIME      NOT NULL DEFAULT GETDATE()
+                );
+
+                IF NOT EXISTS (SELECT 1 FROM sys.indexes
+                               WHERE name='IX_CustomerNotes_CustomerID'
+                                 AND object_id=OBJECT_ID('CustomerNotes'))
+                    CREATE INDEX IX_CustomerNotes_CustomerID
+                        ON CustomerNotes (CustomerID)
+                        INCLUDE (NoteType, CreatedAt);");
+        }
+
+        public List<CustomerNote> GetNotes(int customerId)
+        {
+            using IDbConnection db = new SqlConnection(_cs);
+            return db.Query<CustomerNote>(
+                "SELECT * FROM CustomerNotes WHERE CustomerID=@customerId ORDER BY CreatedAt DESC",
+                new { customerId }).ToList();
+        }
+
+        public void AddNote(CustomerNote note)
+        {
+            using IDbConnection db = new SqlConnection(_cs);
+            db.Execute(@"
+                INSERT INTO CustomerNotes (CustomerID, NoteText, NoteType, CreatedBy)
+                VALUES (@CustomerID, @NoteText, @NoteType, @CreatedBy)",
+                new
+                {
+                    note.CustomerID,
+                    note.NoteText,
+                    note.NoteType,
+                    CreatedBy = AppSession.CurrentUser?.Username ?? note.CreatedBy
+                });
+        }
+
+        public void DeleteNote(int noteId)
+        {
+            using IDbConnection db = new SqlConnection(_cs);
+            db.Execute("DELETE FROM CustomerNotes WHERE NoteID=@noteId", new { noteId });
         }
     }
 }

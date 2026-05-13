@@ -63,10 +63,10 @@ const DashboardPage = (() => {
           <div class="kpi-val">${d.totalProducts}</div>
           <div class="kpi-label">Active Products</div>
         </div>
-        <div class="kpi-card ${lowClass}">
+        <a href="#/inventory" class="kpi-card ${lowClass}" style="text-decoration:none;cursor:pointer;">
           <div class="kpi-val">${d.lowStockItems}</div>
-          <div class="kpi-label">Low Stock Items</div>
-        </div>
+          <div class="kpi-label">Low Stock ↗</div>
+        </a>
         <div class="kpi-card ${packClass}">
           <div class="kpi-val">${d.ordersToPack}</div>
           <div class="kpi-label">Orders to Pack</div>
@@ -80,6 +80,17 @@ const DashboardPage = (() => {
           <div class="kpi-label">Overdue POs</div>
         </div>
       </div>
+
+      ${d.lowStockItems > 0 ? `
+      <a href="#/inventory" style="display:flex;align-items:center;gap:10px;background:var(--danger-lt);
+         border:1.5px solid var(--danger);border-radius:10px;padding:12px 14px;text-decoration:none;
+         color:var(--danger);font-weight:600;font-size:13px;margin-bottom:4px;">
+        <svg viewBox="0 0 24 24" style="width:18px;height:18px;fill:currentColor;flex-shrink:0;">
+          <path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/>
+        </svg>
+        <span>${d.lowStockItems} item${d.lowStockItems !== 1 ? 's' : ''} below reorder point</span>
+        <span style="margin-left:auto;">View →</span>
+      </a>` : ''}
 
       <!-- Orders to Pack -->
       <div class="section-header">

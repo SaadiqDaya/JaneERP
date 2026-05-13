@@ -66,5 +66,28 @@ namespace JaneERP.Data
             using IDbConnection db = new SqlConnection(_connectionString);
             db.Execute("UPDATE Vendors SET IsActive = 0 WHERE VendorID = @id", new { id });
         }
+
+        public List<JaneERP.Models.Part> GetPartsByVendor(int vendorId)
+        {
+            using IDbConnection db = new SqlConnection(_connectionString);
+            return db.Query<JaneERP.Models.Part>(@"
+                SELECT PartID, PartNumber, PartName, UnitOfMeasure, CurrentStock, UnitCost, IsActive
+                FROM   Parts
+                WHERE  DefaultVendorID = @vendorId AND IsActive = 1
+                ORDER  BY PartNumber",
+                new { vendorId }).ToList();
+        }
+
+        public int ImportFromSuppliers()
+        {
+            using IDbConnection db = new SqlConnection(_connectionString);
+            return db.Execute(@"
+                INSERT INTO Vendors (VendorName, ContactName, Email, Phone, IsActive)
+                SELECT s.SupplierName, s.ContactName, s.Email, s.Phone, s.IsActive
+                FROM   Suppliers s
+                WHERE  NOT EXISTS (
+                           SELECT 1 FROM Vendors v
+                           WHERE  v.VendorName = s.SupplierName)");
+        }
     }
 }

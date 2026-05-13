@@ -23,11 +23,12 @@ public class OrdersController : ControllerBase
     [HttpGet]
     public IActionResult GetOrders(
         [FromQuery] string?   status,
+        [FromQuery] string?   q,
         [FromQuery] DateTime? from,
         [FromQuery] DateTime? to,
         [FromQuery] int       page = 1)
     {
-        var (items, total) = _repo.GetOrders(status, from, to, page);
+        var (items, total) = _repo.GetOrders(status, q, from, to, page);
         return Ok(new { items, total, page });
     }
 
@@ -53,7 +54,7 @@ public class OrdersController : ControllerBase
     [HttpPatch("{id:int}/status")]
     public IActionResult UpdateStatus(int id, [FromBody] UpdateStatusRequest req)
     {
-        var validStatuses = new[] { "Draft", "Live", "WIP", "Complete" };
+        var validStatuses = new[] { "Draft", "Live", "WIP", "Packed", "Shipped", "Complete" };
         if (!validStatuses.Contains(req.Status))
             return BadRequest(new { error = $"Status must be one of: {string.Join(", ", validStatuses)}" });
 

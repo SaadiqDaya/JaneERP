@@ -21,8 +21,8 @@ public class PurchaseOrdersController : ControllerBase
     }
 
     [HttpGet]
-    public IActionResult GetOrders([FromQuery] string? status)
-        => Ok(_repo.GetOrders(status));
+    public IActionResult GetOrders([FromQuery] string? status, [FromQuery] string? q)
+        => Ok(_repo.GetOrders(status, q));
 
     [HttpGet("{id:int}")]
     public IActionResult GetOrder(int id)

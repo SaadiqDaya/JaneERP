@@ -17,7 +17,8 @@ namespace JaneERP
 {
     public partial class FormAddProduct : Form
     {
-        private readonly Product? _editingProduct;
+        private readonly Product?        _editingProduct;
+        private readonly IUomRepository  _uomRepo = AppServices.Get<IUomRepository>();
 
         public FormAddProduct() : this(null) { }
 
@@ -31,6 +32,7 @@ namespace JaneERP
             LoadLocations();
             LoadProductTypes();
             LoadVendors();
+            LoadUom();
             LoadAttributeNames();
 
             if (_editingProduct is not null)
@@ -44,6 +46,7 @@ namespace JaneERP
                 txtWholesalePrice.Text   = product.WholesalePrice.ToString("G");
                 nudReorderPoint.Value    = product.ReorderPoint;
                 nudOrderUpTo.Value       = product.OrderUpTo;
+                cboUom.Text              = product.UnitOfMeasure ?? "";
 
                 // Pre-select the product's default location
                 if (product.DefaultLocationID.HasValue)
@@ -193,12 +196,12 @@ namespace JaneERP
             pnlPackage.Visible = isPackage;
 
             // Shift buttons down/up to accommodate the panel
-            int btnY = isPackage ? pnlPackage.Bottom + 10 : 555;
+            int btnY = isPackage ? pnlPackage.Bottom + 10 : 590;
             btnManageBOM.Location = new Point(btnManageBOM.Location.X, btnY);
             btnSave.Location      = new Point(btnSave.Location.X,      btnY);
             btnCancel.Location    = new Point(btnCancel.Location.X,    btnY);
 
-            int formH = isPackage ? 605 + 180 : 605;
+            int formH = isPackage ? 640 + 180 : 640;
             ClientSize = new Size(ClientSize.Width, formH);
         }
 
@@ -273,6 +276,18 @@ namespace JaneERP
                 cboVendor.SelectedIndex = 0;
             }
             catch (Exception ex) { AppLogger.Info($"[FormAddProduct.LoadVendors]: {ex.Message}"); }
+        }
+
+        private void LoadUom()
+        {
+            try
+            {
+                var abbrevs = _uomRepo.GetAbbreviations();
+                cboUom.Items.Clear();
+                cboUom.Items.Add("");
+                foreach (var u in abbrevs) cboUom.Items.Add(u);
+            }
+            catch { /* non-fatal */ }
         }
 
         private void LoadAttributeNames()
@@ -422,6 +437,7 @@ namespace JaneERP
             {
                 var repo = AppServices.Get<IProductRepository>();
 
+                string? uom = string.IsNullOrWhiteSpace(cboUom.Text) ? null : cboUom.Text.Trim();
                 if (_editingProduct is not null)
                 {
                     _editingProduct.SKU               = txtSKU.Text.Trim();
@@ -433,6 +449,7 @@ namespace JaneERP
                     _editingProduct.ReorderPoint      = (int)nudReorderPoint.Value;
                     _editingProduct.OrderUpTo         = (int)nudOrderUpTo.Value;
                     _editingProduct.DefaultVendorID   = defaultVendorId;
+                    _editingProduct.UnitOfMeasure     = uom;
                     _editingProduct.Attributes        = attributes;
                     repo.UpdateProduct(_editingProduct);
                     AppLogger.Audit(AppSession.CurrentUser?.Username, "ProductUpdate",
@@ -460,6 +477,7 @@ namespace JaneERP
                         ReorderPoint      = (int)nudReorderPoint.Value,
                         OrderUpTo         = (int)nudOrderUpTo.Value,
                         DefaultVendorID   = defaultVendorId,
+                        UnitOfMeasure     = uom,
                         Attributes        = attributes
                     };
                     repo.AddProduct(newProduct);

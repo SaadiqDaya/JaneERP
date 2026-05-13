@@ -103,6 +103,8 @@ namespace JaneERP
             btnInventoryDash.Visible  = isAdmin || isEditor;
             btnReorderReport.Visible  = isAdmin || isEditor;
             btnUnverified.Visible     = isAdmin || PermissionHelper.CanEdit("Inventory");
+            btnExpiryTracker.Visible  = isAdmin || isEditor;
+            btnBackorders.Visible     = isAdmin || PermissionHelper.CanEdit("SalesOrders");
 
             // Manufacturing
             btnManufacturing.Visible  = isAdmin || PermissionHelper.CanEdit("Manufacturing");
@@ -368,6 +370,18 @@ namespace JaneERP
         private void btnVendors_Click(object sender, EventArgs e)
         {
             using var frm = new FormVendors();
+            frm.ShowDialog(this);
+        }
+
+        private void btnExpiryTracker_Click(object sender, EventArgs e)
+        {
+            using var frm = new FormExpiryDashboard();
+            frm.ShowDialog(this);
+        }
+
+        private void btnBackorders_Click(object sender, EventArgs e)
+        {
+            using var frm = new FormBackorderDash();
             frm.ShowDialog(this);
         }
 
