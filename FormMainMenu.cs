@@ -107,6 +107,7 @@ namespace JaneERP
             // Manufacturing
             btnManufacturing.Visible  = isAdmin || PermissionHelper.CanEdit("Manufacturing");
             btnWorkOrders.Visible     = isAdmin || PermissionHelper.CanEdit("Manufacturing");
+            btnBatchCooking.Visible   = isAdmin || PermissionHelper.CanEdit("Manufacturing");
 
             // Analytics & Reports
             btnDashboard.Visible  = isAdmin || isEditor;
@@ -259,6 +260,12 @@ namespace JaneERP
         private void btnWorkOrders_Click(object sender, EventArgs e)
         {
             using var frm = new FormWorkOrders();
+            frm.ShowDialog(this);
+        }
+
+        private void btnBatchCooking_Click(object sender, EventArgs e)
+        {
+            using var frm = new FormBatchCooking();
             frm.ShowDialog(this);
         }
 

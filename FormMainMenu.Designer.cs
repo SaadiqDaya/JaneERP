@@ -25,6 +25,7 @@ namespace JaneERP
         private Button btnPurchaseOrders;
         private Button btnManufacturing;
         private Button btnWorkOrders;
+        private Button btnBatchCooking;
         private Button btnProductSearch;
         private Button btnTaskManager;
         private Button btnCycleCount;
@@ -85,6 +86,7 @@ namespace JaneERP
             btnPurchaseOrders = MakeIconButton("\U0001F69B", "Purchase",        btnPurchaseOrders_Click);
             btnManufacturing  = MakeIconButton("\U0001F3ED", "Mfg",             btnManufacturing_Click);
             btnWorkOrders     = MakeIconButton("\U0001F6E0", "Work Orders",     btnWorkOrders_Click);
+            btnBatchCooking   = MakeIconButton("\U0001F9EA", "Batch Cooking",   btnBatchCooking_Click);
             btnProductSearch  = MakeIconButton("\U0001F50D", "Product Explorer",btnProductSearch_Click);
             btnTaskManager    = MakeIconButton("\u2705",     "Tasks",           btnTaskManager_Click);
             btnCycleCount     = MakeIconButton("\U0001F504", "Cycle Count",     btnCycleCount_Click);
@@ -123,6 +125,7 @@ namespace JaneERP
             toolTip1.SetToolTip(btnPurchaseOrders, "Create and manage supplier purchase orders");
             toolTip1.SetToolTip(btnManufacturing,  "Work orders and production management");
             toolTip1.SetToolTip(btnWorkOrders,     "Process open work orders directly");
+            toolTip1.SetToolTip(btnBatchCooking,   "Batch cooking — ingredient-first session tracking for juice production");
             toolTip1.SetToolTip(btnTaskManager,    "Create tasks, assign to team members");
             toolTip1.SetToolTip(btnCycleCount,     "Schedule and record stock cycle counts");
             toolTip1.SetToolTip(btnLocations,      "Manage warehouse storage locations");
@@ -347,6 +350,7 @@ namespace JaneERP
             pnlGrid.SetFlowBreak(hdrMfg, true);
             pnlGrid.Controls.Add(btnManufacturing);
             pnlGrid.Controls.Add(btnWorkOrders);
+            pnlGrid.Controls.Add(btnBatchCooking);
             var sp3 = GrpSpacer(); pnlGrid.Controls.Add(sp3); pnlGrid.SetFlowBreak(sp3, true);
 
             // ── Section: Analytics & Reports ─────────────────────────────────

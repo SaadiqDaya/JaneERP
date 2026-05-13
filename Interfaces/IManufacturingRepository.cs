@@ -16,7 +16,20 @@ namespace JaneERP.Interfaces
         void                      AssignWorkOrder(int workOrderId, string? assignedTo);
         List<NegativePartInfo>    GetNegativePartsForWorkOrder(int workOrderId);
         Dictionary<int, int>      GetReservedPartsQty();
-        List<Models.ReservationLine> GetWOReservationItems(int workOrderId);
-        void                      SaveWOReservations(int workOrderId, IEnumerable<Models.ReservationLine> lines);
+        List<Models.ReservationLine>  GetWOReservationItems(int workOrderId);
+        void                          SaveWOReservations(int workOrderId, IEnumerable<Models.ReservationLine> lines);
+        List<Models.WOBomPreviewRow>  GetWOBomPreview(int workOrderId);
+
+        // ── Cook Sessions ──────────────────────────────────────────────────────
+        int                                   CreateCookSession(string sessionName, IEnumerable<int> workOrderIds, string? createdBy = null);
+        Models.CookSession?                   GetCookSession(int cookSessionId);
+        List<Models.CookSession>              GetOpenCookSessions();
+        List<Models.CookSessionStep>          GetCookSessionSteps(int cookSessionId);
+        List<Models.CookIngredientSummary>    GetCookIngredients(int cookSessionId);
+        void                                  MarkStepDone(int stepId, string doneBy);
+        void                                  MarkAllIngredientStepsDone(int cookSessionId, int partId, string doneBy);
+        void                                  CompleteCookSession(int cookSessionId, bool forceComplete = false);
+        List<Models.BatchTravellerRow>        GetBatchTravellerData(int cookSessionId);
+        List<Models.LabelExportRow>           GetLabelExportData(int cookSessionId);
     }
 }

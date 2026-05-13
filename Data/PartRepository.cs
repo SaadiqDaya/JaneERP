@@ -36,14 +36,29 @@ namespace JaneERP.Data
                     ALTER TABLE Parts ADD IsAutoCreated BIT NOT NULL DEFAULT 0;
                 IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('Parts') AND name='IsVerified')
                     ALTER TABLE Parts ADD IsVerified BIT NOT NULL DEFAULT 0;
+                IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('Parts') AND name='UnitOfMeasure')
+                    ALTER TABLE Parts ADD UnitOfMeasure NVARCHAR(20) NULL;
+                IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('Parts') AND name='ReorderPoint')
+                    ALTER TABLE Parts ADD ReorderPoint INT NULL;
 
                 IF NOT EXISTS (SELECT 1 FROM sysobjects WHERE name='ProductParts' AND xtype='U')
                 CREATE TABLE ProductParts (
-                    ProductID INT NOT NULL REFERENCES Products(ProductID) ON DELETE CASCADE,
-                    PartID    INT NOT NULL REFERENCES Parts(PartID)       ON DELETE CASCADE,
-                    Quantity  INT NOT NULL DEFAULT 1,
+                    ProductID INT          NOT NULL REFERENCES Products(ProductID) ON DELETE CASCADE,
+                    PartID    INT          NOT NULL REFERENCES Parts(PartID)       ON DELETE CASCADE,
+                    Quantity  DECIMAL(18,4) NOT NULL DEFAULT 1,
                     PRIMARY KEY (ProductID, PartID)
                 );
+
+                -- Migrate Quantity from INT to DECIMAL if it's still an INT column
+                IF EXISTS (
+                    SELECT 1 FROM sys.columns
+                    WHERE object_id = OBJECT_ID('ProductParts')
+                      AND name = 'Quantity'
+                      AND system_type_id = TYPE_ID('int')
+                )
+                BEGIN
+                    ALTER TABLE ProductParts ALTER COLUMN Quantity DECIMAL(18,4) NOT NULL;
+                END
 
                 IF NOT EXISTS (SELECT 1 FROM sysobjects WHERE name='BomLabourCosts' AND xtype='U')
                 CREATE TABLE BomLabourCosts (
@@ -53,6 +68,9 @@ namespace JaneERP.Data
                     HourlyRate   DECIMAL(18,2) NOT NULL DEFAULT 0,
                     Hours        DECIMAL(10,2) NOT NULL DEFAULT 1
                 );");
+
+            // UnitOfMeasures lookup table is part of the parts data model
+            new UomRepository().EnsureSchema();
         }
 
         public List<Part> GetAll(bool includeInactive = false)
@@ -81,8 +99,8 @@ namespace JaneERP.Data
         {
             using IDbConnection db = new SqlConnection(_connectionString);
             return db.QuerySingle<int>(@"
-                INSERT INTO Parts (PartNumber, PartName, Description, UnitCost, CurrentStock, IsActive, DefaultVendorID)
-                VALUES (@PartNumber, @PartName, @Description, @UnitCost, @CurrentStock, @IsActive, @DefaultVendorID);
+                INSERT INTO Parts (PartNumber, PartName, Description, UnitCost, CurrentStock, IsActive, DefaultVendorID, UnitOfMeasure)
+                VALUES (@PartNumber, @PartName, @Description, @UnitCost, @CurrentStock, @IsActive, @DefaultVendorID, @UnitOfMeasure);
                 SELECT CAST(SCOPE_IDENTITY() AS INT);", part);
         }
 
@@ -96,7 +114,8 @@ namespace JaneERP.Data
                     Description     = @Description,
                     UnitCost        = @UnitCost,
                     IsActive        = @IsActive,
-                    DefaultVendorID = @DefaultVendorID
+                    DefaultVendorID = @DefaultVendorID,
+                    UnitOfMeasure   = @UnitOfMeasure
                 WHERE PartID = @PartID", part);
         }
 
@@ -114,14 +133,14 @@ namespace JaneERP.Data
             using IDbConnection db = new SqlConnection(_connectionString);
             return db.Query<BomEntry>(@"
                 SELECT pp.ProductID, pp.PartID, p.PartNumber, p.PartName, pp.Quantity,
-                       ISNULL(p.UnitCost, 0) AS UnitCost
+                       p.UnitOfMeasure, ISNULL(p.UnitCost, 0) AS UnitCost
                 FROM   ProductParts pp
                 JOIN   Parts p ON p.PartID = pp.PartID
                 WHERE  pp.ProductID = @productId
                 ORDER  BY p.PartNumber", new { productId }).ToList();
         }
 
-        public void SetBom(int productId, IEnumerable<(int partId, int qty)> entries)
+        public void SetBom(int productId, IEnumerable<(int partId, decimal qty)> entries)
         {
             using var db = new SqlConnection(_connectionString);
             db.Open();

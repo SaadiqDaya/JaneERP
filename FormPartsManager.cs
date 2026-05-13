@@ -413,13 +413,13 @@ namespace JaneERP
 
         private void BtnSave_Click(object? sender, EventArgs e)
         {
-            var entries = new List<(int partId, int qty)>();
+            var entries = new List<(int partId, decimal qty)>();
             foreach (DataGridViewRow row in dgv.Rows)
             {
                 if (row.IsNewRow) continue;
                 if (!int.TryParse(row.Cells["colPartID"].Value?.ToString(), out int pid)) continue;
-                int.TryParse(row.Cells["colQty"].Value?.ToString(), out int qty);
-                entries.Add((pid, Math.Max(1, qty)));
+                decimal.TryParse(row.Cells["colQty"].Value?.ToString(), out decimal qty);
+                entries.Add((pid, Math.Max(0.0001m, qty)));
             }
 
             var labourCosts = new List<BomLabourCost>();
@@ -779,7 +779,7 @@ namespace JaneERP
             {
                 if (row.IsNewRow) continue;
                 if (row.Tag is not decimal unitCost) continue;
-                int.TryParse(row.Cells["colQty"].Value?.ToString(), out int qty);
+                decimal.TryParse(row.Cells["colQty"].Value?.ToString(), out decimal qty);
                 row.Cells["colLineCost"].Value = $"${unitCost * qty:N2}";
             }
             RefreshCostSummary();
@@ -793,7 +793,7 @@ namespace JaneERP
                 if (row.IsNewRow) continue;
                 if (row.Tag is decimal unitCost)
                 {
-                    int.TryParse(row.Cells["colQty"].Value?.ToString(), out int qty);
+                    decimal.TryParse(row.Cells["colQty"].Value?.ToString(), out decimal qty);
                     partsCost += unitCost * qty;
                 }
             }
@@ -838,13 +838,13 @@ namespace JaneERP
         {
             if (_current == null) return;
 
-            var entries = new List<(int partId, int qty)>();
+            var entries = new List<(int partId, decimal qty)>();
             foreach (DataGridViewRow row in dgvParts.Rows)
             {
                 if (row.IsNewRow) continue;
                 if (!int.TryParse(row.Cells["colPartID"].Value?.ToString(), out int pid)) continue;
-                int.TryParse(row.Cells["colQty"].Value?.ToString(), out int qty);
-                entries.Add((pid, Math.Max(1, qty)));
+                decimal.TryParse(row.Cells["colQty"].Value?.ToString(), out decimal qty);
+                entries.Add((pid, Math.Max(0.0001m, qty)));
             }
 
             var labourCosts = new List<BomLabourCost>();

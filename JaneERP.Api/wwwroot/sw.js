@@ -1,4 +1,4 @@
-const CACHE = 'janeerp-v1';
+const CACHE = 'janeerp-v6';
 const STATIC = [
   '/',
   '/index.html',
@@ -11,6 +11,9 @@ const STATIC = [
   '/js/pages/inventory.js',
   '/js/pages/orders.js',
   '/js/pages/purchaseorders.js',
+  '/js/pages/customers.js',
+  '/js/pages/workorders.js',
+  '/js/pages/cooking.js',
 ];
 
 self.addEventListener('install', e => {

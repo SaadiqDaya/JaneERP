@@ -11,6 +11,7 @@ namespace JaneERP.Models
         public bool    IsActive          { get; set; } = true;
         public int?    DefaultVendorID   { get; set; }
         public string? DefaultVendorName { get; set; }
+        public string? UnitOfMeasure     { get; set; }
         /// <summary>True when the part was created automatically (synced from a product).</summary>
         public bool    IsAutoCreated     { get; set; }
         /// <summary>True once a user has reviewed and confirmed the auto-created record.</summary>
@@ -20,13 +21,14 @@ namespace JaneERP.Models
 
     public class BomEntry
     {
-        public int     ProductID  { get; set; }
-        public int     PartID     { get; set; }
-        public string  PartNumber { get; set; } = string.Empty;
-        public string  PartName   { get; set; } = string.Empty;
-        public int     Quantity   { get; set; }
-        public decimal UnitCost   { get; set; }
-        public decimal LineCost   => UnitCost * Quantity;
+        public int     ProductID      { get; set; }
+        public int     PartID         { get; set; }
+        public string  PartNumber     { get; set; } = string.Empty;
+        public string  PartName       { get; set; } = string.Empty;
+        public decimal Quantity       { get; set; }
+        public string? UnitOfMeasure  { get; set; }
+        public decimal UnitCost       { get; set; }
+        public decimal LineCost       => UnitCost * Quantity;
     }
 
     public class BomLabourCost

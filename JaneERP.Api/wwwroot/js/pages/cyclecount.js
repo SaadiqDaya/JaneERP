@@ -152,7 +152,7 @@ const CycleCountPage = (() => {
           <div class="cc-item-header">
             <div style="flex:1;min-width:0;">
               <div class="cc-name">${e.productName}</div>
-              <div class="cc-sku">${e.sKU} ${locLabel}</div>
+              <div class="cc-sku">${e.sku} ${locLabel}</div>
             </div>
             <div style="text-align:right;flex-shrink:0;">${lastVerified}</div>
           </div>

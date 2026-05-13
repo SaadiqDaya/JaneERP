@@ -53,7 +53,7 @@ const WorkOrdersPage = (() => {
             <div class="li-main">
               <div class="li-title">${wo.productName}</div>
               <div class="li-sub">
-                MO: ${wo.mONumber}
+                MO: ${wo.moNumber}
                 ${wo.assignedTo ? ' · ' + wo.assignedTo : ''}
               </div>
               ${(wo.status === 'InProgress' || wo.completedQty > 0) ? `
@@ -114,7 +114,7 @@ const WorkOrderDetailPage = (() => {
           <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px;">
             <div>
               <div style="font-size:17px;font-weight:800;">${wo.productName}</div>
-              <div class="text-muted text-small">${wo.sKU}</div>
+              <div class="text-muted text-small">${wo.sku}</div>
             </div>
             ${woStatusBadge(wo.status)}
           </div>
@@ -122,7 +122,7 @@ const WorkOrderDetailPage = (() => {
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px;">
             <div>
               <div class="text-muted text-small">Manufacturing Order</div>
-              <div style="font-weight:700;">${wo.mONumber}</div>
+              <div style="font-weight:700;">${wo.moNumber}</div>
             </div>
             <div>
               <div class="text-muted text-small">Assigned To</div>

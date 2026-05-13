@@ -44,7 +44,13 @@ const Api = (() => {
     }
 
     if (res.status === 204) return null;
-    return res.json();
+    try {
+      return await res.json();
+    } catch {
+      const text = await res.text().catch(() => '');
+      const preview = text.slice(0, 80);
+      throw new Error(`Server returned non-JSON (${res.status}): ${preview}`);
+    }
   }
 
   return {

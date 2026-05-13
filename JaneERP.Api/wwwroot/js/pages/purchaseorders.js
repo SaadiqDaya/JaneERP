@@ -45,9 +45,9 @@ const PurchaseOrdersPage = (() => {
 
       listEl.innerHTML = `<div class="list-card">
         ${pos.map(po => `
-          <div class="list-item" data-id="${po.pOID}">
+          <div class="list-item" data-id="${po.poid}">
             <div class="li-main">
-              <div class="li-title">${po.supplierName} — ${po.pONumber}</div>
+              <div class="li-title">${po.supplierName} — ${po.poNumber}</div>
               <div class="li-sub">
                 ${App.fmtDate(po.orderDate)}
                 ${po.expectedDate ? ' · Due ' + App.fmtDateShort(po.expectedDate) : ''}
@@ -107,7 +107,7 @@ const PoDetailPage = (() => {
         <div class="card">
           <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px;">
             <div>
-              <div style="font-size:17px;font-weight:800;">${po.pONumber}</div>
+              <div style="font-size:17px;font-weight:800;">${po.poNumber}</div>
               <div class="text-muted text-small">${po.supplierName}</div>
             </div>
             ${po.isOverdue
@@ -140,10 +140,10 @@ const PoDetailPage = (() => {
         <div class="card">
           <div style="font-weight:700;font-size:14px;margin-bottom:8px;">Items (${po.items.length})</div>
           ${po.items.map(item => `
-            <div class="qty-input-row" data-item-id="${item.pOItemID}">
+            <div class="qty-input-row" data-item-id="${item.poItemID}">
               <div style="flex:1;min-width:0;">
                 <div class="qi-name">${item.itemName}</div>
-                <div class="qi-ordered">${item.sKU ? item.sKU + ' · ' : ''}${App.fmt$(item.unitCost)} each</div>
+                <div class="qi-ordered">${item.sku ? item.sku + ' · ' : ''}${App.fmt$(item.unitCost)} each</div>
                 <div style="font-size:12px;margin-top:3px;">
                   <span style="color:var(--text-2)">Ordered:</span> <b>${item.quantityOrdered}</b>
                   &nbsp;
@@ -156,7 +156,7 @@ const PoDetailPage = (() => {
                        min="0" max="${item.quantityOrdered - item.quantityReceived}"
                        placeholder="0"
                        style="width:72px;padding:8px;text-align:center;border:1.5px solid var(--border);border-radius:8px;font-size:16px;font-weight:700;outline:none;"
-                       data-item-id="${item.pOItemID}"
+                       data-item-id="${item.poItemID}"
                        data-max="${item.quantityOrdered - item.quantityReceived}">` : `
                 <span class="badge ${item.quantityReceived >= item.quantityOrdered ? 'badge-received' : 'badge-partial'}">
                   ${item.quantityReceived >= item.quantityOrdered ? 'Complete' : 'Partial'}
@@ -218,7 +218,7 @@ const PoDetailPage = (() => {
         }
       });
     } catch (err) {
-      contentEl.innerHTML = `<div class="empty-state"><p>${err.message}</p></div>`;
+      contentEl.innerHTML = `<div class="empty-state"><p>${err.message} [id=${poId}]</p></div>`;
     }
   }
 

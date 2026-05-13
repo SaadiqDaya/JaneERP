@@ -70,6 +70,41 @@ namespace JaneERP.Manufacturing
                     )");
             }
             catch (Exception ex) { Logging.AppLogger.Info($"PartsReservations migration: {ex.Message}"); }
+
+            // Cook session tables: ingredient-first batch cooking workflow
+            try
+            {
+                db.Execute(@"
+                    IF NOT EXISTS (SELECT 1 FROM sysobjects WHERE name='CookSessions' AND xtype='U')
+                    CREATE TABLE CookSessions (
+                        CookSessionID INT IDENTITY(1,1) PRIMARY KEY,
+                        SessionName   NVARCHAR(100)  NOT NULL,
+                        Status        NVARCHAR(20)   NOT NULL DEFAULT 'Open',
+                        CreatedBy     NVARCHAR(100)  NULL,
+                        CreatedAt     DATETIME       NOT NULL DEFAULT GETDATE(),
+                        CompletedAt   DATETIME       NULL
+                    );
+
+                    IF NOT EXISTS (SELECT 1 FROM sysobjects WHERE name='CookSessionBatches' AND xtype='U')
+                    CREATE TABLE CookSessionBatches (
+                        CookSessionID INT NOT NULL REFERENCES CookSessions(CookSessionID) ON DELETE CASCADE,
+                        WorkOrderID   INT NOT NULL REFERENCES WorkOrders(WorkOrderID),
+                        PRIMARY KEY (CookSessionID, WorkOrderID)
+                    );
+
+                    IF NOT EXISTS (SELECT 1 FROM sysobjects WHERE name='CookSessionSteps' AND xtype='U')
+                    CREATE TABLE CookSessionSteps (
+                        StepID        INT IDENTITY(1,1) PRIMARY KEY,
+                        CookSessionID INT NOT NULL REFERENCES CookSessions(CookSessionID) ON DELETE CASCADE,
+                        WorkOrderID   INT NOT NULL REFERENCES WorkOrders(WorkOrderID),
+                        PartID        INT NOT NULL REFERENCES Parts(PartID),
+                        IsDone        BIT           NOT NULL DEFAULT 0,
+                        DoneBy        NVARCHAR(100) NULL,
+                        DoneAt        DATETIME      NULL,
+                        UNIQUE (CookSessionID, WorkOrderID, PartID)
+                    )");
+            }
+            catch (Exception ex) { Logging.AppLogger.Info($"CookSession migration: {ex.Message}"); }
         }
 
         // ── Manufacturing Orders ──────────────────────────────────────────────────
@@ -242,7 +277,7 @@ namespace JaneERP.Manufacturing
                     "SELECT HourlyRate, Hours FROM BomLabourCosts WHERE ProductID = @productId",
                     new { productId }, tx).ToList();
 
-                decimal partsCogs  = bomItems.Sum(bom => (decimal)bom.UnitCost * (int)bom.Quantity * quantity);
+                decimal partsCogs  = bomItems.Sum(bom => (decimal)bom.UnitCost * (decimal)bom.Quantity * quantity);
                 decimal labourCogs = labourItems.Sum(lc => (decimal)lc.HourlyRate * (decimal)lc.Hours * quantity);
                 decimal totalCogs  = partsCogs + labourCogs;
 
@@ -504,6 +539,295 @@ namespace JaneERP.Manufacturing
                     $"WorkOrderID={workOrderId} completed={completedQty} scrap={scrapQty}");
             }
             catch { tx.Rollback(); throw; }
+        }
+
+        // ── BOM Preview ───────────────────────────────────────────────────────────
+
+        /// <summary>
+        /// Returns BOM ingredients for a work order multiplied by the WO quantity,
+        /// used by FormBatchCooking to preview ingredient totals before starting a session.
+        /// </summary>
+        public List<Models.WOBomPreviewRow> GetWOBomPreview(int workOrderId)
+        {
+            using IDbConnection db = new SqlConnection(_connectionString);
+            return db.Query<Models.WOBomPreviewRow>(@"
+                SELECT pt.PartID, pt.PartNumber, pt.PartName, pt.UnitOfMeasure AS UOM,
+                       pp.Quantity * wo.Quantity AS RequiredQty,
+                       pt.CurrentStock           AS OnHand
+                FROM   WorkOrders   wo
+                JOIN   ProductParts pp ON pp.ProductID = wo.ProductID
+                JOIN   Parts        pt ON pt.PartID    = pp.PartID
+                WHERE  wo.WorkOrderID = @workOrderId",
+                new { workOrderId }).ToList();
+        }
+
+        // ── Cook Sessions ─────────────────────────────────────────────────────────
+
+        /// <summary>
+        /// Creates a new cook session, generates one step per (WorkOrder × BOM Part) combination,
+        /// and returns the new CookSessionID.
+        /// </summary>
+        public int CreateCookSession(string sessionName, IEnumerable<int> workOrderIds, string? createdBy = null)
+        {
+            var woIds = workOrderIds.ToList();
+            if (woIds.Count == 0) throw new ArgumentException("At least one work order is required.");
+
+            using var db = new SqlConnection(_connectionString);
+            db.Open();
+            using var tx = db.BeginTransaction();
+            try
+            {
+                int sessionId = db.QuerySingle<int>(@"
+                    INSERT INTO CookSessions (SessionName, CreatedBy)
+                    VALUES (@sessionName, @createdBy);
+                    SELECT CAST(SCOPE_IDENTITY() AS INT)",
+                    new { sessionName, createdBy }, tx);
+
+                foreach (int woId in woIds)
+                {
+                    db.Execute("INSERT INTO CookSessionBatches (CookSessionID, WorkOrderID) VALUES (@sessionId, @woId)",
+                        new { sessionId, woId }, tx);
+
+                    // Create one step per BOM part for this work order
+                    db.Execute(@"
+                        INSERT INTO CookSessionSteps (CookSessionID, WorkOrderID, PartID)
+                        SELECT @sessionId, @woId, pp.PartID
+                        FROM   WorkOrders wo
+                        JOIN   ProductParts pp ON pp.ProductID = wo.ProductID
+                        WHERE  wo.WorkOrderID = @woId",
+                        new { sessionId, woId }, tx);
+                }
+
+                tx.Commit();
+                Logging.AppLogger.Audit(createdBy ?? "system", "CreateCookSession",
+                    $"SessionID={sessionId} Name={sessionName} WOs={string.Join(",", woIds)}");
+                return sessionId;
+            }
+            catch { tx.Rollback(); throw; }
+        }
+
+        public Models.CookSession? GetCookSession(int cookSessionId)
+        {
+            using IDbConnection db = new SqlConnection(_connectionString);
+            var session = db.QueryFirstOrDefault<Models.CookSession>(
+                "SELECT * FROM CookSessions WHERE CookSessionID = @cookSessionId",
+                new { cookSessionId });
+            if (session == null) return null;
+
+            session.WorkOrderIDs = db.Query<int>(
+                "SELECT WorkOrderID FROM CookSessionBatches WHERE CookSessionID = @cookSessionId",
+                new { cookSessionId }).ToList();
+            return session;
+        }
+
+        public List<Models.CookSession> GetOpenCookSessions()
+        {
+            using IDbConnection db = new SqlConnection(_connectionString);
+            return db.Query<Models.CookSession>(
+                "SELECT * FROM CookSessions WHERE Status = 'Open' ORDER BY CreatedAt DESC").ToList();
+        }
+
+        /// <summary>All steps for a session, enriched with part/product display data.</summary>
+        public List<Models.CookSessionStep> GetCookSessionSteps(int cookSessionId)
+        {
+            using IDbConnection db = new SqlConnection(_connectionString);
+            return db.Query<Models.CookSessionStep>(@"
+                SELECT s.StepID, s.CookSessionID, s.WorkOrderID, s.PartID,
+                       s.IsDone, s.DoneBy, s.DoneAt,
+                       p.PartNumber, p.PartName, p.UnitOfMeasure,
+                       pr.ProductName, pr.SKU AS ProductSKU,
+                       pp.Quantity * wo.Quantity AS RequiredQty,
+                       wo.Quantity               AS WorkOrderQty
+                FROM   CookSessionSteps s
+                JOIN   Parts        p  ON p.PartID      = s.PartID
+                JOIN   WorkOrders   wo ON wo.WorkOrderID = s.WorkOrderID
+                JOIN   Products     pr ON pr.ProductID   = wo.ProductID
+                JOIN   ProductParts pp ON pp.ProductID   = wo.ProductID AND pp.PartID = s.PartID
+                WHERE  s.CookSessionID = @cookSessionId
+                ORDER  BY p.PartName, pr.ProductName",
+                new { cookSessionId }).ToList();
+        }
+
+        /// <summary>
+        /// Returns one summary row per ingredient across all batches in the session,
+        /// used to populate the ingredient ComboBox and progress panel.
+        /// </summary>
+        public List<Models.CookIngredientSummary> GetCookIngredients(int cookSessionId)
+        {
+            using IDbConnection db = new SqlConnection(_connectionString);
+            return db.Query<Models.CookIngredientSummary>(@"
+                SELECT p.PartID, p.PartNumber, p.PartName, p.UnitOfMeasure,
+                       SUM(pp.Quantity * wo.Quantity) AS TotalRequired,
+                       p.CurrentStock                 AS OnHand,
+                       SUM(CAST(s.IsDone AS INT))     AS StepsDone,
+                       COUNT(s.StepID)                AS StepsTotal
+                FROM   CookSessionSteps s
+                JOIN   Parts        p  ON p.PartID      = s.PartID
+                JOIN   WorkOrders   wo ON wo.WorkOrderID = s.WorkOrderID
+                JOIN   ProductParts pp ON pp.ProductID   = wo.ProductID AND pp.PartID = s.PartID
+                WHERE  s.CookSessionID = @cookSessionId
+                GROUP BY p.PartID, p.PartNumber, p.PartName, p.UnitOfMeasure, p.CurrentStock
+                ORDER BY p.PartName",
+                new { cookSessionId }).ToList();
+        }
+
+        /// <summary>Mark a single (WorkOrder × Part) step as done.</summary>
+        public void MarkStepDone(int stepId, string doneBy)
+        {
+            using IDbConnection db = new SqlConnection(_connectionString);
+            db.Execute(@"
+                UPDATE CookSessionSteps
+                SET IsDone = 1, DoneBy = @doneBy, DoneAt = GETDATE()
+                WHERE StepID = @stepId AND IsDone = 0",
+                new { stepId, doneBy });
+        }
+
+        /// <summary>Mark all steps for a given ingredient across all batches in the session as done.</summary>
+        public void MarkAllIngredientStepsDone(int cookSessionId, int partId, string doneBy)
+        {
+            using IDbConnection db = new SqlConnection(_connectionString);
+            db.Execute(@"
+                UPDATE CookSessionSteps
+                SET IsDone = 1, DoneBy = @doneBy, DoneAt = GETDATE()
+                WHERE CookSessionID = @cookSessionId AND PartID = @partId AND IsDone = 0",
+                new { cookSessionId, partId, doneBy });
+        }
+
+        /// <summary>
+        /// Completes a cook session — marks it Complete in the database.
+        /// Throws if any steps are still pending.
+        /// </summary>
+        public void CompleteCookSession(int cookSessionId, bool forceComplete = false)
+        {
+            using IDbConnection db = new SqlConnection(_connectionString);
+
+            if (!forceComplete)
+            {
+                int pending = db.QuerySingle<int>(
+                    "SELECT COUNT(*) FROM CookSessionSteps WHERE CookSessionID = @cookSessionId AND IsDone = 0",
+                    new { cookSessionId });
+                if (pending > 0)
+                    throw new InvalidOperationException($"{pending} ingredient step(s) are still pending.");
+            }
+
+            db.Execute(@"
+                UPDATE CookSessions
+                SET Status = 'Complete', CompletedAt = GETDATE()
+                WHERE CookSessionID = @cookSessionId",
+                new { cookSessionId });
+
+            Logging.AppLogger.Audit(Security.AppSession.CurrentUser?.Username ?? "system",
+                "CompleteCookSession", $"SessionID={cookSessionId}");
+        }
+
+        // ── Batch Traveller & Label Export ────────────────────────────────────────
+
+        /// <summary>Data for the printable Batch Traveller — one row per work order in a session.</summary>
+        public List<Models.BatchTravellerRow> GetBatchTravellerData(int cookSessionId)
+        {
+            using IDbConnection db = new SqlConnection(_connectionString);
+            var rows = db.Query(@"
+                SELECT wo.WorkOrderID,
+                       m.MONumber AS WONumber,
+                       pr.SKU     AS PartNumber,
+                       pr.ProductName AS PartName,
+                       wo.Quantity AS Qty,
+                       wo.Notes
+                FROM   CookSessionBatches csb
+                JOIN   WorkOrders         wo ON wo.WorkOrderID   = csb.WorkOrderID
+                JOIN   Products           pr ON pr.ProductID     = wo.ProductID
+                JOIN   ManufacturingOrders m ON m.MOID           = wo.MOID
+                WHERE  csb.CookSessionID = @cookSessionId
+                ORDER  BY m.MONumber", new { cookSessionId }).ToList();
+
+            // Pull product attributes for Nicotine, Size per product
+            var productIds = rows.Select(r => (int)r.WorkOrderID).ToList();
+            if (productIds.Count == 0) return new List<Models.BatchTravellerRow>();
+
+            var attrs = db.Query(@"
+                SELECT wo.WorkOrderID, pa.AttributeName, pa.AttributeValue
+                FROM   WorkOrders      wo
+                JOIN   ProductAttributes pa ON pa.ProductID = wo.ProductID
+                WHERE  wo.WorkOrderID IN @productIds
+                  AND  pa.AttributeName IN ('Nicotine','Size','FlaskType','Bins','Concentrate')",
+                new { productIds }).ToList();
+
+            var attrMap = attrs.GroupBy(a => (int)a.WorkOrderID)
+                               .ToDictionary(g => g.Key, g => g.ToDictionary(a => (string)a.AttributeName, a => (string?)a.AttributeValue));
+
+            return rows.Select(r =>
+            {
+                int woId = (int)r.WorkOrderID;
+                attrMap.TryGetValue(woId, out var a);
+                return new Models.BatchTravellerRow
+                {
+                    WONumber   = (string)r.WONumber,
+                    PartNumber = (string)r.PartNumber,
+                    PartName   = (string)r.PartName,
+                    Qty        = (int)r.Qty,
+                    Nicotine   = a?.GetValueOrDefault("Nicotine"),
+                    Size       = a?.GetValueOrDefault("Size"),
+                    FlaskType  = a?.GetValueOrDefault("FlaskType"),
+                    Bins       = a?.GetValueOrDefault("Bins"),
+                    Concentrate = a?.GetValueOrDefault("Concentrate"),
+                    Notes      = (string?)r.Notes
+                };
+            }).ToList();
+        }
+
+        /// <summary>Data for the label-printing CSV export — one row per work order in a session.</summary>
+        public List<Models.LabelExportRow> GetLabelExportData(int cookSessionId)
+        {
+            using IDbConnection db = new SqlConnection(_connectionString);
+            var rows = db.Query(@"
+                SELECT wo.WorkOrderID,
+                       m.MONumber        AS WONumber,
+                       pr.ProductName    AS PartName,
+                       pr.SKU            AS PartNumber,
+                       wo.Quantity       AS QtyOrdered,
+                       cs.CreatedAt      AS BatchMadeDate
+                FROM   CookSessionBatches csb
+                JOIN   WorkOrders         wo ON wo.WorkOrderID   = csb.WorkOrderID
+                JOIN   Products           pr ON pr.ProductID     = wo.ProductID
+                JOIN   ManufacturingOrders m ON m.MOID           = wo.MOID
+                JOIN   CookSessions       cs ON cs.CookSessionID = csb.CookSessionID
+                WHERE  csb.CookSessionID = @cookSessionId
+                ORDER  BY m.MONumber", new { cookSessionId }).ToList();
+
+            var productIds = rows.Select(r => (int)r.WorkOrderID).ToList();
+            if (productIds.Count == 0) return new List<Models.LabelExportRow>();
+
+            var attrs = db.Query(@"
+                SELECT wo.WorkOrderID, pa.AttributeName, pa.AttributeValue
+                FROM   WorkOrders      wo
+                JOIN   ProductAttributes pa ON pa.ProductID = wo.ProductID
+                WHERE  wo.WorkOrderID IN @productIds
+                  AND  pa.AttributeName IN ('Nicotine','VG','Size','Brand','BottleType','Version','Note')",
+                new { productIds }).ToList();
+
+            var attrMap = attrs.GroupBy(a => (int)a.WorkOrderID)
+                               .ToDictionary(g => g.Key, g => g.ToDictionary(a => (string)a.AttributeName, a => (string?)a.AttributeValue));
+
+            return rows.Select(r =>
+            {
+                int woId = (int)r.WorkOrderID;
+                attrMap.TryGetValue(woId, out var a);
+                return new Models.LabelExportRow
+                {
+                    BottleType    = a?.GetValueOrDefault("BottleType"),
+                    WONumber      = (string)r.WONumber,
+                    PartName      = (string)r.PartName,
+                    PartNumber    = (string)r.PartNumber,
+                    QtyOrdered    = (int)r.QtyOrdered,
+                    Version       = a?.GetValueOrDefault("Version"),
+                    BatchMadeDate = ((DateTime)r.BatchMadeDate).ToString("yyyy-MM-dd"),
+                    Size          = a?.GetValueOrDefault("Size"),
+                    Brand         = a?.GetValueOrDefault("Brand"),
+                    Nicotine      = a?.GetValueOrDefault("Nicotine"),
+                    VG            = a?.GetValueOrDefault("VG"),
+                    Note          = a?.GetValueOrDefault("Note")
+                };
+            }).ToList();
         }
     }
 

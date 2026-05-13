@@ -32,6 +32,7 @@ const DashboardPage = (() => {
       document.getElementById('dash-content').innerHTML = buildDashboard(d, days);
       bindDays(container);
       bindLists();
+      loadSyncSection();
     } catch (err) {
       document.getElementById('dash-content').innerHTML =
         `<div class="empty-state"><p>Could not load dashboard.<br>${err.message}</p></div>`;
@@ -110,9 +111,9 @@ const DashboardPage = (() => {
         ? `<div class="card card-sm text-muted text-small">No outstanding POs</div>`
         : `<div class="list-card" id="dash-po-list">
             ${d.posToReceive.slice(0, 5).map(po => `
-              <div class="list-item" data-po="${po.pOID}">
+              <div class="list-item" data-po="${po.poid}">
                 <div class="li-main">
-                  <div class="li-title">${po.supplierName} — ${po.pONumber}</div>
+                  <div class="li-title">${po.supplierName} — ${po.poNumber}</div>
                   <div class="li-sub">${po.itemsOutstanding} item${po.itemsOutstanding !== 1 ? 's' : ''} outstanding${po.expectedDate ? ' · Due ' + App.fmtDateShort(po.expectedDate) : ''}</div>
                 </div>
                 <div class="li-right">
@@ -120,7 +121,13 @@ const DashboardPage = (() => {
                 </div>
                 <div class="chevron">${App.chevronSvg()}</div>
               </div>`).join('')}
-          </div>`}`;
+          </div>`}
+
+      <!-- Shopify Sync -->
+      <div class="section-header mt-16">
+        <h2>Shopify Sync</h2>
+      </div>
+      <div id="dash-sync-section"></div>`;
   }
 
   function bindDays(container) {
@@ -141,6 +148,59 @@ const DashboardPage = (() => {
     document.querySelectorAll('#dash-po-list .list-item').forEach(el => {
       el.addEventListener('click', () => App.navigate(`po/${el.dataset.po}`));
     });
+  }
+
+  async function loadSyncSection() {
+    const el = document.getElementById('dash-sync-section');
+    if (!el) return;
+    try {
+      const stores = await Api.get('/api/sync/stores');
+      if (stores.length === 0) {
+        el.innerHTML = `<div class="card card-sm text-muted text-small">No Shopify stores configured</div>`;
+        return;
+      }
+      el.innerHTML = `<div class="list-card">
+        ${stores.map(s => `
+          <div class="list-item" style="align-items:center;">
+            <div class="li-main">
+              <div class="li-title">${s.storeName}</div>
+              <div class="li-sub">${s.storeDomain}${s.lastSyncAt
+                ? ' · Last synced ' + App.fmtDateShort(s.lastSyncAt)
+                : ' · Never synced'}</div>
+            </div>
+            <div class="li-right" style="flex-shrink:0;">
+              ${s.hasCredentials
+                ? `<button class="btn btn-primary sync-btn" style="padding:8px 16px;font-size:13px;" data-store="${s.storeID}" data-name="${s.storeName}">Sync</button>`
+                : `<span class="badge badge-draft">No token</span>`}
+            </div>
+          </div>`).join('')}
+      </div>`;
+
+      el.querySelectorAll('.sync-btn').forEach(btn => {
+        btn.addEventListener('click', () => triggerSync(parseInt(btn.dataset.store), btn.dataset.name, btn));
+      });
+    } catch (err) {
+      el.innerHTML = `<div class="card card-sm text-muted text-small">Shopify sync unavailable: ${err.message}</div>`;
+    }
+  }
+
+  async function triggerSync(storeId, storeName, btn) {
+    btn.disabled    = true;
+    btn.textContent = 'Syncing…';
+    App.toast(`Syncing ${storeName}…`);
+    try {
+      const r = await Api.post(`/api/sync/${storeId}`, {});
+      const msg = `${storeName}: ${r.newOrders} new, ${r.skippedOrders} skipped`;
+      App.toast(r.errors.length ? msg + ` (${r.errors.length} errors)` : msg, r.errors.length ? 'error' : 'success');
+      btn.textContent = '✓ Done';
+      // Refresh last-synced label
+      const sub = btn.closest('.list-item')?.querySelector('.li-sub');
+      if (sub) sub.textContent = `${btn.dataset?.name ?? ''} · Last synced just now`;
+    } catch (err) {
+      App.toast(err.message, 'error');
+      btn.disabled    = false;
+      btn.textContent = 'Sync';
+    }
   }
 
   return { render };

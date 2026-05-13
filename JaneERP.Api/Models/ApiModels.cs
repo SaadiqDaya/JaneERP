@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace JaneERP.Api.Models;
 
 // ── Auth ─────────────────────────────────────────────────────────────────────
@@ -265,3 +267,126 @@ public class WorkOrderItem
 }
 
 public record UpdateNotesRequest(string? Notes);
+
+// ── Shopify sync ──────────────────────────────────────────────────────────────
+
+public class SyncStoreInfo
+{
+    public int       StoreID        { get; set; }
+    public string    StoreName      { get; set; } = "";
+    public string    StoreDomain    { get; set; } = "";
+    public bool      IsActive       { get; set; }
+    public DateTime? LastSyncAt     { get; set; }
+    public bool      HasCredentials { get; set; }
+}
+
+public class SyncResult
+{
+    public int          NewOrders     { get; set; }
+    public int          SkippedOrders { get; set; }
+    public List<string> Errors        { get; set; } = [];
+    public DateTime     SyncedAt      { get; set; }
+}
+
+// ── Cooking ───────────────────────────────────────────────────────────────────
+
+public class CookSessionSummary
+{
+    public int       CookSessionID { get; set; }
+    public string    SessionName   { get; set; } = "";
+    public string    Status        { get; set; } = "";
+    public string?   CreatedBy     { get; set; }
+    public DateTime  CreatedAt     { get; set; }
+    public DateTime? CompletedAt   { get; set; }
+    public int       TotalSteps    { get; set; }
+    public int       DoneSteps     { get; set; }
+}
+
+public class CookSessionDetail
+{
+    public int       CookSessionID { get; set; }
+    public string    SessionName   { get; set; } = "";
+    public string    Status        { get; set; } = "";
+    public string?   CreatedBy     { get; set; }
+    public DateTime  CreatedAt     { get; set; }
+    public DateTime? CompletedAt   { get; set; }
+    public List<CookIngredientDto> Ingredients { get; set; } = [];
+}
+
+public class CookIngredientDto
+{
+    public int     PartID        { get; set; }
+    public string  PartNumber    { get; set; } = "";
+    public string  PartName      { get; set; } = "";
+    public string? UnitOfMeasure { get; set; }
+    public decimal TotalRequired { get; set; }
+    public int     OnHand        { get; set; }
+    public int     StepsDone     { get; set; }
+    public int     StepsTotal    { get; set; }
+    public List<CookStepDto> Steps { get; set; } = [];
+}
+
+public class CookStepDto
+{
+    public int       StepID       { get; set; }
+    public int       WorkOrderID  { get; set; }
+    public int       PartID       { get; set; }
+    public string    ProductName  { get; set; } = "";
+    public string    MONumber     { get; set; } = "";
+    public int       WorkOrderQty { get; set; }
+    public decimal   RequiredQty  { get; set; }
+    public bool      IsDone       { get; set; }
+    public string?   DoneBy       { get; set; }
+    public DateTime? DoneAt       { get; set; }
+}
+
+public class CookWorkOrderItem
+{
+    public int     WorkOrderID { get; set; }
+    public string  MONumber    { get; set; } = "";
+    public string  ProductName { get; set; } = "";
+    public string  SKU         { get; set; } = "";
+    public int     Quantity    { get; set; }
+    public string  Status      { get; set; } = "";
+    public string? AssignedTo  { get; set; }
+}
+
+public record CreateCookSessionRequest(string SessionName, List<int> WorkOrderIds);
+
+public record CompleteCookSessionRequest(bool ForceComplete = false);
+
+// Shopify API response shapes (snake_case via [JsonPropertyName])
+
+public class ShopifyOrdersResponse
+{
+    [JsonPropertyName("orders")]
+    public List<ShopifyApiOrder> Orders { get; set; } = [];
+}
+
+public class ShopifyApiOrder
+{
+    [JsonPropertyName("id")]            public long     Id           { get; set; }
+    [JsonPropertyName("order_number")]  public int      OrderNumber  { get; set; }
+    [JsonPropertyName("created_at")]    public DateTime CreatedAt    { get; set; }
+    [JsonPropertyName("total_price")]   public string   TotalPrice   { get; set; } = "0";
+    [JsonPropertyName("currency")]      public string?  Currency     { get; set; }
+    [JsonPropertyName("contact_email")] public string?  ContactEmail { get; set; }
+    [JsonPropertyName("customer")]      public ShopifyApiCustomer? Customer { get; set; }
+    [JsonPropertyName("line_items")]    public List<ShopifyApiLineItem> LineItems { get; set; } = [];
+}
+
+public class ShopifyApiCustomer
+{
+    [JsonPropertyName("first_name")] public string? FirstName { get; set; }
+    [JsonPropertyName("last_name")]  public string? LastName  { get; set; }
+    public string FullName => $"{FirstName} {LastName}".Trim();
+}
+
+public class ShopifyApiLineItem
+{
+    [JsonPropertyName("id")]       public long    Id       { get; set; }
+    [JsonPropertyName("sku")]      public string? Sku      { get; set; }
+    [JsonPropertyName("title")]    public string? Title    { get; set; }
+    [JsonPropertyName("quantity")] public int     Quantity { get; set; }
+    [JsonPropertyName("price")]    public string  Price    { get; set; } = "0";
+}

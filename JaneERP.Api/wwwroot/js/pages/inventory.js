@@ -97,7 +97,7 @@ const InventoryPage = (() => {
            style="border-radius:12px;background:white;border:1px solid var(--border);margin-bottom:8px;">
         <div class="li-main">
           <div class="li-title">${p.productName}</div>
-          <div class="li-sub">${p.sKU}${p.retailPrice > 0 ? ' · ' + App.fmt$(p.retailPrice) : ''}</div>
+          <div class="li-sub">${p.sku}${p.retailPrice > 0 ? ' · ' + App.fmt$(p.retailPrice) : ''}</div>
         </div>
         <div class="li-right">
           <div class="li-val" style="font-size:22px;font-weight:800;color:${p.isLowStock ? 'var(--danger)' : 'var(--text)'}">
@@ -136,7 +136,7 @@ const InventoryPage = (() => {
       <div class="sheet">
         <div class="sheet-handle"></div>
         <h2 style="font-size:16px;font-weight:700;margin-bottom:2px;">${product.productName}</h2>
-        <p class="text-muted text-small" style="margin-bottom:14px;">SKU: ${product.sKU}</p>
+        <p class="text-muted text-small" style="margin-bottom:14px;">SKU: ${product.sku}</p>
         <div id="stock-detail-content">
           <div class="skeleton skeleton-line"></div>
           <div class="skeleton skeleton-line short"></div>
@@ -159,7 +159,7 @@ const InventoryPage = (() => {
     document.getElementById('close-sheet').addEventListener('click', () => overlay.remove());
 
     document.getElementById('history-btn').addEventListener('click', () => {
-      _invHistoryCtx = { productId: product.productID, productName: product.productName, sku: product.sKU };
+      _invHistoryCtx = { productId: product.productID, productName: product.productName, sku: product.sku };
       overlay.remove();
       App.navigate(`inventory/history/${product.productID}`);
     });

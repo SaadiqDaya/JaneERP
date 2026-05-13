@@ -85,13 +85,20 @@ public class ApiPurchaseOrderRepository
 
         if (po == null) return null;
 
-        po.Items = db.Query<PoLineItem>(@"
-            SELECT POItemID, PartID, ProductID, SKU, ItemName,
-                   QuantityOrdered, QuantityReceived, UnitCost
-            FROM   PurchaseOrderItems
-            WHERE  POID = @poid
-            ORDER  BY POItemID",
-            new { poid }).ToList();
+        try
+        {
+            po.Items = db.Query<PoLineItem>(@"
+                SELECT POItemID, PartID, ProductID, SKU, ItemName,
+                       QuantityOrdered, QuantityReceived, UnitCost
+                FROM   PurchaseOrderItems
+                WHERE  POID = @poid
+                ORDER  BY POItemID",
+                new { poid }).ToList();
+        }
+        catch
+        {
+            po.Items = [];
+        }
 
         return po;
     }

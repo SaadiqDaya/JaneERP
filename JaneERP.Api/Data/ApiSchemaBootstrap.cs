@@ -42,6 +42,9 @@ public static class ApiSchemaBootstrap
                     // Products
                     "IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('Products') AND name='LastVerifiedAt') ALTER TABLE Products ADD LastVerifiedAt DATETIME NULL",
                     "IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('Products') AND name='LastVerifiedBy') ALTER TABLE Products ADD LastVerifiedBy NVARCHAR(100) NULL",
+
+                    // Stores — LastSyncAt added for mobile sync tracking
+                    "IF EXISTS (SELECT 1 FROM sysobjects WHERE name='Stores' AND xtype='U') AND NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('Stores') AND name='LastSyncAt') ALTER TABLE Stores ADD LastSyncAt DATETIME NULL",
                 };
 
                 foreach (var sql in migrations)

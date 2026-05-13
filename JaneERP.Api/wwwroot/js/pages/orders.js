@@ -141,8 +141,8 @@ const OrderDetailPage = (() => {
           ${o.items.map(item => `
             <div class="order-item-row">
               <div class="oi-main">
-                <div class="oi-title">${item.title || item.sKU}</div>
-                <div class="oi-sku">${item.sKU}</div>
+                <div class="oi-title">${item.title || item.sku}</div>
+                <div class="oi-sku">${item.sku}</div>
               </div>
               <div class="oi-right">
                 <div class="oi-total">${App.fmt$(item.quantity * item.unitPrice)}</div>
@@ -244,8 +244,8 @@ const OrderDetailPage = (() => {
           <input type="checkbox" id="pick-cb-${idx}" class="pick-cb"
                  style="width:20px;height:20px;margin-top:2px;flex-shrink:0;cursor:pointer;">
           <div style="flex:1;min-width:0;">
-            <div style="font-size:14px;font-weight:600;">${item.title || item.sKU}</div>
-            <div style="font-size:12px;color:var(--text-2);">${item.sKU}</div>
+            <div style="font-size:14px;font-weight:600;">${item.title || item.sku}</div>
+            <div style="font-size:12px;color:var(--text-2);">${item.sku}</div>
             <div style="display:flex;gap:10px;margin-top:4px;flex-wrap:wrap;">
               <span style="font-size:12px;background:var(--primary-lt);color:var(--primary-dk);
                            padding:2px 8px;border-radius:6px;font-weight:600;">
@@ -395,8 +395,8 @@ const OrderDetailPage = (() => {
     <tbody>
       ${o.items.map(item => `
       <tr>
-        <td>${item.title || item.sKU}</td>
-        <td style="color:#666;">${item.sKU}</td>
+        <td>${item.title || item.sku}</td>
+        <td style="color:#666;">${item.sku}</td>
         <td style="text-align:center;font-weight:700;">${item.quantity}</td>
         <td style="text-align:right;">\$${item.unitPrice.toFixed(2)}</td>
         <td style="text-align:right;font-weight:700;">\$${(item.quantity * item.unitPrice).toFixed(2)}</td>
@@ -522,7 +522,7 @@ const NewOrderPage = (() => {
         ${products.slice(0, 8).map(p => `
           <div class="search-result-item" data-id="${p.productID}">
             <div class="sri-name">${p.productName}</div>
-            <div class="sri-sku">${p.sKU} · Stock: ${p.currentStock} · ${App.fmt$(p.retailPrice)}</div>
+            <div class="sri-sku">${p.sku} · Stock: ${p.currentStock} · ${App.fmt$(p.retailPrice)}</div>
           </div>`).join('')}
       </div>`;
 
@@ -543,7 +543,7 @@ const NewOrderPage = (() => {
     else {
       cart.push({
         productId: product.productID,
-        sku:   product.sKU,
+        sku:   product.sku,
         title: product.productName,
         qty:   1,
         price: product.retailPrice,
