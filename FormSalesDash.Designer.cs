@@ -22,6 +22,7 @@
         private System.Windows.Forms.Button btnCancelSync;
         private System.Windows.Forms.Button btnCreateOrder;
         private System.Windows.Forms.Button btnMarkStatus;
+        private System.Windows.Forms.Button btnQuickFulfil;
         private System.Windows.Forms.Button btnStoreSettings;
         private System.Windows.Forms.Label lblLastSync;
         private System.Windows.Forms.Button btnSyncNow;
@@ -56,6 +57,7 @@
             btnCancelSync  = new Button();
             btnCreateOrder  = new Button();
             btnMarkStatus   = new Button();
+            btnQuickFulfil  = new Button();
             btnStoreSettings = new Button();
             lblLastSync = new Label();
             btnSyncNow  = new Button();
@@ -243,9 +245,20 @@
             btnMarkStatus.Name     = "btnMarkStatus";
             btnMarkStatus.Size     = new Size(120, 24);
             btnMarkStatus.TabIndex = 19;
-            btnMarkStatus.Text     = "Change Status…";
+            btnMarkStatus.Text     = "Change Status\u2026";
             btnMarkStatus.UseVisualStyleBackColor = true;
             btnMarkStatus.Click += btnMarkStatus_Click;
+            //
+            // btnQuickFulfil
+            //
+            btnQuickFulfil.Anchor   = AnchorStyles.Bottom | AnchorStyles.Left;
+            btnQuickFulfil.Location = new Point(278, 443);
+            btnQuickFulfil.Name     = "btnQuickFulfil";
+            btnQuickFulfil.Size     = new Size(120, 24);
+            btnQuickFulfil.TabIndex = 23;
+            btnQuickFulfil.Text     = "\u26A1 Quick Fulfil";
+            btnQuickFulfil.UseVisualStyleBackColor = true;
+            btnQuickFulfil.Click += BtnQuickFulfil_Click;
             //
             // btnStoreSettings
             //
@@ -262,7 +275,7 @@
             //
             lblLastSync.Anchor   = AnchorStyles.Bottom | AnchorStyles.Left;
             lblLastSync.AutoSize = true;
-            lblLastSync.Location = new Point(374, 449);
+            lblLastSync.Location = new Point(510, 449);
             lblLastSync.Name     = "lblLastSync";
             lblLastSync.TabIndex = 21;
             lblLastSync.Text     = "";
@@ -270,7 +283,7 @@
             // btnSyncNow
             //
             btnSyncNow.Anchor   = AnchorStyles.Bottom | AnchorStyles.Left;
-            btnSyncNow.Location = new Point(278, 443);
+            btnSyncNow.Location = new Point(406, 443);
             btnSyncNow.Name     = "btnSyncNow";
             btnSyncNow.Size     = new Size(90, 24);
             btnSyncNow.TabIndex = 22;
@@ -287,6 +300,7 @@
             Controls.Add(btnCancelSync);
             Controls.Add(btnCreateOrder);
             Controls.Add(btnMarkStatus);
+            Controls.Add(btnQuickFulfil);
             Controls.Add(btnStoreSettings);
             Controls.Add(btnSyncNow);
             Controls.Add(lblLastSync);

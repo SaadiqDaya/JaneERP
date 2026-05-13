@@ -69,6 +69,15 @@ namespace JaneERP
             "Manual", "Phone", "Walk-in", "POS"
         };
 
+        /// <summary>
+        /// Available shipping methods shown in the fulfilment workflow (picking dash, quick fulfil).
+        /// Defaults: Standard, Express, Overnight, Local Pickup.
+        /// </summary>
+        public List<string> ShippingMethods { get; set; } = new()
+        {
+            "Standard", "Express", "Overnight", "Local Pickup"
+        };
+
         // ── Security / Lockout policy ─────────────────────────────────────────────────
         /// <summary>Failed attempts before account lockout. 0 = use built-in default (5).</summary>
         public int    MaxLoginAttempts { get; set; } = 5;

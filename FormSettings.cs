@@ -22,6 +22,10 @@ namespace JaneERP
         private TextBox    txtNewOrderType   = new();
         private Button     btnAddOrderType   = new();
         private Button     btnRemoveOrderType = new();
+        private ListBox    lstShippingMethods      = new();
+        private TextBox    txtNewShippingMethod     = new();
+        private Button     btnAddShippingMethod     = new();
+        private Button     btnRemoveShippingMethod  = new();
         private Button     btnSave           = new();
         private Button     btnCancel         = new();
         // Appearance tab
@@ -53,6 +57,7 @@ namespace JaneERP
             RefreshPreview();
             LoadCurrencies();
             LoadOrderTypes();
+            LoadShippingMethods();
         }
 
         private void BuildUI()
@@ -261,7 +266,52 @@ namespace JaneERP
             tabOrders.Controls.Add(btnRemoveOrderType);
 
             // ──────────────────────────────────────────────────────────────────────
-            // TAB 4: Notifications (SMTP)
+            // TAB 4: Fulfillment
+            // ──────────────────────────────────────────────────────────────────────
+            var tabFulfillment = new TabPage("Fulfillment") { Padding = new Padding(12) };
+            tabs.TabPages.Add(tabFulfillment);
+            y = 12;
+
+            tabFulfillment.Controls.Add(new Label
+            {
+                Text      = "Shipping Methods  (shown in the picking and quick-fulfil screens)",
+                Font      = new Font("Segoe UI", 10F, FontStyle.Bold),
+                ForeColor = Theme.Gold, Location = new Point(12, y), AutoSize = true
+            });
+            y += 28;
+
+            tabFulfillment.Controls.Add(new Label
+            {
+                Text      = "\"Local Pickup\" and other non-carrier methods are valid entries.",
+                ForeColor = Theme.TextSecondary, Location = new Point(12, y), AutoSize = true
+            });
+            y += 24;
+
+            lstShippingMethods.Location      = new Point(12, y);
+            lstShippingMethods.Size          = new Size(200, 140);
+            lstShippingMethods.SelectionMode = SelectionMode.One;
+            tabFulfillment.Controls.Add(lstShippingMethods);
+
+            txtNewShippingMethod.Location        = new Point(224, y);
+            txtNewShippingMethod.Size            = new Size(160, 23);
+            txtNewShippingMethod.PlaceholderText = "e.g. Same Day";
+            tabFulfillment.Controls.Add(txtNewShippingMethod);
+
+            btnAddShippingMethod.Text     = "+ Add";
+            btnAddShippingMethod.Size     = new Size(70, 23);
+            btnAddShippingMethod.Location = new Point(392, y);
+            btnAddShippingMethod.Click   += BtnAddShippingMethod_Click;
+            tabFulfillment.Controls.Add(btnAddShippingMethod);
+            y += 30;
+
+            btnRemoveShippingMethod.Text     = "Remove Selected";
+            btnRemoveShippingMethod.Size     = new Size(130, 23);
+            btnRemoveShippingMethod.Location = new Point(224, y);
+            btnRemoveShippingMethod.Click   += BtnRemoveShippingMethod_Click;
+            tabFulfillment.Controls.Add(btnRemoveShippingMethod);
+
+            // ──────────────────────────────────────────────────────────────────────
+            // TAB 5: Notifications (SMTP)
             // ──────────────────────────────────────────────────────────────────────
             var tabEmail = new TabPage("Notifications") { Padding = new Padding(12) };
             tabs.TabPages.Add(tabEmail);
@@ -740,6 +790,31 @@ namespace JaneERP
             if (lstOrderTypes.SelectedItem is not string selected) return;
             _settings.OrderTypes.Remove(selected);
             LoadOrderTypes();
+        }
+
+        private void LoadShippingMethods()
+        {
+            lstShippingMethods.Items.Clear();
+            foreach (var m in _settings.ShippingMethods) lstShippingMethods.Items.Add(m);
+        }
+
+        private void BtnAddShippingMethod_Click(object? sender, EventArgs e)
+        {
+            var name = txtNewShippingMethod.Text.Trim();
+            if (string.IsNullOrWhiteSpace(name)) return;
+            if (!_settings.ShippingMethods.Contains(name, StringComparer.OrdinalIgnoreCase))
+            {
+                _settings.ShippingMethods.Add(name);
+                LoadShippingMethods();
+            }
+            txtNewShippingMethod.Clear();
+        }
+
+        private void BtnRemoveShippingMethod_Click(object? sender, EventArgs e)
+        {
+            if (lstShippingMethods.SelectedItem is not string selected) return;
+            _settings.ShippingMethods.Remove(selected);
+            LoadShippingMethods();
         }
 
         private void BtnSave_Click(object? sender, EventArgs e)

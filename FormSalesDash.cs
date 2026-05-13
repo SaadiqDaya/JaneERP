@@ -162,8 +162,9 @@ namespace JaneERP
             lblStatus.Text = "Loading ERP orders...";
             try
             {
+                var svcLocal = AppServices.Get<IShopifySyncService>();
                 var orders = await Task.Run(() =>
-                    new Services.ShopifySyncService().GetErpOrders(orderType, nonShopifyOnly));
+                    svcLocal.GetErpOrders(orderType, nonShopifyOnly));
                 _fullOrders = orders;
                 ApplyFilters();
                 lblStatus.Text = $"{orders.Count} ERP order(s)";
@@ -1058,25 +1059,12 @@ namespace JaneERP
             if (picker.ShowDialog(this) != DialogResult.OK) return;
             var newStatus = picker.ChosenStatus;
 
-            var svc   = new Services.ShopifySyncService();
+            var svc   = AppServices.Get<IShopifySyncService>();
             int done  = 0, failed = 0;
             foreach (var o in targets)
             {
                 try
                 {
-                    if (newStatus == "Live" && o.ErpSalesOrderID.HasValue)
-                    {
-                        var lines = svc.GetSOReservationItems(o.ErpSalesOrderID.Value);
-                        if (lines.Count > 0)
-                        {
-                            using var resForm = new FormStockReservation(
-                                $"Reserve Inventory — Order #{o.OrderNumber}", lines);
-                            if (resForm.ShowDialog(this) != DialogResult.OK) { failed++; continue; }
-                            if (resForm.ConfirmedLines?.Count > 0)
-                                svc.SaveSOReservations(o.ErpSalesOrderID.Value, resForm.ConfirmedLines);
-                        }
-                    }
-
                     if (svc.UpdateOrderStatus(o.ErpSalesOrderID!.Value, newStatus)) done++;
                     else failed++;
                 }
@@ -1087,6 +1075,47 @@ namespace JaneERP
 
             if (IsErpView) LoadErpOrders(null, cboStoreFilter.SelectedIndex == 1);
             else LoadCachedOrders();
+        }
+
+        private void BtnQuickFulfil_Click(object? sender, EventArgs e)
+        {
+            // Resolve the selected order — works in both Shopify-cache and ERP-direct views
+            Order? selected = null;
+            if (dgvOrders.SelectedRows.Count > 0)
+                selected = dgvOrders.SelectedRows[0].DataBoundItem as Order;
+
+            if (selected == null || !selected.ErpSalesOrderID.HasValue)
+            {
+                MessageBox.Show(this,
+                    "Select a synced ERP order to quick-fulfil.\n\n" +
+                    "Shopify orders must be synced to ERP first (Sync to ERP button).",
+                    "No ERP Order Selected", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            var status = selected.ErpStatus ?? "Draft";
+            if (status is "Shipped" or "Complete")
+            {
+                MessageBox.Show(this,
+                    $"Order #{selected.OrderNumber} is already {status} — nothing to fulfil.",
+                    "Already Fulfilled", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            var svc = AppServices.Get<IShopifySyncService>();
+            using var dlg = new FormQuickFulfil(
+                selected.ErpSalesOrderID.Value,
+                selected.OrderNumber.ToString(),
+                selected.Name ?? "—",
+                status,
+                svc);
+
+            if (dlg.ShowDialog(this) == DialogResult.OK)
+            {
+                lblStatus.Text = $"Order #{selected.OrderNumber} quick-fulfilled.";
+                if (IsErpView) LoadErpOrders(null, cboStoreFilter.SelectedIndex == 1);
+                else LoadCachedOrders();
+            }
         }
 
         private void btnStoreSettings_Click(object? sender, EventArgs e)
@@ -1299,7 +1328,7 @@ namespace JaneERP
             if (!_order.ErpSalesOrderID.HasValue) return;
             try
             {
-                var items = new Services.ShopifySyncService().GetOrderItems(_order.ErpSalesOrderID.Value);
+                var items = AppServices.Get<IShopifySyncService>().GetOrderItems(_order.ErpSalesOrderID.Value);
                 decimal subtotal = 0;
                 foreach (var item in items)
                 {
@@ -1337,22 +1366,9 @@ namespace JaneERP
             using var picker = new FormStatusPicker(_order.ErpStatus ?? "Draft");
             if (picker.ShowDialog(this) != DialogResult.OK) return;
 
-            var svc = new Services.ShopifySyncService();
+            var svc = AppServices.Get<IShopifySyncService>();
             try
             {
-                if (picker.ChosenStatus == "Live")
-                {
-                    var lines = svc.GetSOReservationItems(_order.ErpSalesOrderID.Value);
-                    if (lines.Count > 0)
-                    {
-                        using var resForm = new FormStockReservation(
-                            $"Reserve Inventory — Order #{_order.OrderNumber}", lines);
-                        if (resForm.ShowDialog(this) != DialogResult.OK) return;
-                        if (resForm.ConfirmedLines?.Count > 0)
-                            svc.SaveSOReservations(_order.ErpSalesOrderID.Value, resForm.ConfirmedLines);
-                    }
-                }
-
                 svc.UpdateOrderStatus(_order.ErpSalesOrderID.Value, picker.ChosenStatus);
                 _order.ErpStatus        = picker.ChosenStatus;
                 lblStatusValue.Text      = picker.ChosenStatus;
@@ -1388,7 +1404,7 @@ namespace JaneERP
             if (dlg.ShowDialog(this) != DialogResult.OK) return;
             try
             {
-                new Services.ShopifySyncService().MarkAsPaid(
+                AppServices.Get<IShopifySyncService>().MarkAsPaid(
                     _order.ErpSalesOrderID.Value, dlg.PaymentMethod, dlg.Notes);
                 _order.IsPaid  = true;
                 _order.PaidAt  = DateTime.Now;
