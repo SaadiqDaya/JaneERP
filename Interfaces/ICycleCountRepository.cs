@@ -1,4 +1,4 @@
-using JaneERP.Data;
+using JaneERP.Models;
 
 namespace JaneERP.Interfaces
 {

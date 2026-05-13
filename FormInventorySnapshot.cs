@@ -1,19 +1,13 @@
-using System.Configuration;
-using Dapper;
-using JaneERP.Data;
 using JaneERP.Infrastructure;
 using JaneERP.Interfaces;
 using JaneERP.Models;
-using Microsoft.Data.SqlClient;
 
 namespace JaneERP
 {
     /// <summary>Read-only snapshot of current inventory levels across all products.</summary>
     public class FormInventorySnapshot : Form
     {
-        private readonly string _cs =
-            ConfigurationManager.ConnectionStrings["MyERP"]?.ConnectionString
-            ?? throw new InvalidOperationException("Connection string 'MyERP' not found in App.config.");
+        private readonly IInventoryService _invSvc = AppServices.Get<IInventoryService>();
 
         private DataGridView dgv          = new();
         private Label        lblStatus    = new();
@@ -212,17 +206,7 @@ namespace JaneERP
         {
             try
             {
-                using var db = new SqlConnection(_cs);
-                var rows = db.Query<ExpiringItem>(@"
-                    SELECT p.SKU, p.ProductName, l.LocationName, it.LotNumber, it.ExpirationDate,
-                           it.QuantityChange AS Quantity
-                    FROM   InventoryTransactions it
-                    JOIN   Products  p ON p.ProductID  = it.ProductID
-                    LEFT JOIN Locations l ON l.LocationID = it.LocationID
-                    WHERE  it.ExpirationDate IS NOT NULL
-                      AND  it.ExpirationDate <= DATEADD(day, 30, GETDATE())
-                      AND  it.QuantityChange > 0
-                    ORDER BY it.ExpirationDate ASC").ToList();
+                var rows = _invSvc.GetExpiringItems(30);
 
                 if (rows.Count == 0)
                 {
@@ -241,16 +225,6 @@ namespace JaneERP
                 lblExpiryHeader.Text = $"\u26A0 Expiry check failed: {ex.Message}";
                 dgvExpiry.Visible    = false;
             }
-        }
-
-        private sealed class ExpiringItem
-        {
-            public string?   SKU            { get; set; }
-            public string?   ProductName    { get; set; }
-            public string?   LocationName   { get; set; }
-            public string?   LotNumber      { get; set; }
-            public DateTime? ExpirationDate { get; set; }
-            public int       Quantity       { get; set; }
         }
 
         private void ApplyFilter()

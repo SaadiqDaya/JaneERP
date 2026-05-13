@@ -4,6 +4,8 @@ namespace JaneERP.Interfaces
 {
     public interface IProductRepository
     {
+        /// <summary>Products whose available stock (on-hand minus reservations) is at or below their reorder point.</summary>
+        List<ProductReorderRow> GetProductsAtReorderPoint();
         IEnumerable<Product>          GetProducts(bool showInactive = false, int? locationId = null);
         Product?                      GetProductById(int productId);
         int                           GetUnverifiedCount();

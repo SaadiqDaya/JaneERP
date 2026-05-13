@@ -39,7 +39,10 @@ namespace JaneERP.Infrastructure
             services.AddSingleton<IManufacturingRepository, ManufacturingRepository>();
 
             // ── Services ──────────────────────────────────────────────────────────
-            services.AddSingleton<IShopifySyncService, ShopifySyncService>();
+            services.AddSingleton<IShopifySyncService,  ShopifySyncService>();
+            services.AddSingleton<IInventoryService,    InventoryService>();
+            services.AddSingleton<IReportingRepository, ReportingRepository>();
+            services.AddSingleton<ICustomerRepository,  CustomerRepository>();
             services.AddSingleton<ShopifyClient>();
 
             AppServices.Initialize(services.BuildServiceProvider());

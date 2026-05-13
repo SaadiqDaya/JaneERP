@@ -184,5 +184,40 @@ namespace JaneERP.Data
                 .Select(r => ((int)r.ProductID, (string)r.ProductName, (string?)r.BomNumber, (int)r.PartCount))
                 .ToList();
         }
+
+        public List<Models.PartReorderRow> GetPartsAtReorderPoint()
+        {
+            using IDbConnection db = new SqlConnection(_connectionString);
+            List<Models.PartReorderRow> rows;
+            try
+            {
+                rows = db.Query<Models.PartReorderRow>(@"
+                    SELECT  PartNumber,
+                            PartName,
+                            CurrentStock,
+                            ISNULL(ReorderPoint, 0) AS ReorderPoint,
+                            UnitCost
+                    FROM    Parts
+                    WHERE   IsActive = 1
+                      AND   CurrentStock <= ISNULL(ReorderPoint, 5)
+                    ORDER   BY PartNumber").ToList();
+            }
+            catch
+            {
+                // Fallback: ReorderPoint column may not exist yet
+                rows = db.Query<Models.PartReorderRow>(@"
+                    SELECT  PartNumber,
+                            PartName,
+                            CurrentStock,
+                            0 AS ReorderPoint,
+                            UnitCost
+                    FROM    Parts
+                    WHERE   IsActive = 1
+                      AND   CurrentStock <= 5
+                    ORDER   BY PartNumber").ToList();
+            }
+            foreach (var r in rows) r.Compute();
+            return rows;
+        }
     }
 }

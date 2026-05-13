@@ -1,8 +1,7 @@
-using System.Configuration;
 using System.Data;
 using System.Text;
-using Dapper;
-using Microsoft.Data.SqlClient;
+using JaneERP.Infrastructure;
+using JaneERP.Interfaces;
 
 namespace JaneERP
 {
@@ -11,9 +10,7 @@ namespace JaneERP
     /// </summary>
     public class FormReports : Form
     {
-        private readonly string _connectionString =
-            ConfigurationManager.ConnectionStrings["MyERP"]?.ConnectionString
-            ?? throw new InvalidOperationException("Connection string 'MyERP' not found in App.config.");
+        private readonly IReportingRepository _repo = AppServices.Get<IReportingRepository>();
 
         // Tab control
         private TabControl tabMain = new();
@@ -160,18 +157,7 @@ namespace JaneERP
         {
             try
             {
-                using IDbConnection db = new SqlConnection(_connectionString);
-                var data = db.Query(@"
-                    SELECT l.LocationName, p.SKU, p.ProductName,
-                           SUM(t.QuantityChange) AS StockQty,
-                           SUM(t.QuantityChange) * p.RetailPrice    AS RetailValue,
-                           SUM(t.QuantityChange) * p.WholesalePrice AS WholesaleValue
-                    FROM InventoryTransactions t
-                    JOIN Products p   ON p.ProductID   = t.ProductID
-                    LEFT JOIN Locations l ON l.LocationID = t.LocationID
-                    GROUP BY l.LocationName, p.SKU, p.ProductName, p.RetailPrice, p.WholesalePrice
-                    HAVING SUM(t.QuantityChange) > 0
-                    ORDER BY l.LocationName, p.SKU").ToList();
+                var data = _repo.GetStockOnHand().ToList();
 
                 BindGrid(dgvStock, data, new[]
                 {
@@ -245,24 +231,9 @@ namespace JaneERP
         {
             try
             {
-                using IDbConnection db = new SqlConnection(_connectionString);
                 var from = dtpSalesFrom.Value.Date;
                 var to   = dtpSalesTo.Value.Date.AddDays(1);
-                var data = db.Query(@"
-                    SELECT so.OrderNumber AS [Order#],
-                           so.OrderDate  AS [Date],
-                           c.FullName    AS Customer,
-                           ISNULL(st.StoreName, so.OrderType) AS Store,
-                           so.TotalPrice AS Total,
-                           so.Currency,
-                           so.Status,
-                           so.OrderType  AS [Type]
-                    FROM SalesOrders so
-                    JOIN Customers c   ON c.CustomerID = so.CustomerID
-                    LEFT JOIN Stores st ON st.StoreID  = so.StoreID
-                    WHERE so.OrderDate >= @from AND so.OrderDate < @to
-                    ORDER BY so.OrderDate DESC",
-                    new { from, to }).ToList();
+                var data = _repo.GetSalesByPeriod(from, to).ToList();
 
                 BindGrid(dgvSales, data, new[]
                 {
@@ -323,16 +294,7 @@ namespace JaneERP
         {
             try
             {
-                using IDbConnection db = new SqlConnection(_connectionString);
-                var data = db.Query(@"
-                    SELECT wo.WorkOrderID, p.SKU, p.ProductName,
-                           wo.Quantity,
-                           ISNULL(wo.CostOfGoods, 0) AS CostOfGoods,
-                           wo.CompletedAt
-                    FROM WorkOrders wo
-                    JOIN Products p ON p.ProductID = wo.ProductID
-                    WHERE wo.Status = 'Complete' AND wo.CostOfGoods IS NOT NULL
-                    ORDER BY wo.CompletedAt DESC").ToList();
+                var data = _repo.GetCogsSummary().ToList();
 
                 BindGrid(dgvCogs, data, new[]
                 {
@@ -397,44 +359,9 @@ namespace JaneERP
         {
             try
             {
-                using IDbConnection db = new SqlConnection(_connectionString);
                 var from = dtpCycleFrom.Value.Date;
                 var to   = dtpCycleTo.Value.Date.AddDays(1);
-
-                // Show verified cycle counts within the date range.
-                // The "expected" (pre-count system qty) is reconstructed as: actual_qty - adjustment_qty
-                // The cycle count adjustment transactions are recorded with TransactionType = 'Cycle Count'.
-                // For each product, take the most recent verified cycle count in the range
-                // and show: product, location, expected qty (before adjustment), counted qty, variance, date, verified by.
-                var data = db.Query(@"
-                    SELECT p.SKU,
-                           p.ProductName,
-                           l.LocationName,
-                           -- The adjustment is (actual - expected), so expected = actual - adj
-                           it.QuantityChange                      AS AdjustmentQty,
-                           (p.LastVerifiedAt)                     AS DateCounted,
-                           p.LastVerifiedBy                       AS VerifiedBy,
-                           -- Reconstruct: system qty before adjustment and counted qty
-                           -- SystemQtyBefore = current_system_qty - adjustment
-                           ISNULL((SELECT SUM(t2.QuantityChange)
-                                   FROM InventoryTransactions t2
-                                   WHERE t2.ProductID = p.ProductID
-                                     AND t2.TransactionID <= it.TransactionID), 0)
-                               - it.QuantityChange                AS ExpectedQty,
-                           ISNULL((SELECT SUM(t2.QuantityChange)
-                                   FROM InventoryTransactions t2
-                                   WHERE t2.ProductID = p.ProductID
-                                     AND t2.TransactionID <= it.TransactionID), 0) AS CountedQty
-                    FROM   Products p
-                    JOIN   InventoryTransactions it ON it.ProductID = p.ProductID
-                                                   AND it.TransactionType = 'Cycle Count'
-                                                   AND it.TransactionDate >= @from
-                                                   AND it.TransactionDate <  @to
-                    LEFT JOIN Locations l ON l.LocationID = it.LocationID
-                    WHERE  p.IsActive = 1
-                      AND  p.LastVerifiedAt IS NOT NULL
-                    ORDER  BY it.TransactionDate DESC, p.ProductName",
-                    new { from, to }).ToList();
+                var data = _repo.GetCycleCountVariance(from, to).ToList();
 
                 BindGrid(dgvCycle, data, new[]
                 {
@@ -501,42 +428,13 @@ namespace JaneERP
         {
             try
             {
-                using IDbConnection db = new SqlConnection(_connectionString);
                 var from = dtpGPFrom.Value.Date;
                 var to   = dtpGPTo.Value.Date.AddDays(1);
-
-                // Per-product gross profit: Revenue from sales minus average unit COGS from completed work orders.
-                // Unit COGS is pre-aggregated in a CTE to avoid correlated subqueries inside SUM().
-                var data = db.Query(@"
-                    WITH ProductUnitCost AS (
-                        SELECT  ProductID,
-                                SUM(CostOfGoods) / NULLIF(SUM(Quantity), 0) AS UnitCOGS
-                        FROM    WorkOrders
-                        WHERE   Status      = 'Complete'
-                          AND   CostOfGoods IS NOT NULL
-                        GROUP BY ProductID
-                    )
-                    SELECT
-                        p.SKU,
-                        p.ProductName                                             AS Product,
-                        SUM(soi.Quantity)                                         AS UnitsSold,
-                        SUM(soi.Quantity * soi.UnitPrice)                         AS Revenue,
-                        SUM(soi.Quantity * ISNULL(pc.UnitCOGS, 0))               AS COGS,
-                        SUM(soi.Quantity * soi.UnitPrice)
-                        - SUM(soi.Quantity * ISNULL(pc.UnitCOGS, 0))             AS GrossProfit
-                    FROM  SalesOrderItems  soi
-                    JOIN  Products         p  ON p.ProductID    = soi.ProductID
-                    JOIN  SalesOrders      so ON so.SalesOrderID = soi.SalesOrderID
-                    LEFT JOIN ProductUnitCost pc ON pc.ProductID = soi.ProductID
-                    WHERE so.OrderDate >= @from AND so.OrderDate < @to
-                    GROUP BY p.SKU, p.ProductName
-                    ORDER BY GrossProfit DESC",
-                    new { from, to }).ToList();
+                var data = _repo.GetGrossProfitByProduct(from, to).ToList();
 
                 if (data.Count == 0)
                 {
-                    // Diagnose: check if SalesOrderItems has ANY data regardless of date
-                    int anyItems = db.ExecuteScalar<int>("SELECT COUNT(1) FROM SalesOrderItems");
+                    int anyItems = _repo.GetSalesOrderItemCount();
                     if (anyItems == 0)
                         lblGPTotals.Text = "No line-item data found. Use 'Sync to ERP' in the Sales screen to populate order details.";
                     else

@@ -14,5 +14,8 @@ namespace JaneERP.Interfaces
         List<BomLabourCost>  GetLabourCosts(int productId);
         void                 SetLabourCosts(int productId, IEnumerable<BomLabourCost> costs);
         List<(int ProductID, string ProductName, string? BomNumber, int PartCount)> GetProductsWithBoms();
+
+        /// <summary>Parts whose current stock is at or below their reorder point.</summary>
+        List<PartReorderRow> GetPartsAtReorderPoint();
     }
 }

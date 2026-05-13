@@ -1,8 +1,7 @@
-using System.Configuration;
-using System.Data;
 using System.Text;
-using Dapper;
-using Microsoft.Data.SqlClient;
+using JaneERP.Infrastructure;
+using JaneERP.Interfaces;
+using JaneERP.Models;
 
 namespace JaneERP
 {
@@ -11,9 +10,6 @@ namespace JaneERP
     /// </summary>
     public class FormReorderReport : Form
     {
-        private readonly string _cs =
-            ConfigurationManager.ConnectionStrings["MyERP"]?.ConnectionString
-            ?? throw new InvalidOperationException("Connection string 'MyERP' not found in App.config.");
 
         private TabControl     tabControl    = new();
         private DataGridView   dgvProducts   = new();
@@ -232,89 +228,16 @@ namespace JaneERP
 
         private void LoadProducts()
         {
-            using IDbConnection db = new SqlConnection(_cs);
-
-            // Fetch active products where available stock (on-hand minus reservations) is at or below reorder point
-            var rows = db.Query<ProductReorderRow>(@"
-                SELECT  p.SKU,
-                        p.ProductName,
-                        p.RetailPrice,
-                        p.WholesalePrice,
-                        p.ReorderPoint,
-                        ISNULL((
-                            SELECT SUM(t.QuantityChange)
-                            FROM   InventoryTransactions t
-                            WHERE  t.ProductID = p.ProductID
-                        ), 0) AS CurrentStock,
-                        ISNULL((
-                            SELECT SUM(sr.Quantity)
-                            FROM   StockReservations sr
-                            WHERE  sr.ProductID = p.ProductID
-                        ), 0) AS ReservedQty
-                FROM    Products p
-                WHERE   p.IsActive = 1
-                  AND   p.ReorderPoint > 0
-                  AND   (ISNULL((SELECT SUM(t.QuantityChange) FROM InventoryTransactions t WHERE t.ProductID = p.ProductID), 0)
-                         - ISNULL((SELECT SUM(sr.Quantity) FROM StockReservations sr WHERE sr.ProductID = p.ProductID), 0)
-                        ) <= p.ReorderPoint
-                ORDER   BY p.SKU").ToList();
-
-            foreach (var r in rows)
-                r.Compute();
-
-            _productRows = rows;
-
+            _productRows = AppServices.Get<IProductRepository>().GetProductsAtReorderPoint();
             dgvProducts.DataSource = null;
-            dgvProducts.DataSource = rows;
+            dgvProducts.DataSource = _productRows;
         }
 
         private void LoadParts()
         {
-            using IDbConnection db = new SqlConnection(_cs);
-            List<PartReorderRow> rows;
-
-            try
-            {
-                rows = db.Query<PartReorderRow>(@"
-                    SELECT  PartNumber,
-                            PartName,
-                            CurrentStock,
-                            ISNULL(ReorderPoint, 0) AS ReorderPoint,
-                            UnitCost
-                    FROM    Parts
-                    WHERE   IsActive = 1
-                      AND   CurrentStock <= ISNULL(ReorderPoint, 5)
-                    ORDER   BY PartNumber").ToList();
-            }
-            catch
-            {
-                // Fallback: ReorderPoint column may not exist — show parts with stock <= 5
-                try
-                {
-                    rows = db.Query<PartReorderRow>(@"
-                        SELECT  PartNumber,
-                                PartName,
-                                CurrentStock,
-                                0 AS ReorderPoint,
-                                UnitCost
-                        FROM    Parts
-                        WHERE   IsActive = 1
-                          AND   CurrentStock <= 5
-                        ORDER   BY PartNumber").ToList();
-                }
-                catch
-                {
-                    rows = new List<PartReorderRow>();
-                }
-            }
-
-            foreach (var r in rows)
-                r.Compute();
-
-            _partRows = rows;
-
+            _partRows = AppServices.Get<IPartRepository>().GetPartsAtReorderPoint();
             dgvParts.DataSource = null;
-            dgvParts.DataSource = rows;
+            dgvParts.DataSource = _partRows;
         }
 
         private void UpdateTotalLabel()
@@ -426,63 +349,4 @@ namespace JaneERP
         }
     }
 
-    // ── Row DTOs ──────────────────────────────────────────────────────────────────
-
-    internal class ProductReorderRow
-    {
-        public string  SKU              { get; set; } = "";
-        public string  ProductName      { get; set; } = "";
-        public int     CurrentStock     { get; set; }
-        public int     ReservedQty      { get; set; }
-        public int     ReorderPoint     { get; set; }
-        public decimal RetailPrice      { get; set; }
-        public decimal WholesalePrice   { get; set; }
-
-        // Computed
-        public int     Available        => Math.Max(0, CurrentStock - ReservedQty);
-        public int     Shortfall        { get; set; }
-        public int     SuggestedQty     { get; set; }
-        public decimal EstCost          { get; set; }
-
-        // Display-formatted for grid
-        public string  RetailPriceDisplay { get; set; } = "";
-        public string  EstCostDisplay     { get; set; } = "";
-
-        public void Compute()
-        {
-            Shortfall           = Math.Max(0, ReorderPoint - Available);
-            SuggestedQty        = (int)Math.Ceiling(Shortfall * 1.5);
-            EstCost             = SuggestedQty * WholesalePrice;
-            RetailPriceDisplay  = RetailPrice.ToString("C");
-            EstCostDisplay      = EstCost.ToString("C");
-        }
-    }
-
-    internal class PartReorderRow
-    {
-        public string  PartNumber    { get; set; } = "";
-        public string  PartName      { get; set; } = "";
-        public int     CurrentStock  { get; set; }
-        public int     ReorderPoint  { get; set; }
-        public decimal UnitCost      { get; set; }
-
-        // Computed
-        public int     Shortfall     { get; set; }
-        public int     SuggestedQty  { get; set; }
-        public decimal EstCost       { get; set; }
-
-        // Display-formatted for grid
-        public string  UnitCostDisplay { get; set; } = "";
-        public string  EstCostDisplay  { get; set; } = "";
-
-        public void Compute()
-        {
-            Shortfall      = Math.Max(0, ReorderPoint - CurrentStock);
-            SuggestedQty   = (int)Math.Ceiling(Shortfall * 1.5);
-            if (SuggestedQty == 0) SuggestedQty = 5; // fallback minimum
-            EstCost        = SuggestedQty * UnitCost;
-            UnitCostDisplay = UnitCost.ToString("C");
-            EstCostDisplay  = EstCost.ToString("C");
-        }
-    }
 }

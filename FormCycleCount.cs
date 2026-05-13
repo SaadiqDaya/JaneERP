@@ -1,20 +1,15 @@
-using System.Configuration;
-using Dapper;
-using JaneERP.Data;
+using JaneERP.Infrastructure;
+using JaneERP.Interfaces;
+using JaneERP.Models;
 using JaneERP.Security;
-using Microsoft.Data.SqlClient;
 
 namespace JaneERP
 {
     /// <summary>Cycle count screen: select location, verify physical quantities, adjust on discrepancy.</summary>
     public class FormCycleCount : Form
     {
-        private readonly string _cs =
-            ConfigurationManager.ConnectionStrings["MyERP"]?.ConnectionString
-            ?? throw new InvalidOperationException("Connection string 'MyERP' not found in App.config.");
-
-        private readonly LocationRepository   _locRepo = new();
-        private readonly CycleCountRepository _ccRepo  = new();
+        private readonly ICycleCountRepository _ccRepo  = AppServices.Get<ICycleCountRepository>();
+        private readonly ILocationRepository  _locRepo = AppServices.Get<ILocationRepository>();
 
         private ComboBox     cboLocation      = new();
         private DataGridView dgvItems         = new();
@@ -197,12 +192,7 @@ namespace JaneERP
         {
             try
             {
-                using var db = new SqlConnection(_cs);
-                int count = db.ExecuteScalar<int>(@"
-                    SELECT COUNT(1) FROM Products
-                    WHERE  IsActive = 1
-                      AND  (LastVerifiedAt IS NULL OR LastVerifiedAt < DATEADD(day, -30, GETDATE()))");
-
+                int count = _ccRepo.GetOverdueCount(30);
                 lblUncounted.Text = count > 0
                     ? $"  \u26A0 {count} product(s) not counted in 30+ days"
                     : "";

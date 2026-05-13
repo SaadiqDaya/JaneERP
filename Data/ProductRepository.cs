@@ -572,5 +572,36 @@ namespace JaneERP.Data
             using IDbConnection db = new SqlConnection(_connectionString);
             db.Execute("UPDATE Products SET IsActive = 0 WHERE ProductID = @productId", new { productId });
         }
+
+        public List<Models.ProductReorderRow> GetProductsAtReorderPoint()
+        {
+            using IDbConnection db = new SqlConnection(_connectionString);
+            var rows = db.Query<Models.ProductReorderRow>(@"
+                SELECT  p.SKU,
+                        p.ProductName,
+                        p.RetailPrice,
+                        p.WholesalePrice,
+                        p.ReorderPoint,
+                        ISNULL((
+                            SELECT SUM(t.QuantityChange)
+                            FROM   InventoryTransactions t
+                            WHERE  t.ProductID = p.ProductID
+                        ), 0) AS CurrentStock,
+                        ISNULL((
+                            SELECT SUM(sr.Quantity)
+                            FROM   StockReservations sr
+                            WHERE  sr.ProductID = p.ProductID
+                        ), 0) AS ReservedQty
+                FROM    Products p
+                WHERE   p.IsActive = 1
+                  AND   p.ReorderPoint > 0
+                  AND   (ISNULL((SELECT SUM(t.QuantityChange) FROM InventoryTransactions t WHERE t.ProductID = p.ProductID), 0)
+                         - ISNULL((SELECT SUM(sr.Quantity) FROM StockReservations sr WHERE sr.ProductID = p.ProductID), 0)
+                        ) <= p.ReorderPoint
+                ORDER   BY p.SKU").ToList();
+
+            foreach (var r in rows) r.Compute();
+            return rows;
+        }
     }
 }

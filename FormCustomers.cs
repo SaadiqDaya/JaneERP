@@ -1,14 +1,12 @@
-using System.Configuration;
-using Dapper;
-using Microsoft.Data.SqlClient;
+using JaneERP.Infrastructure;
+using JaneERP.Interfaces;
+using JaneERP.Models;
 
 namespace JaneERP
 {
     public class FormCustomers : Form
     {
-        private readonly string _cs =
-            ConfigurationManager.ConnectionStrings["MyERP"]?.ConnectionString
-            ?? throw new InvalidOperationException("Connection string 'MyERP' not found.");
+        private readonly ICustomerRepository _custRepo = AppServices.Get<ICustomerRepository>();
 
         private DataGridView _dgvCustomers = new();
         private DataGridView _dgvOrders    = new();
@@ -18,7 +16,7 @@ namespace JaneERP
         private Label        _lblStats     = new();
         private Label        _lblStatus    = new();
 
-        private List<dynamic> _allCustomers = [];
+        private List<CustomerSummary> _allCustomers = [];
 
         public FormCustomers()
         {
@@ -134,18 +132,7 @@ namespace JaneERP
         {
             try
             {
-                using var db = new SqlConnection(_cs);
-                _allCustomers = db.Query(@"
-                    SELECT c.CustomerID,
-                           ISNULL(c.FullName, '') AS FullName,
-                           c.Email,
-                           COUNT(so.SalesOrderID)         AS OrderCount,
-                           ISNULL(SUM(so.TotalPrice), 0)  AS TotalSpent
-                    FROM   Customers c
-                    LEFT JOIN SalesOrders so ON so.CustomerID = c.CustomerID
-                    GROUP BY c.CustomerID, c.FullName, c.Email
-                    ORDER  BY TotalSpent DESC").Cast<dynamic>().ToList();
-
+                _allCustomers = _custRepo.GetSummaries();
                 ApplyFilter();
             }
             catch (Exception ex)
@@ -158,22 +145,22 @@ namespace JaneERP
         private void ApplyFilter()
         {
             string q = _txtSearch.Text.Trim();
-            IEnumerable<dynamic> filtered = string.IsNullOrEmpty(q)
+            var filtered = string.IsNullOrEmpty(q)
                 ? _allCustomers
                 : _allCustomers.Where(c =>
-                    ((string)c.FullName).Contains(q, StringComparison.OrdinalIgnoreCase) ||
-                    ((string)c.Email).Contains(q, StringComparison.OrdinalIgnoreCase));
+                    c.FullName.Contains(q, StringComparison.OrdinalIgnoreCase) ||
+                    (c.Email ?? "").Contains(q, StringComparison.OrdinalIgnoreCase)).ToList();
 
             _dgvCustomers.Rows.Clear();
-            foreach (IDictionary<string, object> row in filtered)
+            foreach (var c in filtered)
             {
                 int idx = _dgvCustomers.Rows.Add();
                 var r   = _dgvCustomers.Rows[idx];
-                r.Cells["colName"].Value   = row["FullName"];
-                r.Cells["colEmail"].Value  = row["Email"];
-                r.Cells["colOrders"].Value = row["OrderCount"];
-                r.Cells["colSpent"].Value  = Convert.ToDecimal(row["TotalSpent"]).ToString("N2");
-                r.Tag = (int)row["CustomerID"];
+                r.Cells["colName"].Value   = c.FullName;
+                r.Cells["colEmail"].Value  = c.Email;
+                r.Cells["colOrders"].Value = c.OrderCount;
+                r.Cells["colSpent"].Value  = c.TotalSpent.ToString("N2");
+                r.Tag = c.CustomerID;
             }
 
             int total = _allCustomers.Count;
@@ -195,37 +182,28 @@ namespace JaneERP
             _dgvOrders.Rows.Clear();
             try
             {
-                using var db = new SqlConnection(_cs);
-                var orders = db.Query(@"
-                    SELECT SalesOrderID, OrderNumber, OrderDate, TotalPrice, Currency, OrderType, Status,
-                           ISNULL(IsPaid, 0) AS IsPaid, PaidAt
-                    FROM   SalesOrders
-                    WHERE  CustomerID = @customerId
-                    ORDER  BY OrderDate DESC",
-                    new { customerId }).ToList();
+                var orders = _custRepo.GetOrders(customerId);
 
                 decimal total = 0m, totalPaid = 0m;
-                foreach (IDictionary<string, object> o in orders)
+                foreach (var o in orders)
                 {
                     int idx = _dgvOrders.Rows.Add();
                     var r   = _dgvOrders.Rows[idx];
-                    r.Cells["colON"].Value     = o["OrderNumber"];
-                    r.Cells["colDate"].Value   = o["OrderDate"] is DateTime dt ? dt.ToString("yyyy-MM-dd") : "";
-                    decimal price = Convert.ToDecimal(o["TotalPrice"]);
-                    r.Cells["colTotal"].Value  = price.ToString("N2");
-                    r.Cells["colCurr"].Value   = o["Currency"];
-                    r.Cells["colType"].Value   = o["OrderType"];
-                    r.Cells["colStatus"].Value = o["Status"];
-                    r.Tag = (int)o["SalesOrderID"]; // stored for double-click
-                    total += price;
+                    r.Cells["colON"].Value     = o.OrderNumber;
+                    r.Cells["colDate"].Value   = o.OrderDate.ToString("yyyy-MM-dd");
+                    r.Cells["colTotal"].Value  = o.TotalPrice.ToString("N2");
+                    r.Cells["colCurr"].Value   = o.Currency;
+                    r.Cells["colType"].Value   = o.OrderType;
+                    r.Cells["colStatus"].Value = o.Status;
+                    r.Tag = o.SalesOrderID;
+                    total += o.TotalPrice;
 
-                    bool paid = Convert.ToBoolean(o["IsPaid"]);
-                    if (paid)
+                    if (o.IsPaid)
                     {
-                        string paidDate = o["PaidAt"] is DateTime pd ? pd.ToString("yyyy-MM-dd") : "";
-                        r.Cells["colPaid"].Value   = $"Paid {paidDate}".Trim();
+                        string paidDate = o.PaidAt.HasValue ? o.PaidAt.Value.ToString("yyyy-MM-dd") : "";
+                        r.Cells["colPaid"].Value     = $"Paid {paidDate}".Trim();
                         r.DefaultCellStyle.ForeColor = Color.FromArgb(80, 210, 100);
-                        totalPaid += price;
+                        totalPaid += o.TotalPrice;
                     }
                     else
                     {
@@ -255,18 +233,7 @@ namespace JaneERP
         {
             try
             {
-                using var db = new SqlConnection(_cs);
-                var items = db.Query(@"
-                    SELECT ISNULL(soi.SKU, '') AS SKU,
-                           ISNULL(soi.Title, p.ProductName) AS ProductName,
-                           soi.Quantity,
-                           soi.UnitPrice,
-                           soi.Quantity * soi.UnitPrice AS LineTotal
-                    FROM   SalesOrderItems soi
-                    LEFT JOIN Products p ON p.ProductID = soi.ProductID
-                    WHERE  soi.SalesOrderID = @salesOrderId
-                    ORDER  BY soi.SalesOrderItemID",
-                    new { salesOrderId }).ToList();
+                var items = _custRepo.GetOrderLineItems(salesOrderId);
 
                 var frm = new Form
                 {
@@ -312,14 +279,14 @@ namespace JaneERP
                 dgv.Columns.Add(new DataGridViewTextBoxColumn { Name = "colLine",     HeaderText = "Line Total",   Width = 110 });
                 Theme.StyleGrid(dgv);
 
-                foreach (IDictionary<string, object> item in items)
+                foreach (var item in items)
                 {
                     int idx = dgv.Rows.Add();
-                    dgv.Rows[idx].Cells["colSKU"].Value     = item["SKU"];
-                    dgv.Rows[idx].Cells["colProduct"].Value = item["ProductName"];
-                    dgv.Rows[idx].Cells["colQty"].Value     = item["Quantity"];
-                    dgv.Rows[idx].Cells["colUnit"].Value    = Convert.ToDecimal(item["UnitPrice"]).ToString("N2");
-                    dgv.Rows[idx].Cells["colLine"].Value    = Convert.ToDecimal(item["LineTotal"]).ToString("N2");
+                    dgv.Rows[idx].Cells["colSKU"].Value     = item.SKU;
+                    dgv.Rows[idx].Cells["colProduct"].Value = item.ProductName;
+                    dgv.Rows[idx].Cells["colQty"].Value     = item.Quantity;
+                    dgv.Rows[idx].Cells["colUnit"].Value    = item.UnitPrice.ToString("N2");
+                    dgv.Rows[idx].Cells["colLine"].Value    = item.LineTotal.ToString("N2");
                 }
 
                 if (items.Count == 0)
