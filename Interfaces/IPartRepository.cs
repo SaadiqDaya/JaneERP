@@ -15,6 +15,13 @@ namespace JaneERP.Interfaces
         void                 SetLabourCosts(int productId, IEnumerable<BomLabourCost> costs);
         List<(int ProductID, string ProductName, string? BomNumber, int PartCount)> GetProductsWithBoms();
 
+        /// <summary>
+        /// Returns a dictionary of ProductID → PartNumber for active products whose BOM
+        /// consists of exactly one linked part and have no BomNumber set (i.e., "Part" source type).
+        /// Used by the Product Explorer to display the correct source label.
+        /// </summary>
+        Dictionary<int, string> GetLinkedPartNumberByProduct();
+
         /// <summary>Parts whose current stock is at or below their reorder point.</summary>
         List<PartReorderRow> GetPartsAtReorderPoint();
 

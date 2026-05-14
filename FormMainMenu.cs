@@ -185,10 +185,23 @@ namespace JaneERP
         private void btnSales_Click(object sender, EventArgs e)
         {
             Hide();
-            var stores = new Data.StoreRepository().GetAll().ToList();
-            using var frm = new FormSalesDash(stores);
-            frm.ShowDialog(this);
-            Show();
+            try
+            {
+                var stores = new Data.StoreRepository().GetAll().ToList();
+                using var frm = new FormSalesDash(stores);
+                frm.ShowDialog(this);
+            }
+            catch (Exception ex)
+            {
+                AppLogger.Audit("system", "SalesDashOpenFailed", ex.ToString());
+                MessageBox.Show(this,
+                    $"Could not open Sales Orders:\n\n{ex.Message}",
+                    "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+            finally
+            {
+                Show();
+            }
         }
 
         private void btnPickingDash_Click(object sender, EventArgs e)

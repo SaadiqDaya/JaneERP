@@ -250,6 +250,23 @@ namespace JaneERP.Data
                 .ToList();
         }
 
+        public Dictionary<int, string> GetLinkedPartNumberByProduct()
+        {
+            using IDbConnection db = new SqlConnection(_connectionString);
+            try
+            {
+                return db.Query(@"
+                    SELECT pp.ProductID, MIN(pa.PartNumber) AS PartNumber
+                    FROM   ProductParts pp
+                    JOIN   Parts        pa   ON pa.PartID   = pp.PartID
+                    JOIN   Products     prod ON prod.ProductID = pp.ProductID
+                    WHERE  prod.BomNumber IS NULL AND prod.IsActive = 1
+                    GROUP  BY pp.ProductID")
+                    .ToDictionary(r => (int)r.ProductID, r => (string)r.PartNumber);
+            }
+            catch { return new Dictionary<int, string>(); }
+        }
+
         public List<Models.PartReorderRow> GetPartsAtReorderPoint()
         {
             using IDbConnection db = new SqlConnection(_connectionString);

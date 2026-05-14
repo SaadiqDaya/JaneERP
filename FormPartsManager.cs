@@ -555,6 +555,8 @@ namespace JaneERP
         private readonly IPartRepository    _partRepo    = AppServices.Get<IPartRepository>();
         private Product? _current;
         private List<Product> _all = new();
+        // Maps ProductID → linked PartNumber for products whose source type is a single Part
+        private Dictionary<int, string> _linkedParts = new();
 
         // Header
         private Panel pnlHeader = new();
@@ -652,7 +654,7 @@ namespace JaneERP
             dgvProd.MultiSelect           = false;
             dgvProd.AutoGenerateColumns   = false;
             dgvProd.RowHeadersVisible     = false;
-            dgvProd.Columns.Add(new DataGridViewTextBoxColumn { Name = "colBomNum", HeaderText = "BOM #",   Width = 80 });
+            dgvProd.Columns.Add(new DataGridViewTextBoxColumn { Name = "colBomNum", HeaderText = "Source",  Width = 90 });
             dgvProd.Columns.Add(new DataGridViewTextBoxColumn { Name = "colPID",    Visible = false });
             dgvProd.Columns.Add(new DataGridViewTextBoxColumn { Name = "colName",   HeaderText = "Product", AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill });
             dgvProd.Columns.Add(new DataGridViewTextBoxColumn { Name = "colSKU",    HeaderText = "SKU",     Width = 80 });
@@ -790,6 +792,7 @@ namespace JaneERP
         private void LoadProducts()
         {
             _all = _productRepo.GetProducts().ToList();
+            _linkedParts = _partRepo.GetLinkedPartNumberByProduct();
             PopulateProductGrid(_all);
         }
 
@@ -808,7 +811,14 @@ namespace JaneERP
         {
             dgvProd.Rows.Clear();
             foreach (var p in products)
-                dgvProd.Rows.Add(p.BomNumber ?? "", p.ProductID, p.ProductName, p.SKU);
+            {
+                string source =
+                    string.Equals(p.ProductTypeName, "Package", StringComparison.OrdinalIgnoreCase) ? "Package"
+                    : p.BomNumber != null                                                            ? p.BomNumber
+                    : _linkedParts.TryGetValue(p.ProductID, out var pn)                             ? pn
+                    : "—";
+                dgvProd.Rows.Add(source, p.ProductID, p.ProductName, p.SKU);
+            }
         }
 
         private void DgvProd_SelectionChanged(object? sender, EventArgs e)

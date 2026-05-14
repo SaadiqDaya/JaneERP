@@ -64,11 +64,13 @@ namespace JaneERP
                 Size      = new Size(300, 28)
             });
             Theme.MakeDraggable(this, pnlHeader);
-            Controls.Add(pnlHeader);
 
             // ── TabControl ────────────────────────────────────────────────────────
             var tabs = new TabControl { Dock = DockStyle.Fill };
+            // Fill must be added first (lowest Controls index) so it is processed
+            // last by the dock layout engine — Top panels then claim space before Fill fills the rest.
             Controls.Add(tabs);
+            Controls.Add(pnlHeader);
 
             tabs.TabPages.Add(BuildFileLogTab());
             foreach (var (title, filter) in new[]
