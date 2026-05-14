@@ -85,7 +85,8 @@ namespace JaneERP.Data
                 INSERT INTO Vendors (VendorName, ContactName, Email, Phone, IsActive)
                 SELECT s.SupplierName, s.ContactName, s.Email, s.Phone, s.IsActive
                 FROM   Suppliers s
-                WHERE  NOT EXISTS (
+                WHERE  s.IsActive = 1
+                  AND  NOT EXISTS (
                            SELECT 1 FROM Vendors v
                            WHERE  v.VendorName = s.SupplierName)");
         }

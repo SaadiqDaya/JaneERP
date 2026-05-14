@@ -22,14 +22,18 @@ namespace JaneERP
 
     public class ErpTask
     {
-        public int      TaskID      { get; set; }
-        public string   Title       { get; set; } = "";
-        public string?  Description { get; set; }
-        public string   AssignedTo  { get; set; } = "";
-        public string   CreatedBy   { get; set; } = "";
-        public DateTime DueDate     { get; set; }
-        public string   Status      { get; set; } = "Open"; // Open, InProgress, Done
-        public DateTime CreatedAt   { get; set; }
+        public int      TaskID                { get; set; }
+        public string   Title                 { get; set; } = "";
+        public string?  Description           { get; set; }
+        public string   AssignedTo            { get; set; } = "";
+        public string   CreatedBy             { get; set; } = "";
+        public DateTime DueDate               { get; set; }
+        public string   Status                { get; set; } = "Open"; // Open, In Progress, Done
+        public string   Priority              { get; set; } = "Normal"; // Low, Normal, High, Urgent
+        public int?     WorkflowID            { get; set; }
+        public string?  WorkflowCurrentStatus { get; set; }
+        public string?  WorkflowName          { get; set; }
+        public DateTime CreatedAt             { get; set; }
     }
 
     public class TaskComment
@@ -113,41 +117,59 @@ namespace JaneERP
                 IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('Tasks') AND name = 'WorkflowID')
                     ALTER TABLE Tasks ADD WorkflowID INT NULL REFERENCES TaskWorkflows(WorkflowID);
                 IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('Tasks') AND name = 'WorkflowCurrentStatus')
-                    ALTER TABLE Tasks ADD WorkflowCurrentStatus NVARCHAR(100) NULL;");
+                    ALTER TABLE Tasks ADD WorkflowCurrentStatus NVARCHAR(100) NULL;
+                IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('Tasks') AND name = 'Priority')
+                    ALTER TABLE Tasks ADD Priority NVARCHAR(50) NOT NULL DEFAULT 'Normal';");
         }
 
         public List<ErpTask> GetAll(string? assignedTo = null, string? status = null)
         {
             using IDbConnection db = new SqlConnection(_cs);
             var conditions = new List<string>();
-            if (assignedTo != null) conditions.Add("AssignedTo = @assignedTo");
-            if (status != null)     conditions.Add("Status = @status");
+            if (assignedTo != null) conditions.Add("t.AssignedTo = @assignedTo");
+            if (status != null)     conditions.Add("t.Status = @status");
             var where = conditions.Count > 0 ? "WHERE " + string.Join(" AND ", conditions) : "";
-            return db.Query<ErpTask>($"SELECT * FROM Tasks {where} ORDER BY DueDate",
+            return db.Query<ErpTask>($@"
+                SELECT t.*, wf.Name AS WorkflowName
+                FROM   Tasks t
+                LEFT JOIN TaskWorkflows wf ON wf.WorkflowID = t.WorkflowID
+                {where}
+                ORDER BY t.DueDate",
                 new { assignedTo, status }).ToList();
         }
 
         public ErpTask? GetById(int taskId)
         {
             using IDbConnection db = new SqlConnection(_cs);
-            return db.QueryFirstOrDefault<ErpTask>("SELECT * FROM Tasks WHERE TaskID = @taskId", new { taskId });
+            return db.QueryFirstOrDefault<ErpTask>(@"
+                SELECT t.*, wf.Name AS WorkflowName
+                FROM   Tasks t
+                LEFT JOIN TaskWorkflows wf ON wf.WorkflowID = t.WorkflowID
+                WHERE  t.TaskID = @taskId",
+                new { taskId });
         }
 
         public List<ErpTask> GetOutstanding(string? assignedTo = null)
         {
             using IDbConnection db = new SqlConnection(_cs);
             var where = assignedTo == null
-                ? "WHERE Status <> 'Done'"
-                : "WHERE Status <> 'Done' AND AssignedTo = @assignedTo";
-            return db.Query<ErpTask>($"SELECT * FROM Tasks {where} ORDER BY DueDate", new { assignedTo }).ToList();
+                ? "WHERE t.Status <> 'Done'"
+                : "WHERE t.Status <> 'Done' AND t.AssignedTo = @assignedTo";
+            return db.Query<ErpTask>($@"
+                SELECT t.*, wf.Name AS WorkflowName
+                FROM   Tasks t
+                LEFT JOIN TaskWorkflows wf ON wf.WorkflowID = t.WorkflowID
+                {where}
+                ORDER BY t.DueDate",
+                new { assignedTo }).ToList();
         }
 
         public int Add(ErpTask task)
         {
             using IDbConnection db = new SqlConnection(_cs);
             return db.QuerySingle<int>(@"
-                INSERT INTO Tasks (Title, Description, AssignedTo, CreatedBy, DueDate, Status)
-                VALUES (@Title, @Description, @AssignedTo, @CreatedBy, @DueDate, @Status);
+                INSERT INTO Tasks (Title, Description, AssignedTo, CreatedBy, DueDate, Status, Priority)
+                VALUES (@Title, @Description, @AssignedTo, @CreatedBy, @DueDate, @Status, @Priority);
                 SELECT CAST(SCOPE_IDENTITY() AS INT);", task);
         }
 
@@ -167,6 +189,25 @@ namespace JaneERP
         {
             using IDbConnection db = new SqlConnection(_cs);
             db.Execute("UPDATE Tasks SET Description = @description WHERE TaskID = @taskId", new { taskId, description });
+        }
+
+        public void UpdateAssignedTo(int taskId, string assignedTo)
+        {
+            using IDbConnection db = new SqlConnection(_cs);
+            db.Execute("UPDATE Tasks SET AssignedTo = @assignedTo WHERE TaskID = @taskId", new { taskId, assignedTo });
+        }
+
+        public void UpdatePriority(int taskId, string priority)
+        {
+            using IDbConnection db = new SqlConnection(_cs);
+            db.Execute("UPDATE Tasks SET Priority = @priority WHERE TaskID = @taskId", new { taskId, priority });
+        }
+
+        public void UpdateWorkflowStatus(int taskId, int? workflowId, string? workflowStatus)
+        {
+            using IDbConnection db = new SqlConnection(_cs);
+            db.Execute(@"UPDATE Tasks SET WorkflowID = @workflowId, WorkflowCurrentStatus = @workflowStatus
+                         WHERE TaskID = @taskId", new { taskId, workflowId, workflowStatus });
         }
 
         public void Delete(int taskId)

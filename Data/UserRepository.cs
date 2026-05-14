@@ -155,7 +155,7 @@ namespace JaneERP.Data
                 if (user.LockedUntil.HasValue && user.LockedUntil.Value > DateTime.Now)
                     return null; // still locked — caller sees this as bad credentials
             }
-            catch { /* LockedUntil not yet migrated */ }
+            catch (Exception ex) { Logging.AppLogger.Info($"[UserRepository.Authenticate] LockedUntil check skipped (column may not be migrated yet): {ex.Message}"); }
 
             if (!PasswordHasher.Verify(password, user.PasswordHash, user.PasswordSalt))
             {
@@ -175,7 +175,7 @@ namespace JaneERP.Data
                     if (lockUntil.HasValue)
                         _ = NotificationService.NotifyUserLockedAsync(user.Username, lockUntil.Value);
                 }
-                catch { /* column not yet migrated — ignore */ }
+                catch (Exception ex) { Logging.AppLogger.Info($"[UserRepository.Authenticate] FailedLoginCount update skipped (column may not be migrated yet): {ex.Message}"); }
                 return null;
             }
 
@@ -210,7 +210,7 @@ namespace JaneERP.Data
                     "UPDATE Users SET FailedLoginCount = 0, LockedUntil = NULL WHERE UserId = @id",
                     new { id = userId });
             }
-            catch { /* column not yet migrated */ }
+            catch (Exception ex) { Logging.AppLogger.Info($"[UserRepository.UnlockUser] userId={userId} column may not be migrated yet: {ex.Message}"); }
         }
     }
 }

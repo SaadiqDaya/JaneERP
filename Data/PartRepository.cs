@@ -40,6 +40,8 @@ namespace JaneERP.Data
                     ALTER TABLE Parts ADD UnitOfMeasure NVARCHAR(20) NULL;
                 IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('Parts') AND name='ReorderPoint')
                     ALTER TABLE Parts ADD ReorderPoint INT NULL;
+                IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('Parts') AND name='Density')
+                    ALTER TABLE Parts ADD Density DECIMAL(6,4) NULL;
 
                 IF NOT EXISTS (SELECT 1 FROM sysobjects WHERE name='ProductParts' AND xtype='U')
                 CREATE TABLE ProductParts (
@@ -49,7 +51,8 @@ namespace JaneERP.Data
                     PRIMARY KEY (ProductID, PartID)
                 );
 
-                -- Migrate Quantity from INT to DECIMAL if it's still an INT column
+                -- Migrate Quantity from INT to DECIMAL if it's still an INT column.
+                -- Must drop the DEFAULT constraint first or SQL Server rejects the ALTER COLUMN.
                 IF EXISTS (
                     SELECT 1 FROM sys.columns
                     WHERE object_id = OBJECT_ID('ProductParts')
@@ -57,8 +60,34 @@ namespace JaneERP.Data
                       AND system_type_id = TYPE_ID('int')
                 )
                 BEGIN
+                    DECLARE @qtyConstraint NVARCHAR(200);
+                    SELECT @qtyConstraint = dc.name
+                    FROM   sys.default_constraints dc
+                    JOIN   sys.columns c
+                           ON dc.parent_object_id = c.object_id
+                          AND dc.parent_column_id = c.column_id
+                    WHERE  c.object_id = OBJECT_ID('ProductParts')
+                      AND  c.name = 'Quantity';
+
+                    IF @qtyConstraint IS NOT NULL
+                        EXEC('ALTER TABLE ProductParts DROP CONSTRAINT [' + @qtyConstraint + ']');
+
                     ALTER TABLE ProductParts ALTER COLUMN Quantity DECIMAL(18,4) NOT NULL;
+
+                    IF NOT EXISTS (
+                        SELECT 1 FROM sys.default_constraints dc
+                        JOIN sys.columns c
+                             ON dc.parent_object_id = c.object_id
+                            AND dc.parent_column_id = c.column_id
+                        WHERE c.object_id = OBJECT_ID('ProductParts') AND c.name = 'Quantity'
+                    )
+                        ALTER TABLE ProductParts ADD DEFAULT 1 FOR Quantity;
                 END
+
+                IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('ProductParts') AND name='CreatesBatchLoss')
+                    ALTER TABLE ProductParts ADD CreatesBatchLoss BIT NOT NULL DEFAULT 0;
+                IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('ProductParts') AND name='BatchLossRate')
+                    ALTER TABLE ProductParts ADD BatchLossRate DECIMAL(5,2) NOT NULL DEFAULT 0;
 
                 IF NOT EXISTS (SELECT 1 FROM sysobjects WHERE name='BomLabourCosts' AND xtype='U')
                 CREATE TABLE BomLabourCosts (
@@ -68,6 +97,19 @@ namespace JaneERP.Data
                     HourlyRate   DECIMAL(18,2) NOT NULL DEFAULT 0,
                     Hours        DECIMAL(10,2) NOT NULL DEFAULT 1
                 );");
+
+            // DB-level safety net: prevent CurrentStock going negative even if code validation is bypassed.
+            try
+            {
+                db.Execute(@"
+                    IF NOT EXISTS (
+                        SELECT 1 FROM sys.check_constraints
+                        WHERE name = 'CK_Parts_CurrentStock_NonNegative'
+                    )
+                        ALTER TABLE Parts ADD CONSTRAINT CK_Parts_CurrentStock_NonNegative
+                            CHECK (CurrentStock >= 0);");
+            }
+            catch (Exception ex) { Logging.AppLogger.Info($"Parts CHECK constraint migration: {ex.Message}"); }
 
             // UnitOfMeasures lookup table is part of the parts data model
             new UomRepository().EnsureSchema();
@@ -99,8 +141,8 @@ namespace JaneERP.Data
         {
             using IDbConnection db = new SqlConnection(_connectionString);
             return db.QuerySingle<int>(@"
-                INSERT INTO Parts (PartNumber, PartName, Description, UnitCost, CurrentStock, IsActive, DefaultVendorID, UnitOfMeasure)
-                VALUES (@PartNumber, @PartName, @Description, @UnitCost, @CurrentStock, @IsActive, @DefaultVendorID, @UnitOfMeasure);
+                INSERT INTO Parts (PartNumber, PartName, Description, UnitCost, CurrentStock, IsActive, DefaultVendorID, UnitOfMeasure, Density)
+                VALUES (@PartNumber, @PartName, @Description, @UnitCost, @CurrentStock, @IsActive, @DefaultVendorID, @UnitOfMeasure, @Density);
                 SELECT CAST(SCOPE_IDENTITY() AS INT);", part);
         }
 
@@ -115,7 +157,8 @@ namespace JaneERP.Data
                     UnitCost        = @UnitCost,
                     IsActive        = @IsActive,
                     DefaultVendorID = @DefaultVendorID,
-                    UnitOfMeasure   = @UnitOfMeasure
+                    UnitOfMeasure   = @UnitOfMeasure,
+                    Density         = @Density
                 WHERE PartID = @PartID", part);
         }
 
@@ -133,14 +176,15 @@ namespace JaneERP.Data
             using IDbConnection db = new SqlConnection(_connectionString);
             return db.Query<BomEntry>(@"
                 SELECT pp.ProductID, pp.PartID, p.PartNumber, p.PartName, pp.Quantity,
-                       p.UnitOfMeasure, ISNULL(p.UnitCost, 0) AS UnitCost
+                       p.UnitOfMeasure, ISNULL(p.UnitCost, 0) AS UnitCost,
+                       pp.CreatesBatchLoss, pp.BatchLossRate
                 FROM   ProductParts pp
                 JOIN   Parts p ON p.PartID = pp.PartID
                 WHERE  pp.ProductID = @productId
                 ORDER  BY p.PartNumber", new { productId }).ToList();
         }
 
-        public void SetBom(int productId, IEnumerable<(int partId, decimal qty)> entries)
+        public void SetBom(int productId, IEnumerable<(int partId, decimal qty, bool createsBatchLoss, decimal batchLossRate)> entries)
         {
             using var db = new SqlConnection(_connectionString);
             db.Open();
@@ -150,9 +194,11 @@ namespace JaneERP.Data
                 db.Execute("DELETE FROM ProductParts WHERE ProductID = @productId",
                     new { productId }, tx);
 
-                foreach (var (partId, qty) in entries.Where(e => e.qty > 0))
-                    db.Execute("INSERT INTO ProductParts (ProductID, PartID, Quantity) VALUES (@productId, @partId, @qty)",
-                        new { productId, partId, qty }, tx);
+                foreach (var (partId, qty, createsBatchLoss, batchLossRate) in entries.Where(e => e.qty > 0))
+                    db.Execute(@"
+                        INSERT INTO ProductParts (ProductID, PartID, Quantity, CreatesBatchLoss, BatchLossRate)
+                        VALUES (@productId, @partId, @qty, @createsBatchLoss, @batchLossRate)",
+                        new { productId, partId, qty, createsBatchLoss, batchLossRate }, tx);
 
                 tx.Commit();
             }
@@ -211,29 +257,24 @@ namespace JaneERP.Data
             try
             {
                 rows = db.Query<Models.PartReorderRow>(@"
-                    SELECT  PartNumber,
-                            PartName,
-                            CurrentStock,
-                            ISNULL(ReorderPoint, 0) AS ReorderPoint,
-                            UnitCost
-                    FROM    Parts
-                    WHERE   IsActive = 1
-                      AND   CurrentStock <= ISNULL(ReorderPoint, 5)
-                    ORDER   BY PartNumber").ToList();
+                    SELECT  p.PartNumber,
+                            p.PartName,
+                            p.CurrentStock,
+                            p.ReorderPoint,
+                            p.UnitCost,
+                            p.DefaultVendorID,
+                            v.VendorName AS DefaultVendorName
+                    FROM    Parts p
+                    LEFT JOIN Vendors v ON v.VendorID = p.DefaultVendorID
+                    WHERE   p.IsActive = 1
+                      AND   ISNULL(p.ReorderPoint, 0) > 0
+                      AND   p.CurrentStock <= p.ReorderPoint
+                    ORDER   BY p.PartNumber").ToList();
             }
             catch
             {
-                // Fallback: ReorderPoint column may not exist yet
-                rows = db.Query<Models.PartReorderRow>(@"
-                    SELECT  PartNumber,
-                            PartName,
-                            CurrentStock,
-                            0 AS ReorderPoint,
-                            UnitCost
-                    FROM    Parts
-                    WHERE   IsActive = 1
-                      AND   CurrentStock <= 5
-                    ORDER   BY PartNumber").ToList();
+                // Fallback: ReorderPoint column may not exist yet — return empty list
+                rows = new List<Models.PartReorderRow>();
             }
             foreach (var r in rows) r.Compute();
             return rows;

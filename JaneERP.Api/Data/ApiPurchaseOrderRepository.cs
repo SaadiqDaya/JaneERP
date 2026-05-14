@@ -8,8 +8,14 @@ namespace JaneERP.Api.Data;
 
 public class ApiPurchaseOrderRepository
 {
-    private readonly CompanyContext _ctx;
-    public ApiPurchaseOrderRepository(CompanyContext ctx) => _ctx = ctx;
+    private readonly CompanyContext                       _ctx;
+    private readonly ILogger<ApiPurchaseOrderRepository> _logger;
+
+    public ApiPurchaseOrderRepository(CompanyContext ctx, ILogger<ApiPurchaseOrderRepository> logger)
+    {
+        _ctx    = ctx;
+        _logger = logger;
+    }
 
     private IDbConnection Connect() => new SqlConnection(_ctx.ConnectionString);
 
@@ -69,9 +75,10 @@ public class ApiPurchaseOrderRepository
                 WHERE   po.POID = @poid",
                 new { poid });
         }
-        catch
+        catch (Exception ex)
         {
             // One or more optional columns don't exist yet — query with safe defaults
+            _logger.LogDebug(ex, "[ApiPurchaseOrderRepository.GetOrderDetail] Full query failed for POID={Id}, falling back to safe defaults", poid);
             po = db.QueryFirstOrDefault<PurchaseOrderDetail>(@"
                 SELECT  po.POID, po.PONumber, s.SupplierName,
                         po.Status, po.OrderDate, po.ExpectedDate,
@@ -101,8 +108,9 @@ public class ApiPurchaseOrderRepository
                 ORDER  BY POItemID",
                 new { poid }).ToList();
         }
-        catch
+        catch (Exception ex)
         {
+            _logger.LogDebug(ex, "[ApiPurchaseOrderRepository.GetOrderDetail] PurchaseOrderItems query failed for POID={Id}, returning empty items", poid);
             po.Items = [];
         }
 
@@ -144,19 +152,35 @@ public class ApiPurchaseOrderRepository
                         new { qty, partId = item.PartID.Value }, tx);
                 }
 
-                // Create InventoryTransaction for product
+                // Create InventoryTransaction for product-linked items.
+                // Parts (PartID only, no ProductID) use the CurrentStock column instead and do NOT get a ledger row.
                 if (item.ProductID.HasValue)
                 {
+                    // Resolve the PO number for the audit note
+                    var poNumber = db.ExecuteScalar<string>(
+                        "SELECT PONumber FROM PurchaseOrders WHERE POID = @poid",
+                        new { poid }, tx) ?? poid.ToString();
+
+                    // Use the product's default location; fall back to the first location if unset
+                    var locationId = db.ExecuteScalar<int?>(@"
+                        SELECT DefaultLocationID FROM Products WHERE ProductID = @pid",
+                        new { pid = item.ProductID.Value }, tx)
+                        ?? db.ExecuteScalar<int?>(@"
+                        SELECT TOP 1 LocationID FROM Locations ORDER BY LocationID",
+                        null, tx);
+
                     db.Execute(@"
                         INSERT INTO InventoryTransactions
-                            (ProductID, QuantityChange, TransactionType, Notes, TransactionDate)
+                            (ProductID, LocationID, QuantityChange, TransactionType, Notes, TransactionDate)
                         VALUES
-                            (@pid, @qty, 'PurchaseReceipt', @notes, GETDATE())",
+                            (@pid, @locationId, @qty, 'PurchaseOrder',
+                             CONCAT('PO# ', @poNumber, ' received'), GETDATE())",
                         new
                         {
-                            pid   = item.ProductID.Value,
+                            pid        = item.ProductID.Value,
+                            locationId,
                             qty,
-                            notes = $"PO# received by {username}: {item.ItemName}"
+                            poNumber
                         }, tx);
                 }
             }
@@ -174,6 +198,21 @@ public class ApiPurchaseOrderRepository
                 new { s = newStatus, poid }, tx);
 
             tx.Commit();
+
+            try
+            {
+                var receivedItems = receivals.Where(r => r.QtyReceived > 0)
+                    .Select(r => $"POItemID={r.PoItemId} Qty={r.QtyReceived}");
+                db.Execute(@"
+                    INSERT INTO AuditLog (UserName, Action, Details, LoggedAt)
+                    VALUES (@user, 'ReceivePOItems', @details, GETDATE())",
+                    new
+                    {
+                        user    = username,
+                        details = $"POID={poid} NewStatus={newStatus} Items=[{string.Join(", ", receivedItems)}]"
+                    });
+            }
+            catch (Exception auditEx) { _logger.LogError(auditEx, "[ApiPurchaseOrderRepository.ReceiveItems] Audit insert failed for POID={Id}", poid); }
         }
         catch { tx.Rollback(); throw; }
     }
@@ -259,6 +298,20 @@ public class ApiPurchaseOrderRepository
                 new { total, poid = newPoid }, tx);
 
             tx.Commit();
+
+            try
+            {
+                db.Execute(@"
+                    INSERT INTO AuditLog (UserName, Action, Details, LoggedAt)
+                    VALUES (@user, 'DuplicatePO', @details, GETDATE())",
+                    new
+                    {
+                        user    = createdBy,
+                        details = $"SourcePOID={sourcePoid} NewPOID={newPoid} Total={total:F2}"
+                    });
+            }
+            catch (Exception auditEx) { _logger.LogError(auditEx, "[ApiPurchaseOrderRepository.DuplicatePO] Audit insert failed for NewPOID={Id}", newPoid); }
+
             return newPoid;
         }
         catch { tx.Rollback(); throw; }

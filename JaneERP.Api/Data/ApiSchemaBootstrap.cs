@@ -23,6 +23,16 @@ public static class ApiSchemaBootstrap
                 // Run each migration independently — a failed one won't block the rest
                 var migrations = new[]
                 {
+                    // AuditLog — central audit table for all write operations from the API
+                    @"IF NOT EXISTS (SELECT 1 FROM sysobjects WHERE name='AuditLog' AND xtype='U')
+                      CREATE TABLE AuditLog (
+                          AuditID   INT IDENTITY(1,1) PRIMARY KEY,
+                          UserName  NVARCHAR(100) NOT NULL DEFAULT 'system',
+                          Action    NVARCHAR(200) NOT NULL,
+                          Details   NVARCHAR(MAX) NULL,
+                          LoggedAt  DATETIME      NOT NULL DEFAULT GETDATE()
+                      )",
+
                     // PurchaseOrders
                     "IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('PurchaseOrders') AND name='ShippingCost') ALTER TABLE PurchaseOrders ADD ShippingCost DECIMAL(18,2) NOT NULL DEFAULT 0",
                     "IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('PurchaseOrders') AND name='Notes') ALTER TABLE PurchaseOrders ADD Notes NVARCHAR(1000) NULL",
@@ -45,17 +55,33 @@ public static class ApiSchemaBootstrap
 
                     // Stores — LastSyncAt added for mobile sync tracking
                     "IF EXISTS (SELECT 1 FROM sysobjects WHERE name='Stores' AND xtype='U') AND NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('Stores') AND name='LastSyncAt') ALTER TABLE Stores ADD LastSyncAt DATETIME NULL",
+
+                    // CookSessions — batch loss % stored at session creation
+                    "IF EXISTS (SELECT 1 FROM sysobjects WHERE name='CookSessions' AND xtype='U') AND NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('CookSessions') AND name='BatchLossPercent') ALTER TABLE CookSessions ADD BatchLossPercent DECIMAL(5,2) NOT NULL DEFAULT 0",
+
+                    // CookSessionBatches — flask vessel and pre-computed batch size
+                    "IF EXISTS (SELECT 1 FROM sysobjects WHERE name='CookSessionBatches' AND xtype='U') AND NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('CookSessionBatches') AND name='FlaskType') ALTER TABLE CookSessionBatches ADD FlaskType NVARCHAR(50) NULL",
+                    "IF EXISTS (SELECT 1 FROM sysobjects WHERE name='CookSessionBatches' AND xtype='U') AND NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('CookSessionBatches') AND name='BatchSizeML') ALTER TABLE CookSessionBatches ADD BatchSizeML DECIMAL(12,3) NULL",
+
+                    // CookSessionSteps — pre-computed loss-adjusted required quantity
+                    "IF EXISTS (SELECT 1 FROM sysobjects WHERE name='CookSessionSteps' AND xtype='U') AND NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('CookSessionSteps') AND name='RequiredQtyML') ALTER TABLE CookSessionSteps ADD RequiredQtyML DECIMAL(12,3) NULL",
                 };
 
                 foreach (var sql in migrations)
                 {
                     try { db.Execute(sql); }
-                    catch { /* column already exists, table missing, or permission denied — skip */ }
+                    catch (Exception migEx)
+                    {
+                        // Column already exists, table missing, or permission denied — skip.
+                        // Logged at Debug level so it doesn't flood logs on every startup.
+                        System.Diagnostics.Debug.WriteLine($"[ApiSchemaBootstrap] Migration skipped: {migEx.Message}");
+                    }
                 }
             }
-            catch
+            catch (Exception dbEx)
             {
                 // DB not reachable at startup — will fail at request time with a clearer error
+                System.Diagnostics.Debug.WriteLine($"[ApiSchemaBootstrap] Company '{company.Name}' DB not reachable at startup: {dbEx.Message}");
             }
         }
     }

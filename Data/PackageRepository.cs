@@ -27,6 +27,21 @@ namespace JaneERP.Data
                 )");
         }
 
+        public List<PackageProductRow> GetAllPackageProducts()
+        {
+            using IDbConnection db = new SqlConnection(_connectionString);
+            return db.Query<PackageProductRow>(@"
+                SELECT  p.ProductID,
+                        p.SKU,
+                        p.ProductName,
+                        COUNT(pc.PackageComponentID) AS ComponentCount
+                FROM    Products p
+                JOIN    PackageComponents pc ON pc.PackageProductID = p.ProductID
+                WHERE   p.IsActive = 1
+                GROUP BY p.ProductID, p.SKU, p.ProductName
+                ORDER BY p.ProductName").ToList();
+        }
+
         public List<PackageComponent> GetComponents(int packageProductID)
         {
             using IDbConnection db = new SqlConnection(_connectionString);

@@ -49,15 +49,21 @@ namespace JaneERP.Data
                 END");
         }
 
-        public AccountingSummary GetSummary(DateTime from, DateTime to)
+        public AccountingSummary GetSummary(DateTime from, DateTime to, bool paidOnly = false)
         {
             using var db = new SqlConnection(_cs);
 
-            decimal revenue = db.ExecuteScalar<decimal>(@"
+            string revenueFilter = paidOnly
+                ? "AND (ISNULL(IsPaid, 0) = 1 OR Status = 'Complete')"
+                : "";
+
+            decimal revenue = db.ExecuteScalar<decimal>($@"
                 SELECT ISNULL(SUM(TotalPrice), 0)
                 FROM   SalesOrders
                 WHERE  OrderDate >= @from AND OrderDate <= @to
-                  AND  (Status = 'Complete' OR IsPaid = 1)", new { from, to });
+                  AND  Status NOT IN ('Draft', 'Cancelled')
+                  AND  TotalPrice > 0
+                  {revenueFilter}", new { from, to });
 
             decimal cogs = db.ExecuteScalar<decimal>(@"
                 SELECT ISNULL(SUM(CostOfGoods), 0)
@@ -76,12 +82,14 @@ namespace JaneERP.Data
             try
             {
                 creditNotes = db.ExecuteScalar<decimal>(@"
-                    SELECT ISNULL(SUM(Amount), 0)
-                    FROM   CustomerCredits
-                    WHERE  CreatedAt >= @from AND CreatedAt <= @to",
+                    SELECT ISNULL(SUM(cc.Amount), 0)
+                    FROM   CustomerCredits cc
+                    LEFT JOIN ReturnOrders ro ON ro.ReturnID = cc.ReturnID
+                    WHERE  COALESCE(ro.ReturnDate, cc.CreatedAt) >= @from
+                      AND  COALESCE(ro.ReturnDate, cc.CreatedAt) <= @to",
                     new { from, to });
             }
-            catch { /* table may not exist on older databases — safe to ignore */ }
+            catch (Exception ex) { Logging.AppLogger.Info($"[AccountingRepository.GetSummary] CustomerCredits not available: {ex.Message}"); }
 
             return new AccountingSummary
             {
@@ -164,11 +172,13 @@ namespace JaneERP.Data
                            cc.CreatedBy, cc.CreatedAt
                     FROM   CustomerCredits cc
                     JOIN   Customers c ON c.CustomerID = cc.CustomerID
-                    WHERE  cc.CreatedAt >= @from AND cc.CreatedAt <= @to
-                    ORDER  BY cc.CreatedAt DESC",
+                    LEFT JOIN ReturnOrders ro ON ro.ReturnID = cc.ReturnID
+                    WHERE  COALESCE(ro.ReturnDate, cc.CreatedAt) >= @from
+                      AND  COALESCE(ro.ReturnDate, cc.CreatedAt) <= @to
+                    ORDER  BY COALESCE(ro.ReturnDate, cc.CreatedAt) DESC",
                     new { from, to }).ToList();
             }
-            catch { return []; }
+            catch (Exception ex) { Logging.AppLogger.Error($"[AccountingRepository.GetCreditNoteRows] {ex}"); return []; }
         }
     }
 }

@@ -8,8 +8,14 @@ namespace JaneERP.Api.Data;
 
 public class ApiWorkOrderRepository
 {
-    private readonly CompanyContext _ctx;
-    public ApiWorkOrderRepository(CompanyContext ctx) => _ctx = ctx;
+    private readonly CompanyContext                    _ctx;
+    private readonly ILogger<ApiWorkOrderRepository> _logger;
+
+    public ApiWorkOrderRepository(CompanyContext ctx, ILogger<ApiWorkOrderRepository> logger)
+    {
+        _ctx    = ctx;
+        _logger = logger;
+    }
 
     private IDbConnection Connect() => new SqlConnection(_ctx.ConnectionString);
 
@@ -44,7 +50,7 @@ public class ApiWorkOrderRepository
                 ORDER   BY wo.WorkOrderID DESC",
                 new { status }).ToList();
         }
-        catch { return []; }
+        catch (Exception ex) { _logger.LogError(ex, "[ApiWorkOrderRepository.GetWorkOrders] Query failed"); return []; }
     }
 
     public WorkOrderItem? GetDetail(int workOrderId)
@@ -68,7 +74,7 @@ public class ApiWorkOrderRepository
                 WHERE   wo.WorkOrderID = @workOrderId",
                 new { workOrderId });
         }
-        catch { return null; }
+        catch (Exception ex) { _logger.LogError(ex, "[ApiWorkOrderRepository.GetDetail] Query failed for WorkOrderID={Id}", workOrderId); return null; }
     }
 
     // Roles: admin, warehouse
@@ -93,6 +99,20 @@ public class ApiWorkOrderRepository
                 new { newStatus, workOrderId }, tx);
 
             tx.Commit();
+
+            try
+            {
+                db.Execute(@"
+                    INSERT INTO AuditLog (UserName, Action, Details, LoggedAt)
+                    VALUES (@user, 'UpdateWorkOrderStatus', @details, GETDATE())",
+                    new
+                    {
+                        user    = username ?? "system",
+                        details = $"WorkOrderID={workOrderId} NewStatus={newStatus}"
+                    });
+            }
+            catch (Exception auditEx) { _logger.LogError(auditEx, "[ApiWorkOrderRepository.UpdateStatus] Audit insert failed for WorkOrderID={Id}", workOrderId); }
+
             return true;
         }
         catch { tx.Rollback(); throw; }

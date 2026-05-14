@@ -74,6 +74,21 @@ public class ApiAccountingRepository
             INSERT INTO Expenses (CategoryID, Amount, Description, ExpenseDate, CreatedBy)
             VALUES (@categoryId, @amount, @description, @date, @createdBy)",
             new { categoryId, amount, description, date, createdBy });
+
+        // Resolve category name for the audit trail
+        var categoryName = db.ExecuteScalar<string>(
+            "SELECT ISNULL(Name, '') FROM ExpenseCategories WHERE CategoryID = @categoryId",
+            new { categoryId }) ?? categoryId.ToString();
+
+        db.Execute(@"
+            INSERT INTO AuditLog (UserName, Action, Details, LoggedAt)
+            VALUES (@user, 'AddExpense', CONCAT('Category: ', @category, ', Amount: ', @amount), GETDATE())",
+            new
+            {
+                user     = createdBy ?? "unknown",
+                category = categoryName,
+                amount
+            });
     }
 }
 

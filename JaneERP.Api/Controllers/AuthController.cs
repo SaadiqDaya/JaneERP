@@ -11,13 +11,15 @@ namespace JaneERP.Api.Controllers;
 [Route("api/[controller]")]
 public class AuthController : ControllerBase
 {
-    private readonly IConfiguration _config;
-    private readonly JwtService     _jwt;
+    private readonly IConfiguration              _config;
+    private readonly JwtService                  _jwt;
+    private readonly ILogger<ApiUserRepository>  _userRepoLogger;
 
-    public AuthController(IConfiguration config, JwtService jwt)
+    public AuthController(IConfiguration config, JwtService jwt, ILogger<ApiUserRepository> userRepoLogger)
     {
-        _config = config;
-        _jwt    = jwt;
+        _config         = config;
+        _jwt            = jwt;
+        _userRepoLogger = userRepoLogger;
     }
 
     /// <summary>Returns company names for the login screen dropdown. No auth required.</summary>
@@ -49,7 +51,7 @@ public class AuthController : ControllerBase
 
         // Authenticate against that company's database
         var ctx = new CompanyContext { ConnectionString = company.ConnectionString };
-        var repo = new ApiUserRepository(ctx);
+        var repo = new ApiUserRepository(ctx, _userRepoLogger);
         var user = repo.Authenticate(req.Username, req.Password);
 
         if (user == null)

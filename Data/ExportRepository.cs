@@ -25,10 +25,15 @@ namespace JaneERP.Data
                         p.WholesalePrice,
                         p.ReorderPoint,
                         ISNULL(p.OrderUpTo, 0) AS OrderUpTo,
-                        ISNULL((SELECT SUM(t.QuantityChange) FROM InventoryTransactions t WHERE t.ProductID = p.ProductID), 0) AS CurrentStock,
+                        ISNULL(stock.TotalQty, 0) AS CurrentStock,
                         pt.TypeName    AS [Type],
                         l.LocationName AS Location
                 FROM    Products p
+                LEFT JOIN (
+                    SELECT   ProductID, SUM(QuantityChange) AS TotalQty
+                    FROM     InventoryTransactions
+                    GROUP BY ProductID
+                ) stock ON stock.ProductID = p.ProductID
                 LEFT JOIN ProductTypes pt ON pt.ProductTypeID = p.ProductTypeID
                 LEFT JOIN Locations    l  ON l.LocationID     = p.DefaultLocationID
                 WHERE   p.IsActive = 1
@@ -41,13 +46,14 @@ namespace JaneERP.Data
             return db.Query(@"
                 SELECT  p.SKU,
                         p.ProductName,
-                        l.LocationName,
+                        l.LocationName AS FromLocation,
                         SUM(t.QuantityChange) AS StockQty
                 FROM    InventoryTransactions t
                 JOIN    Products  p ON p.ProductID  = t.ProductID
                 JOIN    Locations l ON l.LocationID = t.LocationID
                 WHERE   p.IsActive = 1
                 GROUP BY p.SKU, p.ProductName, l.LocationName
+                HAVING  SUM(t.QuantityChange) > 0
                 ORDER BY p.SKU, l.LocationName").AsList();
         }
 
@@ -57,12 +63,17 @@ namespace JaneERP.Data
             return db.Query(@"
                 SELECT  p.SKU,
                         p.ProductName,
-                        ISNULL((SELECT SUM(t.QuantityChange) FROM InventoryTransactions t WHERE t.ProductID = p.ProductID), 0) AS CurrentStock,
+                        ISNULL(stock.TotalQty, 0)                          AS CurrentStock,
                         p.ReorderPoint,
-                        p.ReorderPoint - ISNULL((SELECT SUM(t.QuantityChange) FROM InventoryTransactions t WHERE t.ProductID = p.ProductID), 0) AS Shortfall
+                        p.ReorderPoint - ISNULL(stock.TotalQty, 0)         AS Shortfall
                 FROM    Products p
+                LEFT JOIN (
+                    SELECT   ProductID, SUM(QuantityChange) AS TotalQty
+                    FROM     InventoryTransactions
+                    GROUP BY ProductID
+                ) stock ON stock.ProductID = p.ProductID
                 WHERE   p.IsActive = 1
-                  AND   ISNULL((SELECT SUM(t.QuantityChange) FROM InventoryTransactions t WHERE t.ProductID = p.ProductID), 0) <= p.ReorderPoint
+                  AND   ISNULL(stock.TotalQty, 0) <= p.ReorderPoint
                 ORDER BY Shortfall DESC").AsList();
         }
 

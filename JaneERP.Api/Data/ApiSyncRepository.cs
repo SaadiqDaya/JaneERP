@@ -216,6 +216,10 @@ public class ApiSyncRepository
             var plain     = ProtectedData.Unprotect(encrypted, null, DataProtectionScope.CurrentUser);
             return Encoding.UTF8.GetString(plain);
         }
-        catch { return null; }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[ApiSyncRepository.GetToken] Failed to read token for domain '{domain}': {ex.Message}");
+            return null;
+        }
     }
 }

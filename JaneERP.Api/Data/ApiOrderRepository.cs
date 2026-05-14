@@ -8,8 +8,14 @@ namespace JaneERP.Api.Data;
 
 public class ApiOrderRepository
 {
-    private readonly CompanyContext _ctx;
-    public ApiOrderRepository(CompanyContext ctx) => _ctx = ctx;
+    private readonly CompanyContext            _ctx;
+    private readonly ILogger<ApiOrderRepository> _logger;
+
+    public ApiOrderRepository(CompanyContext ctx, ILogger<ApiOrderRepository> logger)
+    {
+        _ctx    = ctx;
+        _logger = logger;
+    }
 
     private IDbConnection Connect() => new SqlConnection(_ctx.ConnectionString);
 
@@ -141,6 +147,20 @@ public class ApiOrderRepository
             }
 
             tx.Commit();
+
+            try
+            {
+                db.Execute(@"
+                    INSERT INTO AuditLog (UserName, Action, Details, LoggedAt)
+                    VALUES (@user, 'CreateManualOrder', @details, GETDATE())",
+                    new
+                    {
+                        user    = createdBy,
+                        details = $"SalesOrderID={salesOrderId} OrderNumber={orderNumber} Customer={req.CustomerEmail} Total={total:F2} Items={req.Items.Count}"
+                    });
+            }
+            catch (Exception auditEx) { _logger.LogError(auditEx, "[ApiOrderRepository.CreateManualOrder] Audit insert failed for SalesOrderID={Id}", salesOrderId); }
+
             return salesOrderId;
         }
         catch { tx.Rollback(); throw; }
@@ -148,7 +168,8 @@ public class ApiOrderRepository
 
     /// <summary>
     /// Updates order status, replicating the desktop app's inventory logic:
-    /// - Complete: deducts inventory via InventoryTransactions (if not already done)
+    /// - Packed: blocked if any line item has insufficient stock
+    /// - Complete/Shipped: deducts inventory via InventoryTransactions (if not already done)
     /// - Draft (from Live/WIP): releases StockReservations
     /// </summary>
     public bool UpdateOrderStatus(int salesOrderId, string newStatus, string username)
@@ -166,7 +187,34 @@ public class ApiOrderRepository
 
             string currentStatus = (string)order.Status;
             bool   wasAffected   = false;
-            try { wasAffected = (bool)order.InventoryAffected; } catch { }
+            try { wasAffected = (bool)order.InventoryAffected; } catch (Exception ex) { _logger.LogDebug(ex, "[ApiOrderRepository.UpdateOrderStatus] InventoryAffected cast failed, defaulting to false"); }
+
+            // Hard block: cannot move to Packed unless every line has sufficient stock
+            if (newStatus == "Packed")
+            {
+                var shortfalls = db.Query(@"
+                    SELECT  soi.Title,
+                            soi.SKU,
+                            soi.Quantity                                              AS QuantityNeeded,
+                            ISNULL((SELECT SUM(QuantityChange)
+                                    FROM   InventoryTransactions
+                                    WHERE  ProductID = soi.ProductID), 0)             AS TotalStock
+                    FROM    SalesOrderItems soi
+                    WHERE   soi.SalesOrderID = @id
+                      AND   soi.Quantity > ISNULL((SELECT SUM(QuantityChange)
+                                                   FROM   InventoryTransactions
+                                                   WHERE  ProductID = soi.ProductID), 0)",
+                    new { id = salesOrderId }, tx).ToList();
+
+                if (shortfalls.Count > 0)
+                {
+                    tx.Rollback();
+                    var lines = string.Join(", ", shortfalls.Select(s =>
+                        $"{s.Title ?? s.SKU} (need {s.QuantityNeeded}, have {s.TotalStock})"));
+                    throw new InvalidOperationException(
+                        $"Insufficient stock for {shortfalls.Count} item(s): {lines}");
+                }
+            }
 
             db.Execute("UPDATE SalesOrders SET Status = @s WHERE SalesOrderID = @id",
                 new { s = newStatus, id = salesOrderId }, tx);
@@ -198,7 +246,7 @@ public class ApiOrderRepository
                         "UPDATE SalesOrders SET InventoryAffected = 1 WHERE SalesOrderID = @id",
                         new { id = salesOrderId }, tx);
                 }
-                catch { /* InventoryAffected column may not exist on older DBs */ }
+                catch (Exception ex) { _logger.LogDebug(ex, "[ApiOrderRepository.UpdateOrderStatus] InventoryAffected flag update skipped (column may not exist on older DBs)"); }
             }
 
             // Release stock reservations when completing/shipping or reverting to Draft
@@ -210,10 +258,24 @@ public class ApiOrderRepository
                     db.Execute("DELETE FROM StockReservations WHERE SalesOrderID = @id",
                         new { id = salesOrderId }, tx);
                 }
-                catch { /* StockReservations table may not exist */ }
+                catch (Exception ex) { _logger.LogDebug(ex, "[ApiOrderRepository.UpdateOrderStatus] StockReservations delete skipped (table may not exist)"); }
             }
 
             tx.Commit();
+
+            try
+            {
+                db.Execute(@"
+                    INSERT INTO AuditLog (UserName, Action, Details, LoggedAt)
+                    VALUES (@user, 'UpdateOrderStatus', @details, GETDATE())",
+                    new
+                    {
+                        user    = username,
+                        details = $"SalesOrderID={salesOrderId} PreviousStatus={currentStatus} NewStatus={newStatus}"
+                    });
+            }
+            catch (Exception auditEx) { _logger.LogError(auditEx, "[ApiOrderRepository.UpdateOrderStatus] Audit insert failed for SalesOrderID={Id}", salesOrderId); }
+
             return true;
         }
         catch { tx.Rollback(); throw; }
@@ -262,12 +324,30 @@ public class ApiOrderRepository
             new { days });
     }
 
-    public bool UpdateNotes(int salesOrderId, string? notes)
+    public bool UpdateNotes(int salesOrderId, string? notes, string? updatedBy = null)
     {
         using var db = Connect();
-        return db.Execute(
+        var affected = db.Execute(
             "UPDATE SalesOrders SET Notes = @notes WHERE SalesOrderID = @salesOrderId",
             new { notes, salesOrderId }) > 0;
+
+        if (affected)
+        {
+            try
+            {
+                db.Execute(@"
+                    INSERT INTO AuditLog (UserName, Action, Details, LoggedAt)
+                    VALUES (@user, 'UpdateOrderNotes', @details, GETDATE())",
+                    new
+                    {
+                        user    = updatedBy ?? "system",
+                        details = $"SalesOrderID={salesOrderId}"
+                    });
+            }
+            catch (Exception auditEx) { _logger.LogError(auditEx, "[ApiOrderRepository.UpdateNotes] Audit insert failed for SalesOrderID={Id}", salesOrderId); }
+        }
+
+        return affected;
     }
 
     public int GetOrdersToPackCount()

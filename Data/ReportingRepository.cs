@@ -27,6 +27,7 @@ namespace JaneERP.Data
                 FROM   InventoryTransactions t
                 JOIN   Products   p ON p.ProductID   = t.ProductID
                 LEFT JOIN Locations l ON l.LocationID = t.LocationID
+                WHERE  p.IsActive = 1
                 GROUP  BY l.LocationName, p.SKU, p.ProductName, p.RetailPrice, p.WholesalePrice
                 HAVING SUM(t.QuantityChange) > 0
                 ORDER  BY l.LocationName, p.SKU").ToList();
@@ -63,6 +64,7 @@ namespace JaneERP.Data
                 FROM   WorkOrders wo
                 JOIN   Products p ON p.ProductID = wo.ProductID
                 WHERE  wo.Status = 'Complete' AND wo.CostOfGoods IS NOT NULL
+                  AND  p.IsActive = 1
                 ORDER  BY wo.CompletedAt DESC").ToList();
         }
 
@@ -123,6 +125,7 @@ namespace JaneERP.Data
                 JOIN   SalesOrders      so ON so.SalesOrderID = soi.SalesOrderID
                 LEFT JOIN ProductUnitCost pc ON pc.ProductID  = soi.ProductID
                 WHERE  so.OrderDate >= @from AND so.OrderDate < @to
+                  AND  p.IsActive = 1
                 GROUP  BY p.SKU, p.ProductName
                 ORDER  BY GrossProfit DESC",
                 new { from, to }).ToList();

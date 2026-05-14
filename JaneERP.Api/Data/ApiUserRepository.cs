@@ -7,8 +7,14 @@ namespace JaneERP.Api.Data;
 
 public class ApiUserRepository
 {
-    private readonly CompanyContext _ctx;
-    public ApiUserRepository(CompanyContext ctx) => _ctx = ctx;
+    private readonly CompanyContext              _ctx;
+    private readonly ILogger<ApiUserRepository> _logger;
+
+    public ApiUserRepository(CompanyContext ctx, ILogger<ApiUserRepository> logger)
+    {
+        _ctx    = ctx;
+        _logger = logger;
+    }
 
     private IDbConnection Connect() => new SqlConnection(_ctx.ConnectionString);
 
@@ -40,7 +46,7 @@ public class ApiUserRepository
                     "UPDATE Users SET FailedLoginCount = @c, LockedUntil = @lu WHERE UserId = @id",
                     new { c = newCount, lu = lockUntil, id = user.UserId });
             }
-            catch { /* column may not exist on older DBs */ }
+            catch (Exception ex) { _logger.LogDebug(ex, "[ApiUserRepository.Authenticate] FailedLoginCount update skipped (column may not exist on older DBs)"); }
             return null;
         }
 

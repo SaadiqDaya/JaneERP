@@ -80,6 +80,15 @@ namespace JaneERP.Data
                     ALTER TABLE PurchaseOrders ADD ShippingCost DECIMAL(18,2) NOT NULL DEFAULT 0;");
         }
 
+        /// <summary>Adds TaxAmount column to PurchaseOrders if not already present.</summary>
+        public void MigrateTaxAmount()
+        {
+            using IDbConnection db = new SqlConnection(_cs);
+            db.Execute(@"
+                IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('PurchaseOrders') AND name='TaxAmount')
+                    ALTER TABLE PurchaseOrders ADD TaxAmount DECIMAL(18,2) NOT NULL DEFAULT 0;");
+        }
+
         /// <summary>Returns POs that are past their expected date, not yet received/cancelled,
         /// and have not yet had an overdue notification sent.</summary>
         public List<PurchaseOrder> GetUnnotifiedOverduePOs()
@@ -184,12 +193,12 @@ namespace JaneERP.Data
                 po.PONumber = $"PO-{year}-{seq:D4}";
                 po.CreatedBy ??= AppSession.CurrentUser?.Username;
 
-                // Recalculate total cost (items subtotal + shipping)
-                po.TotalCost = po.Items.Sum(i => i.UnitCost * i.QuantityOrdered) + po.ShippingCost;
+                // Recalculate total cost (items subtotal + shipping + tax)
+                po.TotalCost = po.Items.Sum(i => i.UnitCost * i.QuantityOrdered) + po.ShippingCost + po.TaxAmount;
 
                 int poid = db.QuerySingle<int>(@"
-                    INSERT INTO PurchaseOrders (PONumber, SupplierID, Status, OrderDate, ExpectedDate, Notes, CreatedBy, TotalCost, ShippingCost)
-                    VALUES (@PONumber, @SupplierID, @Status, @OrderDate, @ExpectedDate, @Notes, @CreatedBy, @TotalCost, @ShippingCost);
+                    INSERT INTO PurchaseOrders (PONumber, SupplierID, Status, OrderDate, ExpectedDate, Notes, CreatedBy, TotalCost, ShippingCost, TaxAmount)
+                    VALUES (@PONumber, @SupplierID, @Status, @OrderDate, @ExpectedDate, @Notes, @CreatedBy, @TotalCost, @ShippingCost, @TaxAmount);
                     SELECT CAST(SCOPE_IDENTITY() AS INT);", po, tx);
 
                 foreach (var item in po.Items)
@@ -218,19 +227,23 @@ namespace JaneERP.Data
                 new { status, poid });
         }
 
-        /// <summary>Returns the supplier with the given name, creating it if it doesn't exist.</summary>
+        /// <summary>Returns the supplier with the given name, creating it if it doesn't exist.
+        /// Uses an atomic INSERT … WHERE NOT EXISTS to avoid TOCTOU duplicates under concurrent load.</summary>
         public Supplier FindOrCreateByName(string name)
         {
             using var db = new SqlConnection(_cs);
             db.Open();
-            var existing = db.QueryFirstOrDefault<Supplier>(
-                "SELECT * FROM Suppliers WHERE SupplierName = @name", new { name });
-            if (existing != null) return existing;
-
-            int id = db.QuerySingle<int>(@"
-                INSERT INTO Suppliers (SupplierName, IsActive) VALUES (@name, 1);
-                SELECT CAST(SCOPE_IDENTITY() AS INT);", new { name });
-            return new Supplier { SupplierID = id, SupplierName = name, IsActive = true };
+            // Single round-trip: insert only when the row is absent, then always select.
+            // The INSERT is a no-op when another session already inserted the same name,
+            // so the subsequent SELECT always returns exactly one row regardless of concurrency.
+            return db.QueryFirst<Supplier>(@"
+                INSERT INTO Suppliers (SupplierName, IsActive)
+                SELECT @name, 1
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM Suppliers WHERE SupplierName = @name
+                );
+                SELECT * FROM Suppliers WHERE SupplierName = @name AND IsActive = 1;",
+                new { name });
         }
 
         /// <summary>Replaces the line items of a Draft purchase order without changing its status.</summary>

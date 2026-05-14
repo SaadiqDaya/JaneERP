@@ -53,7 +53,7 @@ namespace JaneERP.Data
                     kpi.LowStock   = (int)(row.LowStock   ?? 0);
                 }
             }
-            catch { /* table may not exist yet */ }
+            catch (Exception ex) { Logging.AppLogger.Info($"[KPIRepository.GetKPIs] Stock KPI query failed (table may not exist yet): {ex.Message}"); }
 
             kpi.OpenWorkOrders = Safe<int>(db,
                 "SELECT COUNT(*) FROM WorkOrders WHERE Status <> 'Complete'");
@@ -77,7 +77,7 @@ namespace JaneERP.Data
         private static T Safe<T>(IDbConnection db, string sql, object? param = null)
         {
             try { return db.ExecuteScalar<T>(sql, param) ?? default!; }
-            catch { return default!; }
+            catch (Exception ex) { Logging.AppLogger.Info($"[KPIRepository.Safe] Query failed: {ex.Message}"); return default!; }
         }
     }
 }

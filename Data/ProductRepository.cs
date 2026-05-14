@@ -91,6 +91,7 @@ namespace JaneERP.Data
                         l.LocationName  AS DefaultLocationName,
                         p.DefaultVendorID,
                         v.VendorName    AS DefaultVendorName,
+                        p.BomNumber,
                         ISNULL(inv.CurrentStock, 0) AS CurrentStock,
                         ISNULL(res.ReservedQty,  0) AS ReservedQty
                 FROM    Products p
@@ -152,7 +153,7 @@ namespace JaneERP.Data
                         SELECT PartID    FROM Parts    WHERE IsAutoCreated = 1 AND IsVerified = 0 AND IsActive = 1
                     ) AS unverified");
             }
-            catch { return 0; }
+            catch (Exception ex) { Logging.AppLogger.Error($"[ProductRepository.GetUnverifiedCount] {ex}"); return 0; }
         }
 
         /// <summary>Adds new product columns (ReorderPoint, OrderUpTo, DefaultVendorID, IsAutoCreated, IsVerified) if they don't exist yet.</summary>
@@ -524,7 +525,7 @@ namespace JaneERP.Data
         {
             using IDbConnection db = new SqlConnection(_connectionString);
             try { return db.ExecuteScalar<int>("SELECT COUNT(*) FROM ProductParts WHERE ProductID = @productId", new { productId }); }
-            catch { return 0; }
+            catch (Exception ex) { Logging.AppLogger.Error($"[ProductRepository.GetBomCount] productId={productId}: {ex}"); return 0; }
         }
 
         /// <summary>Returns the count of active products that have no BOM entries (ProductParts).</summary>
@@ -536,7 +537,7 @@ namespace JaneERP.Data
                 return db.ExecuteScalar<int>(
                     "SELECT COUNT(*) FROM Products p WHERE p.IsActive=1 AND NOT EXISTS (SELECT 1 FROM ProductParts pp WHERE pp.ProductID=p.ProductID)");
             }
-            catch { return 0; }
+            catch (Exception ex) { Logging.AppLogger.Error($"[ProductRepository.CountProductsWithNoBOM] {ex}"); return 0; }
         }
 
         // ── BOM source / numbering ─────────────────────────────────────────────────
@@ -565,7 +566,7 @@ namespace JaneERP.Data
                     WHERE  BomNumber IS NOT NULL AND BomNumber LIKE 'BOM-%'");
                 return $"BOM-{next:D4}";
             }
-            catch { return $"BOM-{DateTime.Now:yyyyMMddHHmm}"; }
+            catch (Exception ex) { Logging.AppLogger.Error($"[ProductRepository.NextBomNumber] {ex}"); return $"BOM-{DateTime.Now:yyyyMMddHHmm}"; }
         }
 
         /// <summary>Assigns a BOM number to a product.</summary>

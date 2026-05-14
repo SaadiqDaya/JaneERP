@@ -126,7 +126,7 @@ namespace JaneERP.Data
                         new { productId, partId }, tx);
                     tx.Commit();
                 }
-                catch { tx.Rollback(); /* log and continue */ }
+                catch (Exception ex) { tx.Rollback(); Logging.AppLogger.Info($"[DataMigrations.EnsureAllProductsHaveParts] Skipped one product: {ex.Message}"); }
             }
         });
 

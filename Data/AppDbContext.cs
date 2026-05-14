@@ -42,7 +42,7 @@ namespace JaneERP.Data
             {
                 Database.ExecuteSqlRaw("ALTER TABLE Orders ADD COLUMN StoreDomain TEXT NULL");
             }
-            catch { /* column already exists — safe to ignore */ }
+            catch (Exception ex) { Logging.AppLogger.Info($"[AppDbContext.MigrateSchema] StoreDomain column may already exist: {ex.Message}"); }
         }
 
         /// <summary>

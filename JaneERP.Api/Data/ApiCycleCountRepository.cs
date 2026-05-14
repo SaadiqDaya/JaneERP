@@ -8,8 +8,14 @@ namespace JaneERP.Api.Data;
 
 public class ApiCycleCountRepository
 {
-    private readonly CompanyContext _ctx;
-    public ApiCycleCountRepository(CompanyContext ctx) => _ctx = ctx;
+    private readonly CompanyContext                     _ctx;
+    private readonly ILogger<ApiCycleCountRepository> _logger;
+
+    public ApiCycleCountRepository(CompanyContext ctx, ILogger<ApiCycleCountRepository> logger)
+    {
+        _ctx    = ctx;
+        _logger = logger;
+    }
 
     private IDbConnection Connect() => new SqlConnection(_ctx.ConnectionString);
 
@@ -97,6 +103,19 @@ public class ApiCycleCountRepository
             }
 
             tx.Commit();
+
+            try
+            {
+                db.Execute(@"
+                    INSERT INTO AuditLog (UserName, Action, Details, LoggedAt)
+                    VALUES (@user, 'CycleCountVerification', @details, GETDATE())",
+                    new
+                    {
+                        user    = verifiedBy,
+                        details = $"ProductID={productId} LocationID={locationId} SystemQty={systemQty} ActualQty={actualQty} Diff={diff}"
+                    });
+            }
+            catch (Exception auditEx) { _logger.LogError(auditEx, "[ApiCycleCountRepository.RecordVerification] Audit insert failed for ProductID={Id}", productId); }
         }
         catch { tx.Rollback(); throw; }
     }

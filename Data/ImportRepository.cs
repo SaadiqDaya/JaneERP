@@ -1,7 +1,10 @@
 using System.Configuration;
 using System.Data;
 using Dapper;
+using JaneERP.Infrastructure;
 using JaneERP.Interfaces;
+using JaneERP.Logging;
+using JaneERP.Models;
 using Microsoft.Data.SqlClient;
 
 namespace JaneERP.Data
@@ -152,6 +155,207 @@ namespace JaneERP.Data
                     new { email, fullName, phone });
                 return true;
             }
+        }
+
+        public List<InventoryMoveRow> ValidateInventoryMoves(
+            IEnumerable<(string sku, string from, string to, int? qty)> input)
+        {
+            using var db = new SqlConnection(_connectionString);
+            db.Open();
+            var result = new List<InventoryMoveRow>();
+
+            foreach (var (sku, from, to, qty) in input)
+            {
+                var row = new InventoryMoveRow
+                {
+                    SKU          = sku,
+                    FromLocation = from,
+                    ToLocation   = to,
+                    RequestedQty = qty
+                };
+
+                // Resolve product
+                var product = db.QueryFirstOrDefault(
+                    "SELECT ProductID, ProductName FROM Products WHERE SKU = @sku AND IsActive = 1",
+                    new { sku });
+                if (product == null)
+                {
+                    row.IsValid = false;
+                    row.Error   = $"SKU '{sku}' not found";
+                    result.Add(row);
+                    continue;
+                }
+                row.ProductID   = (int)product.ProductID;
+                row.ProductName = (string)product.ProductName;
+
+                // Resolve from-location
+                var fromLocId = db.QueryFirstOrDefault<int?>(
+                    "SELECT LocationID FROM Locations WHERE LocationName = @name", new { name = from });
+                if (fromLocId == null)
+                {
+                    row.IsValid = false;
+                    row.Error   = $"Location '{from}' not found";
+                    result.Add(row);
+                    continue;
+                }
+                row.FromLocID = fromLocId.Value;
+
+                // Resolve to-location
+                var toLocId = db.QueryFirstOrDefault<int?>(
+                    "SELECT LocationID FROM Locations WHERE LocationName = @name", new { name = to });
+                if (toLocId == null)
+                {
+                    row.IsValid = false;
+                    row.Error   = $"Location '{to}' not found";
+                    result.Add(row);
+                    continue;
+                }
+                row.ToLocID = toLocId.Value;
+
+                if (row.FromLocID == row.ToLocID)
+                {
+                    row.IsValid = false;
+                    row.Error   = "Source and destination are the same";
+                    result.Add(row);
+                    continue;
+                }
+
+                // Available stock at source
+                int available = db.QuerySingle<int>(
+                    @"SELECT ISNULL(SUM(QuantityChange), 0)
+                      FROM   InventoryTransactions
+                      WHERE  ProductID  = @pid
+                        AND  LocationID = @locId",
+                    new { pid = row.ProductID, locId = row.FromLocID });
+                row.AvailableQty = available;
+
+                if (available <= 0)
+                {
+                    row.IsValid = false;
+                    row.Error   = "No stock at source location";
+                    result.Add(row);
+                    continue;
+                }
+
+                row.MoveQty = Math.Min(qty ?? available, available);
+                row.IsValid = true;
+
+                // Summarise available lots for display in the preview grid
+                var lots = db.Query(
+                    @"SELECT LotNumber, ExpirationDate, SUM(QuantityChange) AS LotQty
+                      FROM   InventoryTransactions
+                      WHERE  ProductID  = @pid AND LocationID = @locId
+                      GROUP BY LotNumber, ExpirationDate
+                      HAVING SUM(QuantityChange) > 0
+                      ORDER BY ExpirationDate ASC",
+                    new { pid = row.ProductID, locId = row.FromLocID });
+
+                row.LotSummary = string.Join(", ", lots.Select(l =>
+                {
+                    string lotLabel = ((string?)l.LotNumber) != null ? (string)l.LotNumber : "no-lot";
+                    string expLabel = ((DateTime?)l.ExpirationDate) != null
+                        ? $" (exp {((DateTime)l.ExpirationDate):yyyy-MM-dd})"
+                        : string.Empty;
+                    return lotLabel + expLabel;
+                }));
+
+                result.Add(row);
+            }
+
+            return result;
+        }
+
+        public (int moved, int skipped) ExecuteInventoryMoves(
+            IEnumerable<InventoryMoveRow> validRows, string movedBy)
+        {
+            int moved = 0, skipped = 0;
+            using var db = new SqlConnection(_connectionString);
+            db.Open();
+
+            foreach (var row in validRows.Where(r => r.IsValid && r.MoveQty > 0))
+            {
+                using var tx = db.BeginTransaction();
+                try
+                {
+                    // Query lots in FEFO order (soonest expiry first; null expiry last).
+                    // If row.LotNumber is set, restrict to that lot only.
+                    var lots = db.Query(
+                        @"SELECT   LotNumber, ExpirationDate, SUM(QuantityChange) AS LotQty
+                          FROM     InventoryTransactions
+                          WHERE    ProductID  = @pid
+                            AND    LocationID = @fromLoc
+                            AND    (@lotFilter IS NULL OR LotNumber = @lotFilter)
+                          GROUP BY LotNumber, ExpirationDate
+                          HAVING   SUM(QuantityChange) > 0
+                          ORDER BY CASE WHEN ExpirationDate IS NULL THEN 1 ELSE 0 END,
+                                   ExpirationDate ASC,
+                                   LotNumber ASC",
+                        new
+                        {
+                            pid       = row.ProductID,
+                            fromLoc   = row.FromLocID,
+                            lotFilter = row.LotNumber   // null = no filter, any lot
+                        }, tx).ToList();
+
+                    int remaining = row.MoveQty;
+
+                    foreach (var lot in lots)
+                    {
+                        if (remaining <= 0) break;
+
+                        int lotQty = (int)lot.LotQty;
+                        int take   = Math.Min(lotQty, remaining);
+
+                        string? lotNum  = (string?)lot.LotNumber;
+                        DateTime? expDt = (DateTime?)lot.ExpirationDate;
+
+                        // Debit source
+                        db.Execute(@"
+                            INSERT INTO InventoryTransactions
+                                (ProductID, LocationID, QuantityChange, TransactionType,
+                                 Notes, TransactionDate, LotNumber, ExpirationDate)
+                            VALUES (@pid, @fromLoc, @negQty, 'Transfer',
+                                    @notes, GETDATE(), @lotNum, @expDt)",
+                            new
+                            {
+                                pid     = row.ProductID,
+                                fromLoc = row.FromLocID,
+                                negQty  = -take,
+                                notes   = $"Transfer to {row.ToLocation} by {movedBy}",
+                                lotNum,
+                                expDt
+                            }, tx);
+
+                        // Credit destination
+                        db.Execute(@"
+                            INSERT INTO InventoryTransactions
+                                (ProductID, LocationID, QuantityChange, TransactionType,
+                                 Notes, TransactionDate, LotNumber, ExpirationDate)
+                            VALUES (@pid, @toLoc, @posQty, 'Transfer',
+                                    @notes, GETDATE(), @lotNum, @expDt)",
+                            new
+                            {
+                                pid    = row.ProductID,
+                                toLoc  = row.ToLocID,
+                                posQty = take,
+                                notes  = $"Transfer from {row.FromLocation} by {movedBy}",
+                                lotNum,
+                                expDt
+                            }, tx);
+
+                        remaining -= take;
+                    }
+
+                    tx.Commit();
+                    moved++;
+                }
+                catch (Exception ex) { tx.Rollback(); Logging.AppLogger.Error($"[ImportRepository.MoveInventoryFromCsv] Row skipped: {ex}"); skipped++; }
+            }
+
+            AppLogger.Audit(movedBy, "InventoryMove",
+                $"Transferred {moved} product-location(s) via CSV import");
+
+            return (moved, skipped);
         }
     }
 }

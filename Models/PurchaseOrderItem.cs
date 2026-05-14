@@ -14,5 +14,7 @@ namespace JaneERP.Models
 
         // Convenience
         public int     QuantityRemaining => QuantityOrdered - QuantityReceived;
+        /// <summary>"Part" when this line was created against a raw-material Part, "Product" when it was created against a finished-goods Product.</summary>
+        public string  ItemType          => PartID.HasValue ? "Part" : "Product";
     }
 }

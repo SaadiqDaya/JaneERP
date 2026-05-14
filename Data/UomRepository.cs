@@ -92,7 +92,7 @@ namespace JaneERP.Data
                     "SELECT Abbreviation FROM UnitOfMeasures WHERE IsActive = 1 ORDER BY DisplayOrder, Abbreviation")
                     .ToList();
             }
-            catch { return new List<string>(); }
+            catch (Exception ex) { Logging.AppLogger.Error($"[UomRepository.GetAbbreviations] {ex}"); return new List<string>(); }
         }
     }
 }

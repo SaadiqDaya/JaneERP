@@ -66,7 +66,17 @@ namespace JaneERP.Data
                                  AND object_id=OBJECT_ID('CustomerCredits'))
                     CREATE INDEX IX_CustomerCredits_CustomerID
                         ON CustomerCredits (CustomerID, IsRedeemed)
-                        INCLUDE (Amount, ReturnID, CreatedAt);");
+                        INCLUDE (Amount, ReturnID, CreatedAt);
+
+                IF NOT EXISTS (SELECT 1 FROM sys.columns
+                               WHERE object_id = OBJECT_ID('ReturnOrders')
+                                 AND name = 'ApprovedBy')
+                    ALTER TABLE ReturnOrders ADD ApprovedBy NVARCHAR(100) NULL;
+
+                IF NOT EXISTS (SELECT 1 FROM sys.columns
+                               WHERE object_id = OBJECT_ID('ReturnOrders')
+                                 AND name = 'ApprovedAt')
+                    ALTER TABLE ReturnOrders ADD ApprovedAt DATETIME NULL;");
         }
 
         // ── Queries ──────────────────────────────────────────────────────────────
@@ -185,10 +195,17 @@ namespace JaneERP.Data
             db.Open();
             using var tx = db.BeginTransaction();
 
-            // Guard: only move from Pending → Approved
-            int affected = db.Execute(
-                "UPDATE ReturnOrders SET Status='Approved' WHERE ReturnID=@returnId AND Status='Pending'",
-                new { returnId }, tx);
+            // Guard: only move from Pending → Approved.
+            // UPDLOCK + ROWLOCK prevents two concurrent transactions both reading 'Pending'
+            // before either commits under RCSI.
+            int affected = db.Execute(@"
+                UPDATE ReturnOrders WITH (UPDLOCK, ROWLOCK)
+                SET    Status     = 'Approved',
+                       ApprovedBy = @approvedBy,
+                       ApprovedAt = GETDATE()
+                WHERE  ReturnID = @returnId
+                  AND  Status   = 'Pending'",
+                new { returnId, approvedBy = AppSession.CurrentUser?.Username }, tx);
             if (affected == 0) { tx.Rollback(); return; }
 
             var allItems = db.Query<ReturnOrderItem>(

@@ -8,8 +8,14 @@ namespace JaneERP.Api.Data;
 
 public class ApiProductRepository
 {
-    private readonly CompanyContext _ctx;
-    public ApiProductRepository(CompanyContext ctx) => _ctx = ctx;
+    private readonly CompanyContext               _ctx;
+    private readonly ILogger<ApiProductRepository> _logger;
+
+    public ApiProductRepository(CompanyContext ctx, ILogger<ApiProductRepository> logger)
+    {
+        _ctx    = ctx;
+        _logger = logger;
+    }
 
     private IDbConnection Connect() => new SqlConnection(_ctx.ConnectionString);
 
@@ -97,6 +103,32 @@ public class ApiProductRepository
         return (items, total);
     }
 
+    public (List<ProductSearchResult> Items, int Total) GetInStock(int page, int pageSize = 40)
+    {
+        using var db = Connect();
+        var offset = (page - 1) * pageSize;
+
+        var total = db.ExecuteScalar<int>(@"
+            SELECT COUNT(*) FROM Products p
+            WHERE  p.IsActive = 1
+              AND  ISNULL((SELECT SUM(QuantityChange) FROM InventoryTransactions WHERE ProductID = p.ProductID), 0) > 0");
+
+        var items = db.Query<ProductSearchResult>(@"
+            SELECT  p.ProductID, p.SKU, p.ProductName,
+                    ISNULL((SELECT SUM(QuantityChange) FROM InventoryTransactions WHERE ProductID = p.ProductID), 0) AS CurrentStock,
+                    p.RetailPrice, p.ReorderPoint,
+                    CASE WHEN ISNULL((SELECT SUM(QuantityChange) FROM InventoryTransactions WHERE ProductID = p.ProductID), 0) <= p.ReorderPoint
+                         AND p.ReorderPoint > 0 THEN 1 ELSE 0 END AS IsLowStock
+            FROM    Products p
+            WHERE   p.IsActive = 1
+              AND   ISNULL((SELECT SUM(QuantityChange) FROM InventoryTransactions WHERE ProductID = p.ProductID), 0) > 0
+            ORDER   BY p.ProductName
+            OFFSET  @offset ROWS FETCH NEXT @pageSize ROWS ONLY",
+            new { offset, pageSize }).ToList();
+
+        return (items, total);
+    }
+
     public void AdjustStock(int productId, int qty, string reason, string username)
     {
         using var db = Connect();
@@ -106,6 +138,19 @@ public class ApiProductRepository
             VALUES
                 (@productId, @qty, 'Adjustment', @notes, GETDATE())",
             new { productId, qty, notes = $"Manual adjustment by {username}: {reason}" });
+
+        try
+        {
+            db.Execute(@"
+                INSERT INTO AuditLog (UserName, Action, Details, LoggedAt)
+                VALUES (@user, 'AdjustStock', @details, GETDATE())",
+                new
+                {
+                    user    = username,
+                    details = $"ProductID={productId} QtyChange={qty} Reason={reason}"
+                });
+        }
+        catch (Exception auditEx) { _logger.LogError(auditEx, "[ApiProductRepository.AdjustStock] Audit insert failed for ProductID={Id}", productId); }
     }
 
     public (List<StockTransaction> Items, int Total, string ProductName, string SKU) GetTransactionHistory(
