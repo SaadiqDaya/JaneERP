@@ -1,4 +1,6 @@
-const CACHE = 'janeerp-v7';
+// ⚠️ IMPORTANT: Bump this version on every deployment to invalidate cached pages.
+// Format: janeerp-vYYYYMMDD (or add a letter suffix for same-day deploys: v20260513b)
+const CACHE = 'janeerp-v20260513b';
 const STATIC = [
   '/',
   '/index.html',

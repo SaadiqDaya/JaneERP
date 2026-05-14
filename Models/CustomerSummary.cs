@@ -22,6 +22,7 @@ namespace JaneERP.Models
         public string?  Status        { get; set; }
         public bool     IsPaid        { get; set; }
         public DateTime? PaidAt       { get; set; }
+        public decimal  PaidAmount    { get; set; }
     }
 
     /// <summary>A line item on a customer order. Returned by ICustomerRepository.GetOrderLineItems().</summary>

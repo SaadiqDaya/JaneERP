@@ -292,52 +292,63 @@ public class SyncResult
 
 public class CookSessionSummary
 {
-    public int       CookSessionID { get; set; }
-    public string    SessionName   { get; set; } = "";
-    public string    Status        { get; set; } = "";
-    public string?   CreatedBy     { get; set; }
-    public DateTime  CreatedAt     { get; set; }
-    public DateTime? CompletedAt   { get; set; }
-    public int       TotalSteps    { get; set; }
-    public int       DoneSteps     { get; set; }
+    public int       CookSessionID    { get; set; }
+    public string    SessionName      { get; set; } = "";
+    public string    Status           { get; set; } = "";
+    public string?   CreatedBy        { get; set; }
+    public DateTime  CreatedAt        { get; set; }
+    public DateTime? CompletedAt      { get; set; }
+    public decimal   BatchLossPercent { get; set; }
+    public int       TotalSteps       { get; set; }
+    public int       DoneSteps        { get; set; }
 }
 
 public class CookSessionDetail
 {
-    public int       CookSessionID { get; set; }
-    public string    SessionName   { get; set; } = "";
-    public string    Status        { get; set; } = "";
-    public string?   CreatedBy     { get; set; }
-    public DateTime  CreatedAt     { get; set; }
-    public DateTime? CompletedAt   { get; set; }
+    public int       CookSessionID    { get; set; }
+    public string    SessionName      { get; set; } = "";
+    public string    Status           { get; set; } = "";
+    public string?   CreatedBy        { get; set; }
+    public DateTime  CreatedAt        { get; set; }
+    public DateTime? CompletedAt      { get; set; }
+    public decimal   BatchLossPercent { get; set; }
     public List<CookIngredientDto> Ingredients { get; set; } = [];
 }
 
 public class CookIngredientDto
 {
-    public int     PartID        { get; set; }
-    public string  PartNumber    { get; set; } = "";
-    public string  PartName      { get; set; } = "";
-    public string? UnitOfMeasure { get; set; }
-    public decimal TotalRequired { get; set; }
-    public int     OnHand        { get; set; }
-    public int     StepsDone     { get; set; }
-    public int     StepsTotal    { get; set; }
-    public List<CookStepDto> Steps { get; set; } = [];
+    public int      PartID               { get; set; }
+    public string   PartNumber           { get; set; } = "";
+    public string   PartName             { get; set; } = "";
+    public string?  UnitOfMeasure        { get; set; }
+    public decimal  TotalRequired        { get; set; }
+    public int      OnHand               { get; set; }
+    public int      StepsDone            { get; set; }
+    public int      StepsTotal           { get; set; }
+    /// <summary>Specific gravity (g/ml). Null for count items.</summary>
+    public decimal? Density              { get; set; }
+    /// <summary>Gram equivalent when density is known.</summary>
+    public decimal? TotalRequiredGrams   => Density.HasValue ? Math.Round(TotalRequired * Density.Value, 2) : null;
+    public List<CookStepDto> Steps       { get; set; } = [];
 }
 
 public class CookStepDto
 {
-    public int       StepID       { get; set; }
-    public int       WorkOrderID  { get; set; }
-    public int       PartID       { get; set; }
-    public string    ProductName  { get; set; } = "";
-    public string    MONumber     { get; set; } = "";
-    public int       WorkOrderQty { get; set; }
-    public decimal   RequiredQty  { get; set; }
-    public bool      IsDone       { get; set; }
-    public string?   DoneBy       { get; set; }
-    public DateTime? DoneAt       { get; set; }
+    public int       StepID          { get; set; }
+    public int       WorkOrderID     { get; set; }
+    public int       PartID          { get; set; }
+    public string    ProductName     { get; set; } = "";
+    public string    MONumber        { get; set; } = "";
+    public int       WorkOrderQty    { get; set; }
+    public decimal   RequiredQty     { get; set; }
+    public string?   FlaskType       { get; set; }
+    public bool      IsDone          { get; set; }
+    public string?   DoneBy          { get; set; }
+    public DateTime? DoneAt          { get; set; }
+    /// <summary>Specific gravity (g/ml). Null for count items.</summary>
+    public decimal?  Density         { get; set; }
+    /// <summary>Gram equivalent when density is known.</summary>
+    public decimal?  RequiredGrams   => Density.HasValue ? Math.Round(RequiredQty * Density.Value, 2) : null;
 }
 
 public class CookWorkOrderItem
@@ -351,9 +362,27 @@ public class CookWorkOrderItem
     public string? AssignedTo  { get; set; }
 }
 
-public record CreateCookSessionRequest(string SessionName, List<int> WorkOrderIds);
+public record CreateCookSessionRequest(string SessionName, List<int> WorkOrderIds, decimal BatchLossPercent = 0m);
 
 public record CompleteCookSessionRequest(bool ForceComplete = false);
+
+public class ManufacturingSettingsResponse
+{
+    public List<FlaskConfigDto>     FlaskConfigs     { get; set; } = [];
+    public List<BatchLossPresetDto> BatchLossPresets { get; set; } = [];
+}
+
+public class FlaskConfigDto
+{
+    public string  Name       { get; set; } = "";
+    public decimal MaxBatchMl { get; set; }
+}
+
+public class BatchLossPresetDto
+{
+    public string  Label   { get; set; } = "";
+    public decimal Percent { get; set; }
+}
 
 // Shopify API response shapes (snake_case via [JsonPropertyName])
 

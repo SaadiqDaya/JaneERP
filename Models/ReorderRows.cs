@@ -45,6 +45,9 @@ namespace JaneERP.Models
         public int     ReorderPoint  { get; set; }
         public decimal UnitCost      { get; set; }
 
+        public int?    DefaultVendorID   { get; set; }
+        public string? DefaultVendorName { get; set; }
+
         public int     Shortfall       { get; set; }
         public int     SuggestedQty    { get; set; }
         public decimal EstCost         { get; set; }

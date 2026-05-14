@@ -10,8 +10,20 @@ namespace JaneERP
     {
         private readonly IExportRepository _repo = AppServices.Get<IExportRepository>();
 
+        // Required for OS-level resize grip on borderless forms on Windows 11
+        protected override CreateParams CreateParams
+        {
+            get
+            {
+                var cp = base.CreateParams;
+                cp.Style |= 0x00040000; // WS_THICKFRAME
+                return cp;
+            }
+        }
+
         public FormExports()
         {
+            FormBorderStyle = FormBorderStyle.None; // must be set before handle creation for CreateParams to take effect
             BuildUI();
             Theme.Apply(this);
             Theme.MakeBorderless(this);
@@ -65,7 +77,7 @@ namespace JaneERP
                 "All active products (SKU, Name, Prices, Stock, Reorder, Type, Location)",
                 ExportProductsCsv);
             y = AddExportRow(scroll, y, "Inventory by Location",
-                "Stock per product per location (from InventoryTransactions)",
+                "Move template: export current stock per location, fill ToLocation column, re-import to mass-relocate",
                 ExportInventoryByLocation);
             y = AddExportRow(scroll, y, "Reorder Summary",
                 "Products where current stock ≤ ReorderPoint (SKU, Name, Stock, Shortfall)",
@@ -265,9 +277,11 @@ namespace JaneERP
             {
                 var rows = _repo.GetInventoryByLocationForExport().ToList();
                 var sb = new StringBuilder();
-                sb.AppendLine("SKU,ProductName,Location,StockQty");
+                // ToLocation column is intentionally blank — fill it in and re-import
+                // via Imports → Inventory Moves CSV to mass-relocate stock.
+                sb.AppendLine("SKU,ProductName,FromLocation,StockQty,ToLocation");
                 foreach (var r in rows)
-                    sb.AppendLine($"{Esc(r.SKU)},{Esc(r.ProductName)},{Esc(r.LocationName)},{r.StockQty}");
+                    sb.AppendLine($"{Esc(r.SKU)},{Esc(r.ProductName)},{Esc(r.FromLocation)},{r.StockQty},");
                 WriteAndConfirm(path, sb.ToString());
             }
             catch (Exception ex) { ShowError(ex); }
@@ -479,12 +493,9 @@ namespace JaneERP
 
         public FormExportDateFilter(string title)
         {
-            Text            = title;
-            ClientSize      = new Size(340, 150);
-            FormBorderStyle = FormBorderStyle.FixedDialog;
-            MaximizeBox     = false;
-            MinimizeBox     = false;
-            StartPosition   = FormStartPosition.CenterParent;
+            Text          = title;
+            ClientSize    = new Size(340, 150);
+            StartPosition = FormStartPosition.CenterParent;
 
             Theme.Apply(this);
             Theme.MakeBorderless(this);

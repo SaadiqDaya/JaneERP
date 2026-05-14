@@ -103,6 +103,20 @@ namespace JaneERP.Manufacturing
                         DoneAt        DATETIME      NULL,
                         UNIQUE (CookSessionID, WorkOrderID, PartID)
                     )");
+
+                // ── Cook schema migrations ──────────────────────────────────────────
+                db.Execute(@"
+                    IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('CookSessions') AND name = 'BatchLossPercent')
+                        ALTER TABLE CookSessions ADD BatchLossPercent DECIMAL(5,2) NOT NULL DEFAULT 0;
+
+                    IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('CookSessionBatches') AND name = 'FlaskType')
+                        ALTER TABLE CookSessionBatches ADD FlaskType NVARCHAR(50) NULL;
+
+                    IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('CookSessionBatches') AND name = 'BatchSizeML')
+                        ALTER TABLE CookSessionBatches ADD BatchSizeML DECIMAL(12,3) NULL;
+
+                    IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('CookSessionSteps') AND name = 'RequiredQtyML')
+                        ALTER TABLE CookSessionSteps ADD RequiredQtyML DECIMAL(12,3) NULL;");
             }
             catch (Exception ex) { Logging.AppLogger.Info($"CookSession migration: {ex.Message}"); }
         }
@@ -254,12 +268,42 @@ namespace JaneERP.Manufacturing
                 db.Execute("DELETE FROM PartsReservations WHERE WorkOrderID = @workOrderId",
                     new { workOrderId }, tx);
 
+                // Fetch BOM with per-row batch loss fields so deduction matches actual consumption
                 var deductItems = db.Query(
-                    "SELECT pp.PartID, pp.Quantity FROM ProductParts pp WHERE pp.ProductID = @productId",
+                    "SELECT pp.PartID, pp.Quantity, pp.CreatesBatchLoss, pp.BatchLossRate FROM ProductParts pp WHERE pp.ProductID = @productId",
                     new { productId }, tx).ToList();
+
+                // Pre-compute each effective deduction quantity
+                var deductQtys = deductItems.ToDictionary(
+                    bom => (int)bom.PartID,
+                    bom => {
+                        decimal effRate = (bool)bom.CreatesBatchLoss
+                            ? ((decimal)bom.BatchLossRate > 0m ? (decimal)bom.BatchLossRate : 0m)
+                            : 0m;
+                        return (int)Math.Ceiling((double)((decimal)bom.Quantity * quantity * (1m + effRate / 100m)));
+                    });
+
+                // Pre-check: verify sufficient stock for every BOM part BEFORE any deduction.
                 foreach (var bom in deductItems)
                 {
-                    int deduct = (int)Math.Round((decimal)bom.Quantity * quantity, MidpointRounding.AwayFromZero);
+                    int deduct = deductQtys[(int)bom.PartID];
+                    if (deduct <= 0) continue;
+                    int currentStock = db.QuerySingle<int>(
+                        "SELECT CurrentStock FROM Parts WHERE PartID = @partId",
+                        new { partId = (int)bom.PartID }, tx);
+                    if (currentStock < deduct)
+                    {
+                        string partName = db.QueryFirstOrDefault<string>(
+                            "SELECT PartName FROM Parts WHERE PartID = @partId",
+                            new { partId = (int)bom.PartID }, tx) ?? $"PartID {bom.PartID}";
+                        throw new InvalidOperationException(
+                            $"Insufficient stock for part '{partName}': need {deduct}, have {currentStock}.");
+                    }
+                }
+
+                foreach (var bom in deductItems)
+                {
+                    int deduct = deductQtys[(int)bom.PartID];
                     if (deduct > 0)
                         db.Execute(
                             "UPDATE Parts SET CurrentStock = CurrentStock - @deduct WHERE PartID = @partId",
@@ -500,16 +544,48 @@ namespace JaneERP.Manufacturing
 
                 int totalDone = completedQty + scrapQty;
 
-                // Deduct parts from stock proportionally to units completed+scrapped
+                // Deduct parts from stock proportionally to units completed+scrapped,
+                // applying per-row batch loss so actual consumed quantity is accurate
                 var bom = db.Query(@"
-                    SELECT pp.PartID, CAST(CEILING(pp.Quantity * @totalDone) AS INT) AS QtyToDeduct
+                    SELECT pp.PartID, pp.Quantity, pp.CreatesBatchLoss, pp.BatchLossRate
                     FROM   ProductParts pp
                     WHERE  pp.ProductID = @productId",
-                    new { totalDone, productId = wo.ProductID }, tx).ToList();
+                    new { productId = wo.ProductID }, tx).ToList();
+
+                var bomQtys = bom.ToDictionary(
+                    p => (int)p.PartID,
+                    p => {
+                        decimal effRate = (bool)p.CreatesBatchLoss
+                            ? ((decimal)p.BatchLossRate > 0m ? (decimal)p.BatchLossRate : 0m)
+                            : 0m;
+                        return (int)Math.Ceiling((double)((decimal)p.Quantity * totalDone * (1m + effRate / 100m)));
+                    });
+
+                // Pre-check: verify sufficient stock for every BOM part BEFORE any deduction.
+                foreach (var part in bom)
+                {
+                    int qty = bomQtys[(int)part.PartID];
+                    if (qty <= 0) continue;
+                    int currentStock = db.QuerySingle<int>(
+                        "SELECT CurrentStock FROM Parts WHERE PartID = @partId",
+                        new { partId = (int)part.PartID }, tx);
+                    if (currentStock < qty)
+                    {
+                        string partName = db.QueryFirstOrDefault<string>(
+                            "SELECT PartName FROM Parts WHERE PartID = @partId",
+                            new { partId = (int)part.PartID }, tx) ?? $"PartID {part.PartID}";
+                        throw new InvalidOperationException(
+                            $"Insufficient stock for part '{partName}': need {qty}, have {currentStock}.");
+                    }
+                }
 
                 foreach (var part in bom)
-                    db.Execute("UPDATE Parts SET CurrentStock = CurrentStock - @qty WHERE PartID = @partId",
-                        new { qty = (int)part.QtyToDeduct, partId = (int)part.PartID }, tx);
+                {
+                    int qty = bomQtys[(int)part.PartID];
+                    if (qty > 0)
+                        db.Execute("UPDATE Parts SET CurrentStock = CurrentStock - @qty WHERE PartID = @partId",
+                            new { qty, partId = (int)part.PartID }, tx);
+                }
 
                 // Add inventory transaction for finished goods
                 if (completedQty > 0)
@@ -553,7 +629,9 @@ namespace JaneERP.Manufacturing
             return db.Query<Models.WOBomPreviewRow>(@"
                 SELECT pt.PartID, pt.PartNumber, pt.PartName, pt.UnitOfMeasure AS UOM,
                        pp.Quantity * wo.Quantity AS RequiredQty,
-                       pt.CurrentStock           AS OnHand
+                       pt.CurrentStock           AS OnHand,
+                       pp.CreatesBatchLoss, pp.BatchLossRate,
+                       pt.Density
                 FROM   WorkOrders   wo
                 JOIN   ProductParts pp ON pp.ProductID = wo.ProductID
                 JOIN   Parts        pt ON pt.PartID    = pp.PartID
@@ -564,13 +642,17 @@ namespace JaneERP.Manufacturing
         // ── Cook Sessions ─────────────────────────────────────────────────────────
 
         /// <summary>
-        /// Creates a new cook session, generates one step per (WorkOrder × BOM Part) combination,
-        /// and returns the new CookSessionID.
+        /// Creates a new cook session, calculates batch sizes and flask assignments from the
+        /// product's SizeML attribute and the given batch-loss percentage, pre-computes
+        /// RequiredQtyML for every step, and returns the new CookSessionID.
         /// </summary>
-        public int CreateCookSession(string sessionName, IEnumerable<int> workOrderIds, string? createdBy = null)
+        public int CreateCookSession(string sessionName, IEnumerable<int> workOrderIds,
+            decimal batchLossPercent = 0m, string? createdBy = null)
         {
             var woIds = workOrderIds.ToList();
             if (woIds.Count == 0) throw new ArgumentException("At least one work order is required.");
+
+            var settings = AppSettings.Current;
 
             using var db = new SqlConnection(_connectionString);
             db.Open();
@@ -578,29 +660,69 @@ namespace JaneERP.Manufacturing
             try
             {
                 int sessionId = db.QuerySingle<int>(@"
-                    INSERT INTO CookSessions (SessionName, CreatedBy)
-                    VALUES (@sessionName, @createdBy);
+                    INSERT INTO CookSessions (SessionName, CreatedBy, BatchLossPercent)
+                    VALUES (@sessionName, @createdBy, @batchLossPercent);
                     SELECT CAST(SCOPE_IDENTITY() AS INT)",
-                    new { sessionName, createdBy }, tx);
+                    new { sessionName, createdBy, batchLossPercent }, tx);
+
+                decimal lossMultiplier = 1m + (batchLossPercent / 100m);
 
                 foreach (int woId in woIds)
                 {
-                    db.Execute("INSERT INTO CookSessionBatches (CookSessionID, WorkOrderID) VALUES (@sessionId, @woId)",
-                        new { sessionId, woId }, tx);
-
-                    // Create one step per BOM part for this work order
-                    db.Execute(@"
-                        INSERT INTO CookSessionSteps (CookSessionID, WorkOrderID, PartID)
-                        SELECT @sessionId, @woId, pp.PartID
+                    // Read WO quantity and the product's SizeML attribute
+                    var woInfo = db.QueryFirstOrDefault(@"
+                        SELECT wo.Quantity, wo.ProductID
                         FROM   WorkOrders wo
+                        WHERE  wo.WorkOrderID = @woId", new { woId }, tx);
+
+                    if (woInfo == null) continue;
+                    int    woQty      = (int)woInfo.Quantity;
+                    int    productId  = (int)woInfo.ProductID;
+
+                    // SizeML is a Manufacturing/Number attribute on the product
+                    string? sizeMlStr = db.QueryFirstOrDefault<string>(@"
+                        SELECT AttributeValue
+                        FROM   ProductAttributes
+                        WHERE  ProductID = @productId AND AttributeName = 'SizeML'",
+                        new { productId }, tx);
+
+                    decimal sizeMl     = decimal.TryParse(sizeMlStr,
+                        System.Globalization.NumberStyles.Any,
+                        System.Globalization.CultureInfo.InvariantCulture, out var parsed) ? parsed : 0m;
+                    decimal batchSizeMl = woQty * sizeMl * lossMultiplier;
+                    string  flaskType   = batchSizeMl > 0
+                        ? settings.GetFlaskForBatchMl(batchSizeMl)
+                        : "";
+
+                    db.Execute(@"
+                        INSERT INTO CookSessionBatches (CookSessionID, WorkOrderID, FlaskType, BatchSizeML)
+                        VALUES (@sessionId, @woId, @flaskType, @batchSizeMl)",
+                        new { sessionId, woId, flaskType, batchSizeMl }, tx);
+
+                    // Create one step per BOM part, using per-row batch loss rate where set
+                    var bomParts = db.Query(@"
+                        SELECT pp.PartID, pp.Quantity AS BomQty, pp.CreatesBatchLoss, pp.BatchLossRate
+                        FROM   WorkOrders   wo
                         JOIN   ProductParts pp ON pp.ProductID = wo.ProductID
-                        WHERE  wo.WorkOrderID = @woId",
-                        new { sessionId, woId }, tx);
+                        WHERE  wo.WorkOrderID = @woId", new { woId }, tx).ToList();
+
+                    foreach (var part in bomParts)
+                    {
+                        decimal bomQty     = (decimal)part.BomQty;
+                        decimal effectiveRate = (bool)part.CreatesBatchLoss
+                            ? ((decimal)part.BatchLossRate > 0m ? (decimal)part.BatchLossRate : batchLossPercent)
+                            : 0m;
+                        decimal requiredQtyMl = bomQty * woQty * (1m + effectiveRate / 100m);
+                        db.Execute(@"
+                            INSERT INTO CookSessionSteps (CookSessionID, WorkOrderID, PartID, RequiredQtyML)
+                            VALUES (@sessionId, @woId, @partId, @requiredQtyMl)",
+                            new { sessionId, woId, partId = (int)part.PartID, requiredQtyMl }, tx);
+                    }
                 }
 
                 tx.Commit();
                 Logging.AppLogger.Audit(createdBy ?? "system", "CreateCookSession",
-                    $"SessionID={sessionId} Name={sessionName} WOs={string.Join(",", woIds)}");
+                    $"SessionID={sessionId} Name={sessionName} Loss={batchLossPercent}% WOs={string.Join(",", woIds)}");
                 return sessionId;
             }
             catch { tx.Rollback(); throw; }
@@ -627,7 +749,8 @@ namespace JaneERP.Manufacturing
                 "SELECT * FROM CookSessions WHERE Status = 'Open' ORDER BY CreatedAt DESC").ToList();
         }
 
-        /// <summary>All steps for a session, enriched with part/product display data.</summary>
+        /// <summary>All steps for a session, enriched with part/product display data.
+        /// Uses the pre-computed RequiredQtyML when available, falling back to BOM × WO qty.</summary>
         public List<Models.CookSessionStep> GetCookSessionSteps(int cookSessionId)
         {
             using IDbConnection db = new SqlConnection(_connectionString);
@@ -636,13 +759,17 @@ namespace JaneERP.Manufacturing
                        s.IsDone, s.DoneBy, s.DoneAt,
                        p.PartNumber, p.PartName, p.UnitOfMeasure,
                        pr.ProductName, pr.SKU AS ProductSKU,
-                       pp.Quantity * wo.Quantity AS RequiredQty,
-                       wo.Quantity               AS WorkOrderQty
-                FROM   CookSessionSteps s
-                JOIN   Parts        p  ON p.PartID      = s.PartID
-                JOIN   WorkOrders   wo ON wo.WorkOrderID = s.WorkOrderID
-                JOIN   Products     pr ON pr.ProductID   = wo.ProductID
-                JOIN   ProductParts pp ON pp.ProductID   = wo.ProductID AND pp.PartID = s.PartID
+                       COALESCE(s.RequiredQtyML, pp.Quantity * wo.Quantity) AS RequiredQty,
+                       wo.Quantity AS WorkOrderQty,
+                       csb.FlaskType,
+                       p.Density
+                FROM   CookSessionSteps   s
+                JOIN   Parts              p   ON p.PartID      = s.PartID
+                JOIN   WorkOrders         wo  ON wo.WorkOrderID = s.WorkOrderID
+                JOIN   Products           pr  ON pr.ProductID   = wo.ProductID
+                JOIN   ProductParts       pp  ON pp.ProductID   = wo.ProductID AND pp.PartID = s.PartID
+                JOIN   CookSessionBatches csb ON csb.CookSessionID = s.CookSessionID
+                                             AND csb.WorkOrderID   = s.WorkOrderID
                 WHERE  s.CookSessionID = @cookSessionId
                 ORDER  BY p.PartName, pr.ProductName",
                 new { cookSessionId }).ToList();
@@ -651,22 +778,24 @@ namespace JaneERP.Manufacturing
         /// <summary>
         /// Returns one summary row per ingredient across all batches in the session,
         /// used to populate the ingredient ComboBox and progress panel.
+        /// Uses pre-computed RequiredQtyML when available.
         /// </summary>
         public List<Models.CookIngredientSummary> GetCookIngredients(int cookSessionId)
         {
             using IDbConnection db = new SqlConnection(_connectionString);
             return db.Query<Models.CookIngredientSummary>(@"
                 SELECT p.PartID, p.PartNumber, p.PartName, p.UnitOfMeasure,
-                       SUM(pp.Quantity * wo.Quantity) AS TotalRequired,
-                       p.CurrentStock                 AS OnHand,
-                       SUM(CAST(s.IsDone AS INT))     AS StepsDone,
-                       COUNT(s.StepID)                AS StepsTotal
+                       SUM(COALESCE(s.RequiredQtyML, pp.Quantity * wo.Quantity)) AS TotalRequired,
+                       p.CurrentStock AS OnHand,
+                       SUM(CAST(s.IsDone AS INT)) AS StepsDone,
+                       COUNT(s.StepID)             AS StepsTotal,
+                       p.Density
                 FROM   CookSessionSteps s
                 JOIN   Parts        p  ON p.PartID      = s.PartID
                 JOIN   WorkOrders   wo ON wo.WorkOrderID = s.WorkOrderID
                 JOIN   ProductParts pp ON pp.ProductID   = wo.ProductID AND pp.PartID = s.PartID
                 WHERE  s.CookSessionID = @cookSessionId
-                GROUP BY p.PartID, p.PartNumber, p.PartName, p.UnitOfMeasure, p.CurrentStock
+                GROUP BY p.PartID, p.PartNumber, p.PartName, p.UnitOfMeasure, p.CurrentStock, p.Density
                 ORDER BY p.PartName",
                 new { cookSessionId }).ToList();
         }

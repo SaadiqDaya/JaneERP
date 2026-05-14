@@ -1,23 +1,27 @@
 // ── API client ────────────────────────────────────────────────────────────────
-// Thin wrapper around fetch. Reads the JWT from localStorage, adds the
-// Authorization header, and redirects to login on 401.
+// Thin wrapper around fetch. Reads the JWT from sessionStorage (cleared on
+// tab/window close — no persistent login).
 
 const Api = (() => {
   const TOKEN_KEY   = 'janeerp_token';
   const SESSION_KEY = 'janeerp_session';
 
-  function getToken()   { return localStorage.getItem(TOKEN_KEY); }
-  function getSession() { const s = localStorage.getItem(SESSION_KEY); return s ? JSON.parse(s) : null; }
+  function getToken()   { return sessionStorage.getItem(TOKEN_KEY); }
+  function getSession() { const s = sessionStorage.getItem(SESSION_KEY); return s ? JSON.parse(s) : null; }
 
   function setSession(token, username, role, company) {
-    localStorage.setItem(TOKEN_KEY, token);
-    localStorage.setItem(SESSION_KEY, JSON.stringify({ username, role, company }));
+    sessionStorage.setItem(TOKEN_KEY, token);
+    sessionStorage.setItem(SESSION_KEY, JSON.stringify({ username, role, company }));
   }
 
   function clearSession() {
-    localStorage.removeItem(TOKEN_KEY);
-    localStorage.removeItem(SESSION_KEY);
+    sessionStorage.removeItem(TOKEN_KEY);
+    sessionStorage.removeItem(SESSION_KEY);
   }
+
+  // One-time migration: remove any tokens left in localStorage from the old scheme
+  localStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem(SESSION_KEY);
 
   function isLoggedIn() { return !!getToken(); }
 

@@ -29,4 +29,16 @@ namespace JaneERP.Models
         public string Name       { get; set; } = "";
         public bool   IsActive   { get; set; }
     }
+
+    /// <summary>A reusable tax rate preset (e.g. GST 5%, PST 7%).</summary>
+    public class TaxRate
+    {
+        public int     TaxRateID { get; set; }
+        public string  Name      { get; set; } = "";
+        /// <summary>Rate as a fraction — e.g. 0.05 for 5%.</summary>
+        public decimal Rate      { get; set; }
+        public bool    IsActive  { get; set; } = true;
+
+        public override string ToString() => $"{Name} ({Rate:P0})";
+    }
 }

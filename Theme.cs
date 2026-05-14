@@ -24,11 +24,19 @@ namespace JaneERP
             if (target is Button) return;
             target.MouseDown += (_, e) =>
             {
-                if (e.Button == MouseButtons.Left)
-                {
-                    ReleaseCapture();
-                    SendMessage(form.Handle, WM_NCLBUTTONDOWN, HTCAPTION, 0);
-                }
+                if (e.Button != MouseButtons.Left) return;
+
+                // Don't steal the drag if the cursor is inside the resize border zone —
+                // clicking there should resize, not move. Convert the click position to
+                // form-client coordinates and skip if we're within BorderWidth pixels of any edge.
+                const int bw = 8; // must match ResizableHelper.BorderWidth
+                var posInForm = form.PointToClient(Cursor.Position);
+                if (posInForm.X <= bw || posInForm.X >= form.ClientSize.Width  - bw ||
+                    posInForm.Y <= bw || posInForm.Y >= form.ClientSize.Height - bw)
+                    return;
+
+                ReleaseCapture();
+                SendMessage(form.Handle, WM_NCLBUTTONDOWN, HTCAPTION, 0);
             };
             foreach (Control child in target.Controls)
                 MakeDraggable(form, child);
@@ -36,11 +44,17 @@ namespace JaneERP
 
         private static void FormDrag(object? sender, MouseEventArgs e)
         {
-            if (e.Button == MouseButtons.Left && sender is Form f)
-            {
-                ReleaseCapture();
-                SendMessage(f.Handle, WM_NCLBUTTONDOWN, HTCAPTION, 0);
-            }
+            if (e.Button != MouseButtons.Left || sender is not Form f) return;
+
+            // Skip if the click is in the resize border zone
+            const int bw = 8;
+            var p = f.PointToClient(Cursor.Position);
+            if (p.X <= bw || p.X >= f.ClientSize.Width  - bw ||
+                p.Y <= bw || p.Y >= f.ClientSize.Height - bw)
+                return;
+
+            ReleaseCapture();
+            SendMessage(f.Handle, WM_NCLBUTTONDOWN, HTCAPTION, 0);
         }
 
         public static Button AddCloseButton(Form form)
@@ -80,10 +94,11 @@ namespace JaneERP
         private class ResizableHelper : NativeWindow
         {
             private const int WM_NCHITTEST   = 0x0084;
+            private const int WM_SETCURSOR   = 0x0020;
             private const int HTLEFT         = 10, HTRIGHT       = 11;
             private const int HTTOP          = 12, HTTOPLEFT     = 13, HTTOPRIGHT    = 14;
             private const int HTBOTTOM       = 15, HTBOTTOMLEFT  = 16, HTBOTTOMRIGHT = 17;
-            private const int BorderWidth    = 6;
+            private const int BorderWidth    = 8;   // wider zone — easier to grab on large windows
             private readonly Form _form;
 
             internal ResizableHelper(Form form)
@@ -101,22 +116,41 @@ namespace JaneERP
                     int w = _form.ClientSize.Width, h = _form.ClientSize.Height;
                     bool l = p.X <= BorderWidth, r = p.X >= w - BorderWidth;
                     bool t = p.Y <= BorderWidth, b = p.Y >= h - BorderWidth;
-                    if (t && l)  { m.Result = (IntPtr)HTTOPLEFT;     UpdateCursor(Cursors.SizeNWSE); return; }
-                    if (t && r)  { m.Result = (IntPtr)HTTOPRIGHT;    UpdateCursor(Cursors.SizeNESW); return; }
-                    if (b && l)  { m.Result = (IntPtr)HTBOTTOMLEFT;  UpdateCursor(Cursors.SizeNESW); return; }
-                    if (b && r)  { m.Result = (IntPtr)HTBOTTOMRIGHT; UpdateCursor(Cursors.SizeNWSE); return; }
-                    if (l || r)  { UpdateCursor(Cursors.SizeWE); }
-                    if (l)       { m.Result = (IntPtr)HTLEFT;   return; }
-                    if (r)       { m.Result = (IntPtr)HTRIGHT;  return; }
-                    if (t || b)  { UpdateCursor(Cursors.SizeNS); }
-                    if (t)       { m.Result = (IntPtr)HTTOP;    return; }
-                    if (b)       { m.Result = (IntPtr)HTBOTTOM; return; }
-                    if (_form.Cursor != Cursors.Default) _form.Cursor = Cursors.Default;
+                    if (t && l)  { m.Result = (IntPtr)HTTOPLEFT;     return; }
+                    if (t && r)  { m.Result = (IntPtr)HTTOPRIGHT;    return; }
+                    if (b && l)  { m.Result = (IntPtr)HTBOTTOMLEFT;  return; }
+                    if (b && r)  { m.Result = (IntPtr)HTBOTTOMRIGHT; return; }
+                    if (l)       { m.Result = (IntPtr)HTLEFT;        return; }
+                    if (r)       { m.Result = (IntPtr)HTRIGHT;       return; }
+                    if (t)       { m.Result = (IntPtr)HTTOP;         return; }
+                    if (b)       { m.Result = (IntPtr)HTBOTTOM;      return; }
                 }
+
+                // WM_SETCURSOR: FormBorderStyle.None strips WS_THICKFRAME, so DefWindowProc
+                // will not set a resize cursor on its own. Handle it here so the cursor visually
+                // indicates the resize zone — otherwise the user sees only the default arrow and
+                // doesn't know the edge is draggable.
+                if (m.Msg == WM_SETCURSOR)
+                {
+                    int htCode = (int)(m.LParam.ToInt64() & 0xFFFF);
+                    Cursor? cursor = htCode switch
+                    {
+                        HTLEFT or HTRIGHT                       => Cursors.SizeWE,
+                        HTTOP  or HTBOTTOM                      => Cursors.SizeNS,
+                        HTTOPLEFT  or HTBOTTOMRIGHT             => Cursors.SizeNWSE,
+                        HTTOPRIGHT or HTBOTTOMLEFT              => Cursors.SizeNESW,
+                        _                                       => null
+                    };
+                    if (cursor != null)
+                    {
+                        Cursor.Current = cursor;
+                        m.Result       = (IntPtr)1;  // mark as handled — prevent DefWindowProc reset
+                        return;
+                    }
+                }
+
                 base.WndProc(ref m);
             }
-
-            private static void UpdateCursor(Cursor cursor) => Cursor.Current = cursor;
         }
 
         private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Form, ResizableHelper>

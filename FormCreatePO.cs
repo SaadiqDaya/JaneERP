@@ -1,3 +1,4 @@
+using System.IO;
 using JaneERP.Data;
 using JaneERP.Infrastructure;
 using JaneERP.Interfaces;
@@ -8,10 +9,11 @@ namespace JaneERP
     /// <summary>Dialog for creating a new Purchase Order or viewing an existing one.</summary>
     public class FormCreatePO : Form
     {
-        private readonly SupplierRepository _repo;
-        private readonly PurchaseOrder?     _viewOnly;
-        private readonly IPartRepository    _partRepo    = AppServices.Get<IPartRepository>();
-        private readonly IProductRepository _productRepo = AppServices.Get<IProductRepository>();
+        private readonly SupplierRepository    _repo;
+        private readonly PurchaseOrder?        _viewOnly;
+        private readonly IPartRepository       _partRepo      = AppServices.Get<IPartRepository>();
+        private readonly IProductRepository    _productRepo   = AppServices.Get<IProductRepository>();
+        private readonly IAccountingRepository _accountingRepo = AppServices.Get<IAccountingRepository>();
 
         // Supplier dropdown
         private ComboBox  cboSupplier    = new();
@@ -20,8 +22,11 @@ namespace JaneERP
         private DateTimePicker  dtpExpected   = new();
         private CheckBox        chkNoExpected = new();
         private TextBox         txtNotes      = new();
-        private NumericUpDown   nudShipping   = new();
+        private TextBox         txtShipping   = new();
+        private ComboBox        cboTaxRate    = new();   // preset tax rate selector
+        private TextBox         txtTax        = new();
         private DataGridView    dgvItems      = new();
+        private Label           lblSubtotal   = new();
         private Label           lblTotal      = new();
         private Button          btnAddLine    = new();
         private Button          btnRemoveLine = new();
@@ -34,8 +39,10 @@ namespace JaneERP
         private List<PurchaseOrderItem> _items     = new();
 
         /// <param name="prePopulateItems">Optional items to pre-load (e.g. from the Reorder Report).</param>
+        /// <param name="preselectedSupplierName">Supplier name to auto-select (fuzzy match on load).</param>
         public FormCreatePO(SupplierRepository repo, PurchaseOrder? po = null,
-                            IEnumerable<PurchaseOrderItem>? prePopulateItems = null)
+                            IEnumerable<PurchaseOrderItem>? prePopulateItems = null,
+                            string? preselectedSupplierName = null)
         {
             _repo     = repo;
             _viewOnly = po;
@@ -51,6 +58,19 @@ namespace JaneERP
             {
                 _items.AddRange(prePopulateItems);
                 RefreshGrid();
+            }
+            // Auto-select supplier by name if provided
+            if (!string.IsNullOrEmpty(preselectedSupplierName))
+            {
+                for (int i = 0; i < cboSupplier.Items.Count; i++)
+                {
+                    if (cboSupplier.Items[i]?.ToString()?.Contains(preselectedSupplierName,
+                        StringComparison.OrdinalIgnoreCase) == true)
+                    {
+                        cboSupplier.SelectedIndex = i;
+                        break;
+                    }
+                }
             }
         }
 
@@ -125,18 +145,6 @@ namespace JaneERP
             Controls.Add(txtNotes);
             y += 70;
 
-            // ── Shipping Cost ─────────────────────────────────────────────────────
-            AddLabel("Shipping Cost:", x, y);
-            nudShipping.Location      = new Point(cx, y - 3);
-            nudShipping.Size          = new Size(120, 24);
-            nudShipping.DecimalPlaces = 2;
-            nudShipping.Maximum       = 99999.99m;
-            nudShipping.Increment     = 1m;
-            nudShipping.Enabled       = !readOnly;
-            nudShipping.ValueChanged += (_, _) => UpdateTotal();
-            Controls.Add(nudShipping);
-            y += 32;
-
             // ── Line items header ─────────────────────────────────────────────────
             Controls.Add(new Label
             {
@@ -188,9 +196,39 @@ namespace JaneERP
             dgvItems.DataError += (_, e) => e.Cancel = true;
             Controls.Add(dgvItems);
 
-            // ── Total label ───────────────────────────────────────────────────────
+            // ── Footer: subtotal / shipping / tax / total ─────────────────────────
+            lblSubtotal.AutoSize  = false;
+            lblSubtotal.Size      = new Size(170, 22);
+            lblSubtotal.Font      = new Font("Segoe UI", 9F);
+            lblSubtotal.ForeColor = Theme.TextSecondary;
+            Controls.Add(lblSubtotal);
+
+            Controls.Add(new Label { Name = "_lblShipLbl", Text = "Shipping ($):", AutoSize = true, ForeColor = Theme.TextSecondary });
+            txtShipping.Text          = "0.00";
+            txtShipping.Enabled       = !readOnly;
+            txtShipping.Size          = new Size(80, 23);
+            txtShipping.TextChanged  += (_, _) => UpdateTotal();
+            txtShipping.Leave        += (_, _) => { if (decimal.TryParse(txtShipping.Text, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var v)) txtShipping.Text = v.ToString("F2"); else txtShipping.Text = "0.00"; };
+            Controls.Add(txtShipping);
+
+            // Tax rate preset selector — picks a named rate and auto-calculates the tax amount
+            cboTaxRate.DropDownStyle = ComboBoxStyle.DropDownList;
+            cboTaxRate.Size          = new Size(120, 23);
+            cboTaxRate.Enabled       = !readOnly;
+            cboTaxRate.Items.Add("Custom tax ($)");
+            cboTaxRate.SelectedIndex = 0;
+            cboTaxRate.SelectedIndexChanged += CboTaxRate_Changed;
+            Controls.Add(cboTaxRate);
+
+            txtTax.Text               = "0.00";
+            txtTax.Enabled            = !readOnly;
+            txtTax.Size               = new Size(80, 23);
+            txtTax.TextChanged       += (_, _) => UpdateTotal();
+            txtTax.Leave             += (_, _) => { if (decimal.TryParse(txtTax.Text, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var v)) txtTax.Text = v.ToString("F2"); else txtTax.Text = "0.00"; };
+            Controls.Add(txtTax);
+
             lblTotal.AutoSize  = false;
-            lblTotal.Size      = new Size(280, 24);
+            lblTotal.Size      = new Size(200, 24);
             lblTotal.Font      = new Font("Segoe UI", 10F, FontStyle.Bold);
             lblTotal.ForeColor = Theme.Gold;
             lblTotal.TextAlign = ContentAlignment.MiddleRight;
@@ -204,6 +242,27 @@ namespace JaneERP
                 btnSave.UseVisualStyleBackColor = true;
                 btnSave.Click += BtnSave_Click;
                 Controls.Add(btnSave);
+            }
+
+            if (readOnly)
+            {
+                var btnExportCsv = new Button { Text = "Export CSV", Size = new Size(110, 30), UseVisualStyleBackColor = true };
+                btnExportCsv.Click += (_, _) => ExportPOtoCsv();
+                Theme.StyleSecondaryButton(btnExportCsv);
+                Controls.Add(btnExportCsv);
+
+                var btnPrint = new Button { Text = "Print / PDF", Size = new Size(110, 30), UseVisualStyleBackColor = true };
+                btnPrint.Click += (_, _) => FormReports.PrintGrid(dgvItems, $"PO: {_viewOnly?.PONumber}", this);
+                Theme.StyleSecondaryButton(btnPrint);
+                Controls.Add(btnPrint);
+
+                // Position export buttons — will be laid out in LayoutSummaryRow
+                Load += (_, _) =>
+                {
+                    var right = ClientSize.Width - 12;
+                    btnPrint.Location    = new Point(right - btnPrint.Width, ClientSize.Height - 44);
+                    btnExportCsv.Location = new Point(btnPrint.Left - btnExportCsv.Width - 8, ClientSize.Height - 44);
+                };
             }
 
             btnCancel.Text   = readOnly ? "Close" : "Cancel";
@@ -224,14 +283,29 @@ namespace JaneERP
             int bottom = ClientSize.Height - 8;
             int right  = ClientSize.Width  - 12;
 
+            // Action buttons row
             btnCancel.Location = new Point(right - btnCancel.Width, bottom - btnCancel.Height);
             if (btnSave.Parent != null)
                 btnSave.Location = new Point(btnCancel.Left - btnSave.Width - 8, bottom - btnSave.Height);
 
-            lblTotal.Location = new Point(right - lblTotal.Width, btnCancel.Top - lblTotal.Height - 4);
+            // Summary row (above buttons)
+            int summaryTop = btnCancel.Top - 32;
 
-            // Resize DGV to fill space between its top and the total label, no overlap
-            int dgvBottom = lblTotal.Top - 6;
+            lblSubtotal.Location = new Point(12, summaryTop + 3);
+
+            // Position shipping label + textbox
+            var shipLbl = Controls.Find("_lblShipLbl", false).FirstOrDefault();
+            if (shipLbl != null) shipLbl.Location = new Point(190, summaryTop + 5);
+            txtShipping.Location = new Point(262, summaryTop);
+
+            // Tax rate ComboBox + amount textbox
+            cboTaxRate.Location = new Point(354, summaryTop);
+            txtTax.Location     = new Point(480, summaryTop);
+
+            lblTotal.Location = new Point(right - lblTotal.Width, summaryTop + 3);
+
+            // Resize DGV to fill space between its top and the summary row
+            int dgvBottom = summaryTop - 6;
             int newH      = Math.Max(80, dgvBottom - dgvItems.Top);
             if (dgvItems.Height != newH)   dgvItems.Height = newH;
             if (dgvItems.Width  != right - dgvItems.Left + 4)
@@ -244,6 +318,30 @@ namespace JaneERP
             _parts     = _partRepo.GetAll(includeInactive: false);
             _products  = _productRepo.GetProducts().ToList();
             PopulateSupplierCombo();
+            LoadTaxRates();
+        }
+
+        private void LoadTaxRates()
+        {
+            try
+            {
+                var rates = _accountingRepo.GetActiveTaxRates();
+                cboTaxRate.Items.Clear();
+                cboTaxRate.Items.Add("Custom tax ($)");
+                foreach (var r in rates)
+                    cboTaxRate.Items.Add(r);
+                cboTaxRate.SelectedIndex = 0;
+                cboTaxRate.DisplayMember = "";   // uses ToString()
+            }
+            catch { /* non-fatal — table may not exist yet on first run */ }
+        }
+
+        private void CboTaxRate_Changed(object? sender, EventArgs e)
+        {
+            if (cboTaxRate.SelectedItem is not TaxRate rate) return;
+            // Auto-calculate tax from subtotal × rate
+            decimal subtotal = _items.Sum(i => i.QuantityOrdered * i.UnitCost);
+            txtTax.Text = (subtotal * rate.Rate).ToString("F2");
         }
 
         private void PopulateSupplierCombo()
@@ -282,7 +380,8 @@ namespace JaneERP
             }
 
             txtNotes.Text     = po.Notes ?? "";
-            nudShipping.Value = Math.Min(po.ShippingCost, nudShipping.Maximum);
+            txtShipping.Text = po.ShippingCost.ToString("F2");
+            txtTax.Text      = po.TaxAmount.ToString("F2");
             _items            = po.Items.ToList();
             RefreshGrid();
         }
@@ -350,13 +449,23 @@ namespace JaneERP
                 var item = _items[r];
                 dgvItems.Rows[r].Cells["cLineTotal"].Value = $"${item.UnitCost * item.QuantityOrdered:N2} CAD";
             }
+            // If a preset tax rate is active, re-apply it so tax tracks the new subtotal
+            if (cboTaxRate.SelectedItem is TaxRate rate)
+            {
+                decimal subtotal = _items.Sum(i => i.QuantityOrdered * i.UnitCost);
+                txtTax.Text = (subtotal * rate.Rate).ToString("F2");
+            }
             UpdateTotal();
         }
 
         private void UpdateTotal()
         {
-            decimal total = _items.Sum(i => i.UnitCost * i.QuantityOrdered) + nudShipping.Value;
-            lblTotal.Text = $"Total Cost: ${total:N2} CAD";
+            decimal subtotal = _items.Sum(i => i.UnitCost * i.QuantityOrdered);
+            lblSubtotal.Text = $"Subtotal: ${subtotal:N2}";
+            decimal.TryParse(txtShipping.Text, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var shipAmt);
+            decimal.TryParse(txtTax.Text, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var taxAmt);
+            decimal total = subtotal + shipAmt + taxAmt;
+            lblTotal.Text = $"Total: ${total:N2} CAD";
         }
 
         private void SyncGridToItems()
@@ -405,7 +514,8 @@ namespace JaneERP
                     OrderDate    = DateTime.Now,
                     ExpectedDate = chkNoExpected.Checked ? (DateTime?)null : dtpExpected.Value.Date,
                     Notes        = string.IsNullOrWhiteSpace(txtNotes.Text) ? null : txtNotes.Text.Trim(),
-                    ShippingCost = nudShipping.Value,
+                    ShippingCost = decimal.TryParse(txtShipping.Text, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var sc) ? sc : 0m,
+                    TaxAmount    = decimal.TryParse(txtTax.Text, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var ta) ? ta : 0m,
                     Items        = _items
                 };
                 _repo.CreateOrder(po);
@@ -415,6 +525,44 @@ namespace JaneERP
             catch (Exception ex)
             {
                 MessageBox.Show(this, $"Failed to save PO:\n{ex.Message}", "Error",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        private void ExportPOtoCsv()
+        {
+            var po = _viewOnly;
+            if (po == null) return;
+            using var dlg = new SaveFileDialog
+            {
+                Filter    = "CSV files (*.csv)|*.csv",
+                FileName  = $"PO_{po.PONumber}_{DateTime.Now:yyyyMMdd}.csv"
+            };
+            if (dlg.ShowDialog(this) != DialogResult.OK) return;
+            try
+            {
+                var sb = new System.Text.StringBuilder();
+                sb.AppendLine($"Purchase Order:,{po.PONumber}");
+                sb.AppendLine($"Supplier:,{po.SupplierName}");
+                sb.AppendLine($"Date:,{po.OrderDate:yyyy-MM-dd}");
+                sb.AppendLine($"Status:,{po.Status}");
+                if (po.ShippingCost != 0) sb.AppendLine($"Shipping:,{po.ShippingCost:F2}");
+                if (po.TaxAmount    != 0) sb.AppendLine($"Tax:,{po.TaxAmount:F2}");
+                sb.AppendLine();
+                sb.AppendLine("Type,SKU,Item Name,Qty Ordered,Qty Received,Unit Cost,Line Total");
+                foreach (var item in po.Items)
+                    sb.AppendLine($"\"{item.ItemType}\",\"{item.SKU}\",\"{item.ItemName}\",{item.QuantityOrdered},{item.QuantityReceived},{item.UnitCost:F2},{item.QuantityOrdered * item.UnitCost:F2}");
+                sb.AppendLine();
+                decimal subtotal = po.Items.Sum(i => i.QuantityOrdered * i.UnitCost);
+                sb.AppendLine($"Subtotal:,{subtotal:F2}");
+                sb.AppendLine($"Total:,{subtotal + po.ShippingCost + po.TaxAmount:F2}");
+                File.WriteAllText(dlg.FileName, sb.ToString(), System.Text.Encoding.UTF8);
+                MessageBox.Show(this, "PO exported successfully.", "Export Complete",
+                    MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, $"Export failed:\n{ex.Message}", "Error",
                     MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }

@@ -298,6 +298,8 @@ namespace JaneERP.Services
             if (o.TryGetProperty("currency", out var curElem)) details.Currency = curElem.GetString();
             if (o.TryGetProperty("contact_email", out var emailElem)) details.ContactEmail = emailElem.GetString();
             else if (o.TryGetProperty("email", out var altEmail)) details.ContactEmail = altEmail.GetString();
+            if (o.TryGetProperty("financial_status", out var fsElem)) details.FinancialStatus = fsElem.GetString();
+            if (o.TryGetProperty("payment_gateway", out var pgElem)) details.PaymentGateway = pgElem.GetString();
 
             // customer name
             if (o.TryGetProperty("customer", out var cust) && cust.ValueKind == JsonValueKind.Object)

@@ -26,8 +26,12 @@ namespace JaneERP
         private Label _lblExpenses    = new();
         private Label _lblNetProfit   = new();
 
-        // Expense entry button (opens popup)
-        private Button        _btnAddExp   = new();
+        // Expense entry buttons
+        private Button        _btnAddExp      = new();
+        private Button        _btnAddExpBulk  = new();
+
+        // Invoice filter toggle
+        private CheckBox      _chkPaidOnly = new();
 
         // Expenses grid
         private DataGridView _dgvExpenses = new();
@@ -168,7 +172,7 @@ namespace JaneERP
             AddKpiTile("Net Profit",     Color.FromArgb(80, 210, 100),      _lblNetProfit);
             y += kh + 16;
 
-            // ── Add Expense button (opens popup) ───────────────────────────────────
+            // ── Add Expense buttons + paid filter toggle ───────────────────────────
             _btnAddExp.Text     = "+ Add Expense";
             _btnAddExp.Location = new Point(14, y);
             _btnAddExp.Size     = new Size(140, 32);
@@ -181,6 +185,27 @@ namespace JaneERP
                 LoadData();
             };
             Controls.Add(_btnAddExp);
+
+            _btnAddExpBulk.Text     = "+ Bulk Add Expenses";
+            _btnAddExpBulk.Location = new Point(162, y);
+            _btnAddExpBulk.Size     = new Size(160, 32);
+            _btnAddExpBulk.Font     = new Font("Segoe UI", 9.5F, FontStyle.Bold);
+            _btnAddExpBulk.UseVisualStyleBackColor = true;
+            _btnAddExpBulk.Click   += (_, _) =>
+            {
+                using var dlg = new FormAddExpense(_repo, startInBulkMode: true);
+                dlg.ShowDialog(this);
+                LoadData();
+            };
+            Controls.Add(_btnAddExpBulk);
+
+            _chkPaidOnly.Text     = "Show paid/completed only";
+            _chkPaidOnly.Location = new Point(340, y + 6);
+            _chkPaidOnly.AutoSize = true;
+            _chkPaidOnly.Checked  = false;
+            _chkPaidOnly.CheckedChanged += (_, _) => LoadData();
+            Controls.Add(_chkPaidOnly);
+
             y += 50;
 
             // ── Expenses grid ──────────────────────────────────────────────────────
@@ -236,7 +261,7 @@ namespace JaneERP
                 var from = _dtpFrom.Value.Date;
                 var to   = _dtpTo.Value.Date.AddDays(1).AddTicks(-1);
 
-                var summary = _repo.GetSummary(from, to);
+                var summary = _repo.GetSummary(from, to, _chkPaidOnly.Checked);
                 var rows    = _repo.GetExpenseRows(from, to);
 
                 _lblRevenue.Text     = $"${summary.Revenue:N2}";
@@ -296,8 +321,10 @@ namespace JaneERP
     internal sealed class FormAddExpense : Form
     {
         private readonly IAccountingRepository _repo;
+        private readonly bool _bulkMode;
         private List<Models.ExpenseCategory> _categories = new();
 
+        // Single-add controls
         private ComboBox       _cboCategory  = new();
         private NumericUpDown  _nudAmount    = new();
         private DateTimePicker _dtpDate      = new();
@@ -308,13 +335,24 @@ namespace JaneERP
         private Button         _btnDone      = new();
         private Button         _btnManageCat = new();
 
-        public FormAddExpense(IAccountingRepository repo)
+        // Bulk-mode controls
+        private DataGridView _dgvBulk    = new();
+        private Button       _btnAddRow  = new();
+        private Button       _btnSaveAll = new();
+        private DataGridViewComboBoxColumn _bulkCatCol = new();
+
+        public FormAddExpense(IAccountingRepository repo, bool startInBulkMode = false)
         {
-            _repo = repo;
-            BuildUI();
+            _repo     = repo;
+            _bulkMode = startInBulkMode;
+            if (_bulkMode)
+                BuildBulkUI();
+            else
+                BuildUI();
             Theme.Apply(this);
             Theme.MakeBorderless(this);
             Theme.AddCloseButton(this);
+            Theme.MakeResizable(this);
             LoadCategories();
         }
 
@@ -431,13 +469,183 @@ namespace JaneERP
             try
             {
                 _categories = _repo.GetActiveCategories();
-                _cboCategory.Items.Clear();
-                foreach (var cat in _categories)
-                    _cboCategory.Items.Add(cat.Name);
-                if (_cboCategory.Items.Count > 0 && _cboCategory.SelectedIndex < 0)
-                    _cboCategory.SelectedIndex = 0;
+                if (!_bulkMode)
+                {
+                    _cboCategory.Items.Clear();
+                    foreach (var cat in _categories)
+                        _cboCategory.Items.Add(cat.Name);
+                    if (_cboCategory.Items.Count > 0 && _cboCategory.SelectedIndex < 0)
+                        _cboCategory.SelectedIndex = 0;
+                }
+                else
+                {
+                    _bulkCatCol.Items.Clear();
+                    foreach (var cat in _categories)
+                        _bulkCatCol.Items.Add(cat.Name);
+                    string defaultCat = _categories.Count > 0 ? _categories[0].Name : "";
+                    foreach (DataGridViewRow r in _dgvBulk.Rows)
+                        if (r.Cells["cCat"].Value == null || r.Cells["cCat"].Value?.ToString() == "")
+                            r.Cells["cCat"].Value = defaultCat;
+                }
             }
             catch (Exception ex) { AppLogger.Info($"[FormAddExpense.LoadCategories]: {ex.Message}"); }
+        }
+
+        // ── Bulk UI ───────────────────────────────────────────────────────────────
+
+        private void BuildBulkUI()
+        {
+            Text          = "Bulk Add Expenses";
+            ClientSize    = new Size(700, 520);
+            MinimumSize   = new Size(600, 420);
+            StartPosition = FormStartPosition.CenterParent;
+
+            int y = 12;
+            Controls.Add(new Label
+            {
+                Text      = "Bulk Add Expenses",
+                Font      = new Font("Segoe UI", 13F, FontStyle.Bold),
+                ForeColor = Theme.Gold,
+                Location  = new Point(14, y),
+                AutoSize  = true
+            });
+            Controls.Add(new Label
+            {
+                Text      = "Enter multiple expense rows below, then click Save All.",
+                Font      = new Font("Segoe UI", 8.5F),
+                ForeColor = Theme.TextSecondary,
+                Location  = new Point(14, y + 28),
+                AutoSize  = true
+            });
+            y += 58;
+
+            _bulkCatCol.Name         = "cCat";
+            _bulkCatCol.HeaderText   = "Category";
+            _bulkCatCol.Width        = 180;
+            _bulkCatCol.DisplayStyle = DataGridViewComboBoxDisplayStyle.DropDownButton;
+
+            _dgvBulk.Location             = new Point(14, y);
+            _dgvBulk.Anchor               = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
+            _dgvBulk.Size                 = new Size(668, 360);
+            _dgvBulk.AllowUserToAddRows   = false;
+            _dgvBulk.AllowUserToDeleteRows = false;
+            _dgvBulk.AutoGenerateColumns  = false;
+            _dgvBulk.RowHeadersVisible    = false;
+            _dgvBulk.EditMode             = DataGridViewEditMode.EditOnEnter;
+            _dgvBulk.Columns.Add(new DataGridViewTextBoxColumn { Name = "cDate",   HeaderText = "Date (yyyy-MM-dd)", Width = 130 });
+            _dgvBulk.Columns.Add(_bulkCatCol);
+            _dgvBulk.Columns.Add(new DataGridViewTextBoxColumn { Name = "cAmount", HeaderText = "Amount ($)",        Width = 110 });
+            _dgvBulk.Columns.Add(new DataGridViewTextBoxColumn { Name = "cDesc",   HeaderText = "Notes",             AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill });
+            Controls.Add(_dgvBulk);
+
+            _btnAddRow.Text     = "+ Add Row";
+            _btnAddRow.Size     = new Size(100, 28);
+            _btnAddRow.Anchor   = AnchorStyles.Bottom | AnchorStyles.Left;
+            _btnAddRow.Location = new Point(14, ClientSize.Height - 38);
+            _btnAddRow.UseVisualStyleBackColor = true;
+            _btnAddRow.Click   += (_, _) => AddBulkRow();
+            Controls.Add(_btnAddRow);
+
+            _btnSaveAll.Text     = "Save All";
+            _btnSaveAll.Size     = new Size(110, 28);
+            _btnSaveAll.Anchor   = AnchorStyles.Bottom | AnchorStyles.Right;
+            _btnSaveAll.Location = new Point(ClientSize.Width - 230, ClientSize.Height - 38);
+            _btnSaveAll.Font     = new Font("Segoe UI", 9.5F, FontStyle.Bold);
+            _btnSaveAll.UseVisualStyleBackColor = true;
+            _btnSaveAll.Click   += BtnSaveAll_Click;
+            Controls.Add(_btnSaveAll);
+
+            _btnDone.Text     = "Cancel";
+            _btnDone.Size     = new Size(88, 28);
+            _btnDone.Anchor   = AnchorStyles.Bottom | AnchorStyles.Right;
+            _btnDone.Location = new Point(ClientSize.Width - 106, ClientSize.Height - 38);
+            _btnDone.UseVisualStyleBackColor = true;
+            _btnDone.Click   += (_, _) => Close();
+            Controls.Add(_btnDone);
+
+            SizeChanged += (_, _) =>
+            {
+                _dgvBulk.Size        = new Size(ClientSize.Width - 28, ClientSize.Height - 110);
+                _btnAddRow.Location  = new Point(14, ClientSize.Height - 38);
+                _btnSaveAll.Location = new Point(ClientSize.Width - 230, ClientSize.Height - 38);
+                _btnDone.Location    = new Point(ClientSize.Width - 106, ClientSize.Height - 38);
+            };
+
+            AddBulkRow(); // seed one empty row
+        }
+
+        private void AddBulkRow()
+        {
+            int idx = _dgvBulk.Rows.Add();
+            _dgvBulk.Rows[idx].Cells["cDate"].Value = DateTime.Today.ToString("yyyy-MM-dd");
+            if (_categories.Count > 0)
+                _dgvBulk.Rows[idx].Cells["cCat"].Value = _categories[0].Name;
+        }
+
+        private void BtnSaveAll_Click(object? sender, EventArgs e)
+        {
+            _dgvBulk.CommitEdit(DataGridViewDataErrorContexts.Commit);
+            _dgvBulk.EndEdit();
+
+            var errors = new List<string>();
+            var valid  = new List<(int catId, string catName, decimal amount, string? desc, DateTime date)>();
+
+            foreach (DataGridViewRow row in _dgvBulk.Rows)
+            {
+                string dateStr = row.Cells["cDate"].Value?.ToString()?.Trim()   ?? "";
+                string catName = row.Cells["cCat"].Value?.ToString()?.Trim()    ?? "";
+                string amtStr  = row.Cells["cAmount"].Value?.ToString()?.Trim() ?? "";
+                string desc    = row.Cells["cDesc"].Value?.ToString()?.Trim()   ?? "";
+
+                if (string.IsNullOrEmpty(dateStr) && string.IsNullOrEmpty(catName) && string.IsNullOrEmpty(amtStr))
+                    continue; // skip blank rows
+
+                int rowNum = row.Index + 1;
+                if (!DateTime.TryParse(dateStr, out var date))
+                { errors.Add($"Row {rowNum}: invalid date '{dateStr}'."); continue; }
+
+                var cat = _categories.FirstOrDefault(c => c.Name == catName);
+                if (cat == null)
+                { errors.Add($"Row {rowNum}: unknown category '{catName}'."); continue; }
+
+                if (!decimal.TryParse(amtStr, System.Globalization.NumberStyles.Any,
+                        System.Globalization.CultureInfo.InvariantCulture, out var amount) || amount <= 0)
+                { errors.Add($"Row {rowNum}: amount must be a positive number."); continue; }
+
+                valid.Add((cat.CategoryID, cat.Name, amount, string.IsNullOrEmpty(desc) ? null : desc, date.Date));
+            }
+
+            if (errors.Count > 0)
+            {
+                MessageBox.Show(this, "Please fix these errors before saving:\n\n" + string.Join("\n", errors),
+                    "Validation Errors", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+            if (valid.Count == 0)
+            {
+                MessageBox.Show(this, "No expense rows to save.", "Nothing to save",
+                    MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            try
+            {
+                foreach (var (catId, catName, amount, desc, date) in valid)
+                {
+                    _repo.AddExpense(catId, amount, desc, date, AppSession.CurrentUser?.Username);
+                    AppLogger.Audit(AppSession.CurrentUser?.Username, "AddExpense",
+                        $"Bulk: Category={catName} Amount={amount:N2} Date={date:yyyy-MM-dd}");
+                }
+                MessageBox.Show(this, $"{valid.Count} expense(s) saved successfully.",
+                    "Saved", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                _dgvBulk.Rows.Clear();
+                AddBulkRow();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, ex.Message, "Error saving expenses",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
         }
 
         private void BtnAdd_Click(object? sender, EventArgs e)

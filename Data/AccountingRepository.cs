@@ -159,6 +159,64 @@ namespace JaneERP.Data
                 new { categoryId });
         }
 
+        // ── Tax Rates ─────────────────────────────────────────────────────────────
+
+        public void EnsureTaxRatesSchema()
+        {
+            using var db = new SqlConnection(_cs);
+            db.Execute(@"
+                IF NOT EXISTS (SELECT 1 FROM sysobjects WHERE name='TaxRates' AND xtype='U')
+                BEGIN
+                    CREATE TABLE TaxRates (
+                        TaxRateID INT IDENTITY(1,1) PRIMARY KEY,
+                        Name      NVARCHAR(100)  NOT NULL,
+                        Rate      DECIMAL(8,6)   NOT NULL,
+                        IsActive  BIT            NOT NULL DEFAULT 1
+                    );
+                    -- Seed common Canadian tax rates
+                    INSERT INTO TaxRates (Name, Rate) VALUES
+                        ('GST',   0.05),
+                        ('PST BC',0.07),
+                        ('HST',   0.13);
+                END");
+        }
+
+        public List<TaxRate> GetActiveTaxRates()
+        {
+            using var db = new SqlConnection(_cs);
+            try
+            {
+                return db.Query<TaxRate>(
+                    "SELECT TaxRateID, Name, Rate, IsActive FROM TaxRates WHERE IsActive = 1 ORDER BY Name")
+                    .ToList();
+            }
+            catch { return new List<TaxRate>(); }
+        }
+
+        public List<TaxRate> GetAllTaxRates()
+        {
+            using var db = new SqlConnection(_cs);
+            try
+            {
+                return db.Query<TaxRate>(
+                    "SELECT TaxRateID, Name, Rate, IsActive FROM TaxRates ORDER BY Name")
+                    .ToList();
+            }
+            catch { return new List<TaxRate>(); }
+        }
+
+        public void AddTaxRate(string name, decimal rate)
+        {
+            using var db = new SqlConnection(_cs);
+            db.Execute("INSERT INTO TaxRates (Name, Rate) VALUES (@name, @rate)", new { name, rate });
+        }
+
+        public void ToggleTaxRate(int taxRateId)
+        {
+            using var db = new SqlConnection(_cs);
+            db.Execute("UPDATE TaxRates SET IsActive = 1 - IsActive WHERE TaxRateID = @taxRateId", new { taxRateId });
+        }
+
         public List<CustomerCredit> GetCreditNoteRows(DateTime from, DateTime to)
         {
             using var db = new SqlConnection(_cs);

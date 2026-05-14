@@ -41,6 +41,9 @@ namespace JaneERP.Models
         /// <summary>True once a user has reviewed and confirmed the auto-created record.</summary>
         public bool IsVerified    { get; set; }
 
+        /// <summary>Unique BOM identifier (e.g. "BOM-0001"). Null when the product has no BOM yet.</summary>
+        public string? BomNumber  { get; set; }
+
         /// <summary>
         /// SQL Server ROWVERSION — auto-updated on every write.
         /// Used for optimistic concurrency in UpdateProduct: if two users load the same product

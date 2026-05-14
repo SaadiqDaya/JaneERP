@@ -1,29 +1,35 @@
 using JaneERP.Security;
+using JaneERP.Services;
 using System.Net.Mail;
 
 namespace JaneERP
 {
-    /// <summary>Shows full task details and allows posting comments with @mention support.</summary>
+    /// <summary>Shows full task details — status, assignee, priority, workflow, comments with @mentions.</summary>
     internal class FormTaskDetail : Form
     {
         private readonly TaskRepository _repo;
         private readonly ErpTask        _task;
         private readonly List<string>   _users;
 
-        private Label          lblTitle       = new();
-        private Label          lblMeta        = new();
-        private ListBox        lstComments    = new();
-        private TextBox        txtComment     = new();
-        private TextBox        txtDesc        = new();
-        private Button         btnPostComment = new();
-        private Button         btnMarkDone    = new();
-        private Button         btnClose       = new();
-        private DateTimePicker dtpDueDate     = new();
-        private Button         btnSaveDue     = new();
+        private Label          lblTitle           = new();
+        private Label          lblMeta            = new();
+        private ListBox        lstComments        = new();
+        private TextBox        txtComment         = new();
+        private TextBox        txtDesc            = new();
+        private Button         btnPostComment     = new();
+        private Button         btnClose           = new();
+        private DateTimePicker dtpDueDate         = new();
+        private Button         btnSaveChanges     = new();
+        private ComboBox       cboStatus          = new();
+        private ComboBox       cboAssign          = new();
+        private ComboBox       cboPriority        = new();
+        private ComboBox       cboWorkflow        = new();
+        private Label          lblWorkflowStep    = new();
+        private Button         btnAdvanceWorkflow = new();
 
         // @-mention popup
-        private ListBox  lstMention     = new();
-        private string   _mentionPrefix = "";
+        private ListBox lstMention     = new();
+        private string  _mentionPrefix = "";
 
         public bool Changed { get; private set; }
 
@@ -37,18 +43,14 @@ namespace JaneERP
             Theme.MakeBorderless(this);
             Theme.AddCloseButton(this);
             Theme.MakeResizable(this);
-            // Header panel is the drag handle — entire header area moves the window
             Load += (_, _) =>
             {
-                if (Controls.Count > 0)
+                foreach (Control c in Controls)
                 {
-                    foreach (Control c in Controls)
+                    if (c is Panel p && p.Tag as string == "header")
                     {
-                        if (c is Panel p && p.Tag as string == "header")
-                        {
-                            Theme.MakeDraggable(this, p);
-                            break;
-                        }
+                        Theme.MakeDraggable(this, p);
+                        break;
                     }
                 }
             };
@@ -64,16 +66,16 @@ namespace JaneERP
         private void BuildUI()
         {
             Text          = $"Task: {_task.Title}";
-            ClientSize    = new Size(640, 580);
-            MinimumSize   = new Size(540, 520);
+            ClientSize    = new Size(700, 660);
+            MinimumSize   = new Size(560, 580);
             StartPosition = FormStartPosition.CenterParent;
 
-            // ── Header panel (drag handle + title + meta + due date) ──────────────
+            // ── Header panel ──────────────────────────────────────────────────────────
             var pnlHeader = new Panel
             {
                 Tag      = "header",
                 Location = new Point(0, 0),
-                Size     = new Size(640, 76),
+                Size     = new Size(700, 76),
                 Anchor   = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right
             };
 
@@ -81,46 +83,123 @@ namespace JaneERP
             lblTitle.Font      = new Font("Segoe UI", 13F, FontStyle.Bold);
             lblTitle.ForeColor = Theme.Gold;
             lblTitle.Location  = new Point(12, 8);
-            lblTitle.Size      = new Size(580, 28);
+            lblTitle.Size      = new Size(660, 28);
             pnlHeader.Controls.Add(lblTitle);
 
             lblMeta.Text      = BuildMetaText();
             lblMeta.Font      = new Font("Segoe UI", 8.5F);
             lblMeta.ForeColor = Theme.TextSecondary;
             lblMeta.Location  = new Point(12, 40);
-            lblMeta.Size      = new Size(400, 18);
+            lblMeta.Size      = new Size(510, 18);
             lblMeta.AutoSize  = false;
             pnlHeader.Controls.Add(lblMeta);
 
-            // ── Due date picker ───────────────────────────────────────────────────
-            pnlHeader.Controls.Add(new Label { Text = "Due:", Location = new Point(420, 42), AutoSize = true, ForeColor = Theme.TextSecondary, Font = new Font("Segoe UI", 8.5F) });
-            dtpDueDate.Location = new Point(448, 38);
-            dtpDueDate.Size     = new Size(148, 23);
+            pnlHeader.Controls.Add(new Label
+            {
+                Text      = "Due:",
+                Location  = new Point(532, 42),
+                AutoSize  = true,
+                ForeColor = Theme.TextSecondary,
+                Font      = new Font("Segoe UI", 8.5F)
+            });
+            dtpDueDate.Location = new Point(556, 38);
+            dtpDueDate.Size     = new Size(130, 23);
             dtpDueDate.Format   = DateTimePickerFormat.Short;
             dtpDueDate.Value    = _task.DueDate;
             pnlHeader.Controls.Add(dtpDueDate);
 
             Controls.Add(pnlHeader);
 
-            Controls.Add(new Label { Text = "Description:", Location = new Point(12, 86), AutoSize = true });
+            // ── Properties row (Status | Assigned | Priority) ─────────────────────────
+            Controls.Add(new Label { Text = "Status:", Location = new Point(12, 86), AutoSize = true });
+            cboStatus.DropDownStyle = ComboBoxStyle.DropDownList;
+            cboStatus.Location      = new Point(62, 82);
+            cboStatus.Size          = new Size(118, 23);
+            cboStatus.Items.AddRange(new object[] { "Open", "In Progress", "Done" });
+            cboStatus.SelectedItem = _task.Status;
+            if (cboStatus.SelectedIndex < 0) cboStatus.SelectedIndex = 0;
+            Controls.Add(cboStatus);
+
+            Controls.Add(new Label { Text = "Assigned:", Location = new Point(192, 86), AutoSize = true });
+            cboAssign.DropDownStyle = ComboBoxStyle.DropDownList;
+            cboAssign.Location      = new Point(258, 82);
+            cboAssign.Size          = new Size(170, 23);
+            foreach (var u in _users) cboAssign.Items.Add(u);
+            cboAssign.SelectedItem = _task.AssignedTo;
+            if (cboAssign.SelectedIndex < 0 && cboAssign.Items.Count > 0) cboAssign.SelectedIndex = 0;
+            Controls.Add(cboAssign);
+
+            Controls.Add(new Label { Text = "Priority:", Location = new Point(442, 86), AutoSize = true });
+            cboPriority.DropDownStyle = ComboBoxStyle.DropDownList;
+            cboPriority.Location      = new Point(496, 82);
+            cboPriority.Size          = new Size(100, 23);
+            cboPriority.Items.AddRange(new object[] { "Low", "Normal", "High", "Urgent" });
+            cboPriority.SelectedItem = _task.Priority;
+            if (cboPriority.SelectedIndex < 0) cboPriority.SelectedIndex = 1;
+            Controls.Add(cboPriority);
+
+            // ── Description ───────────────────────────────────────────────────────────
+            Controls.Add(new Label { Text = "Description:", Location = new Point(12, 118), AutoSize = true });
             txtDesc.Text       = _task.Description ?? "";
             txtDesc.Multiline  = true;
             txtDesc.ScrollBars = ScrollBars.Vertical;
-            txtDesc.Location   = new Point(12, 104);
-            txtDesc.Size       = new Size(614, 72);
+            txtDesc.Location   = new Point(12, 136);
+            txtDesc.Size       = new Size(676, 58);
             txtDesc.Anchor     = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
             Controls.Add(txtDesc);
 
-            Controls.Add(new Label { Text = "Discussion (type @ to tag a user):", Location = new Point(12, 184), AutoSize = true });
+            // ── Workflow section ──────────────────────────────────────────────────────
+            Controls.Add(new Label { Text = "Workflow:", Location = new Point(12, 210), AutoSize = true });
+            cboWorkflow.DropDownStyle = ComboBoxStyle.DropDownList;
+            cboWorkflow.Location      = new Point(78, 206);
+            cboWorkflow.Size          = new Size(184, 23);
+            try
+            {
+                cboWorkflow.Items.Add(new WorkflowComboItem(null, "(None)"));
+                foreach (var wf in _repo.GetWorkflows())
+                    cboWorkflow.Items.Add(new WorkflowComboItem(wf.WorkflowID, wf.Name));
+                if (_task.WorkflowID.HasValue)
+                {
+                    foreach (WorkflowComboItem item in cboWorkflow.Items)
+                        if (item.ID == _task.WorkflowID) { cboWorkflow.SelectedItem = item; break; }
+                }
+                if (cboWorkflow.SelectedIndex < 0) cboWorkflow.SelectedIndex = 0;
+            }
+            catch
+            {
+                cboWorkflow.Items.Clear();
+                cboWorkflow.Items.Add(new WorkflowComboItem(null, "(None)"));
+                cboWorkflow.SelectedIndex = 0;
+            }
+            cboWorkflow.SelectedIndexChanged += CboWorkflow_SelectedIndexChanged;
+            Controls.Add(cboWorkflow);
 
-            lstComments.Location      = new Point(12, 204);
-            lstComments.Size          = new Size(614, 240);
+            lblWorkflowStep.Location  = new Point(274, 210);
+            lblWorkflowStep.AutoSize  = true;
+            lblWorkflowStep.ForeColor = Theme.Teal;
+            Controls.Add(lblWorkflowStep);
+
+            btnAdvanceWorkflow.Text     = "Advance >";
+            btnAdvanceWorkflow.Size     = new Size(95, 23);
+            btnAdvanceWorkflow.Anchor   = AnchorStyles.Top | AnchorStyles.Right;
+            btnAdvanceWorkflow.Location = new Point(593, 206);
+            btnAdvanceWorkflow.Visible  = false;
+            btnAdvanceWorkflow.Click   += BtnAdvanceWorkflow_Click;
+            Controls.Add(btnAdvanceWorkflow);
+
+            RefreshWorkflowUI();
+
+            // ── Discussion ────────────────────────────────────────────────────────────
+            Controls.Add(new Label { Text = "Discussion (type @ to tag a user):", Location = new Point(12, 242), AutoSize = true });
+
+            lstComments.Location      = new Point(12, 262);
+            lstComments.Size          = new Size(676, 200);
             lstComments.Anchor        = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
             lstComments.SelectionMode = SelectionMode.None;
             Controls.Add(lstComments);
 
             txtComment.Location        = new Point(12, ClientSize.Height - 90);
-            txtComment.Size            = new Size(490, 23);
+            txtComment.Size            = new Size(600, 23);
             txtComment.Anchor          = AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
             txtComment.PlaceholderText = "Write a comment… (type @ to tag a user)";
             txtComment.KeyPress       += TxtComment_KeyPress;
@@ -135,31 +214,24 @@ namespace JaneERP
             Controls.Add(btnPostComment);
 
             // @mention popup listbox (hidden by default)
-            lstMention.Visible       = false;
-            lstMention.Location      = new Point(12, ClientSize.Height - 130);
-            lstMention.Size          = new Size(250, 120);
-            lstMention.Anchor        = AnchorStyles.Bottom | AnchorStyles.Left;
-            lstMention.BorderStyle   = BorderStyle.FixedSingle;
-            lstMention.Font          = new Font("Segoe UI", 9.5F);
-            lstMention.Click        += LstMention_Click;
-            lstMention.KeyDown      += LstMention_KeyDown;
+            lstMention.Visible     = false;
+            lstMention.Location    = new Point(12, ClientSize.Height - 130);
+            lstMention.Size        = new Size(250, 120);
+            lstMention.Anchor      = AnchorStyles.Bottom | AnchorStyles.Left;
+            lstMention.BorderStyle = BorderStyle.FixedSingle;
+            lstMention.Font        = new Font("Segoe UI", 9.5F);
+            lstMention.Click      += LstMention_Click;
+            lstMention.KeyDown    += LstMention_KeyDown;
             Controls.Add(lstMention);
             lstMention.BringToFront();
 
-            btnMarkDone.Text     = _task.Status == "Done" ? "Re-open" : "Mark Done";
-            btnMarkDone.Size     = new Size(110, 28);
-            btnMarkDone.Anchor   = AnchorStyles.Bottom | AnchorStyles.Left;
-            btnMarkDone.Location = new Point(12, ClientSize.Height - 52);
-            btnMarkDone.Click   += BtnMarkDone_Click;
-            Controls.Add(btnMarkDone);
-
-            btnSaveDue.Text     = "Save Changes";
-            btnSaveDue.Size     = new Size(110, 28);
-            btnSaveDue.Anchor   = AnchorStyles.Bottom | AnchorStyles.Left;
-            btnSaveDue.Location = new Point(130, ClientSize.Height - 52);
-            btnSaveDue.UseVisualStyleBackColor = true;
-            btnSaveDue.Click   += BtnSaveDue_Click;
-            Controls.Add(btnSaveDue);
+            btnSaveChanges.Text     = "Save Changes";
+            btnSaveChanges.Size     = new Size(110, 28);
+            btnSaveChanges.Anchor   = AnchorStyles.Bottom | AnchorStyles.Left;
+            btnSaveChanges.Location = new Point(12, ClientSize.Height - 52);
+            btnSaveChanges.UseVisualStyleBackColor = true;
+            btnSaveChanges.Click   += BtnSaveChanges_Click;
+            Controls.Add(btnSaveChanges);
 
             btnClose.Text     = "Close";
             btnClose.Size     = new Size(80, 28);
@@ -170,7 +242,7 @@ namespace JaneERP
         }
 
         private string BuildMetaText() =>
-            $"Assigned to: {_task.AssignedTo}   •   Due: {_task.DueDate:yyyy-MM-dd}   •   Status: {_task.Status}   •   Created by: {_task.CreatedBy}";
+            $"Created by: {_task.CreatedBy}   •   Status: {_task.Status}   •   Priority: {_task.Priority}   •   Assigned: {_task.AssignedTo}";
 
         private void LoadComments()
         {
@@ -183,17 +255,112 @@ namespace JaneERP
             catch { lstComments.Items.Add("(Could not load comments)"); }
         }
 
-        // ── @mention logic ────────────────────────────────────────────────────────
+        // ── Workflow ──────────────────────────────────────────────────────────────────
 
-        private void TxtComment_KeyPress(object? sender, KeyPressEventArgs e)
+        private void RefreshWorkflowUI()
         {
-            if (e.KeyChar == (char)27) // Escape closes mention popup
+            if (cboWorkflow.SelectedItem is not WorkflowComboItem wfItem || wfItem.ID == null)
             {
-                lstMention.Visible = false;
+                lblWorkflowStep.Text      = "";
+                btnAdvanceWorkflow.Visible = false;
+                return;
+            }
+            try
+            {
+                var statuses = _repo.GetWorkflowStatusNames(wfItem.ID.Value);
+                if (statuses.Count == 0)
+                {
+                    lblWorkflowStep.Text      = "(no statuses defined)";
+                    btnAdvanceWorkflow.Visible = false;
+                    return;
+                }
+                var current = _task.WorkflowCurrentStatus ?? statuses[0];
+                var idx     = statuses.IndexOf(current);
+                if (idx < 0) idx = 0;
+                var text = $"Step {idx + 1}/{statuses.Count}: {statuses[idx]}";
+                if (idx + 1 < statuses.Count) text += $"  →  {statuses[idx + 1]}";
+                else                           text += "  (final step)";
+                lblWorkflowStep.Text       = text;
+                btnAdvanceWorkflow.Text    = (idx + 1 < statuses.Count) ? "Advance >" : "Complete ✓";
+                btnAdvanceWorkflow.Visible = true;
+            }
+            catch
+            {
+                lblWorkflowStep.Text      = "";
+                btnAdvanceWorkflow.Visible = false;
             }
         }
 
-        // Down/Up arrow while the mention popup is visible shifts focus into it
+        private void CboWorkflow_SelectedIndexChanged(object? sender, EventArgs e)
+        {
+            if (cboWorkflow.SelectedItem is not WorkflowComboItem wfItem) return;
+            if (wfItem.ID == null)
+            {
+                if (_task.WorkflowID.HasValue)
+                {
+                    try { _repo.UpdateWorkflowStatus(_task.TaskID, null, null); } catch { }
+                    _task.WorkflowID            = null;
+                    _task.WorkflowCurrentStatus = null;
+                    Changed = true;
+                }
+                RefreshWorkflowUI();
+                return;
+            }
+            try
+            {
+                var statuses = _repo.GetWorkflowStatusNames(wfItem.ID.Value);
+                var initial  = statuses.FirstOrDefault();
+                _repo.UpdateWorkflowStatus(_task.TaskID, wfItem.ID, initial);
+                _task.WorkflowID            = wfItem.ID;
+                _task.WorkflowCurrentStatus = initial;
+                Changed = true;
+                RefreshWorkflowUI();
+            }
+            catch (Exception ex) { MessageBox.Show(this, ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error); }
+        }
+
+        private void BtnAdvanceWorkflow_Click(object? sender, EventArgs e)
+        {
+            if (cboWorkflow.SelectedItem is not WorkflowComboItem wfItem || wfItem.ID == null) return;
+            try
+            {
+                var statuses = _repo.GetWorkflowStatusNames(wfItem.ID.Value);
+                if (statuses.Count == 0) return;
+                var current = _task.WorkflowCurrentStatus ?? statuses[0];
+                var idx     = statuses.IndexOf(current);
+                if (idx < 0) idx = 0;
+                int nextIdx = idx + 1;
+                if (nextIdx >= statuses.Count)
+                {
+                    if (MessageBox.Show(this, "This is the final workflow step. Mark task as Done?",
+                            "Complete Workflow", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
+                    _repo.UpdateWorkflowStatus(_task.TaskID, wfItem.ID, statuses[^1]);
+                    _repo.UpdateStatus(_task.TaskID, "Done");
+                    _task.WorkflowCurrentStatus = statuses[^1];
+                    _task.Status = "Done";
+                    cboStatus.SelectedItem = "Done";
+                }
+                else
+                {
+                    var next = statuses[nextIdx];
+                    _repo.UpdateWorkflowStatus(_task.TaskID, wfItem.ID, next);
+                    _task.WorkflowCurrentStatus = next;
+                }
+                Changed = true;
+                RefreshWorkflowUI();
+                lblMeta.Text = BuildMetaText();
+            }
+            catch (Exception ex) { MessageBox.Show(this, ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error); }
+        }
+
+        // ── @mention logic ────────────────────────────────────────────────────────────
+
+        private void TxtComment_KeyPress(object? sender, KeyPressEventArgs e)
+        {
+            if (e.KeyChar == (char)27)
+                lstMention.Visible = false;
+        }
+
         protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
         {
             if (lstMention.Visible)
@@ -224,13 +391,10 @@ namespace JaneERP
         {
             var text = txtComment.Text;
             var pos  = txtComment.SelectionStart;
-
-            // Find the last '@' before cursor
             int atIdx = text.LastIndexOf('@', Math.Max(0, pos - 1));
             if (atIdx >= 0)
             {
                 var partial = text.Substring(atIdx + 1, Math.Max(0, pos - atIdx - 1));
-                // Only show if no space in partial (still typing the username)
                 if (!partial.Contains(' '))
                 {
                     _mentionPrefix = partial;
@@ -249,34 +413,21 @@ namespace JaneERP
             lstMention.Visible = false;
         }
 
-        private void LstMention_Click(object? sender, EventArgs e)
-        {
-            InsertMention();
-        }
+        private void LstMention_Click(object? sender, EventArgs e) => InsertMention();
 
         private void LstMention_KeyDown(object? sender, KeyEventArgs e)
         {
-            if (e.KeyCode == Keys.Enter || e.KeyCode == Keys.Tab)
-            {
-                InsertMention();
-                e.Handled = true;
-            }
-            else if (e.KeyCode == Keys.Escape)
-            {
-                lstMention.Visible = false;
-                txtComment.Focus();
-            }
+            if (e.KeyCode == Keys.Enter || e.KeyCode == Keys.Tab) { InsertMention(); e.Handled = true; }
+            else if (e.KeyCode == Keys.Escape) { lstMention.Visible = false; txtComment.Focus(); }
         }
 
         private void InsertMention()
         {
             if (lstMention.SelectedItem is not string selected) return;
-            var text = txtComment.Text;
-            var pos  = txtComment.SelectionStart;
+            var text  = txtComment.Text;
+            var pos   = txtComment.SelectionStart;
             int atIdx = text.LastIndexOf('@', Math.Max(0, pos - 1));
             if (atIdx < 0) return;
-
-            // Replace from @ to cursor with @username + space
             var before = text.Substring(0, atIdx);
             var after  = text.Substring(pos);
             txtComment.Text           = before + "@" + selected + " " + after;
@@ -285,7 +436,7 @@ namespace JaneERP
             txtComment.Focus();
         }
 
-        // ── Post comment ──────────────────────────────────────────────────────────
+        // ── Post comment ──────────────────────────────────────────────────────────────
 
         private void BtnPostComment_Click(object? sender, EventArgs e)
         {
@@ -298,15 +449,10 @@ namespace JaneERP
                 txtComment.Clear();
                 LoadComments();
                 lstComments.TopIndex = lstComments.Items.Count - 1;
-
-                // Record and email any @mentioned users
                 SaveMentions(body, user);
                 SendMentionEmails(body, user);
             }
-            catch (Exception ex)
-            {
-                MessageBox.Show(this, ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-            }
+            catch (Exception ex) { MessageBox.Show(this, ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error); }
         }
 
         private void SaveMentions(string commentBody, string postedBy)
@@ -327,30 +473,19 @@ namespace JaneERP
         {
             var cfg = AppSettings.Current;
             if (!cfg.IsEmailConfigured) return;
-
-            // Extract @mentions
             var mentions = System.Text.RegularExpressions.Regex.Matches(commentBody, @"@(\w+)")
                 .Cast<System.Text.RegularExpressions.Match>()
                 .Select(m => m.Groups[1].Value)
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();
             if (mentions.Count == 0) return;
-
-            // Get emails for mentioned users
             List<(string username, string email)> targets;
-            try { targets = _repo.GetUserEmails(mentions); }
-            catch { return; }
-
-            var subject = $"[JaneERP] You were mentioned in task: {_task.Title}";
+            try { targets = _repo.GetUserEmails(mentions); } catch { return; }
+            var subject  = $"[JaneERP] You were mentioned in task: {_task.Title}";
             var bodyText =
                 $"You were mentioned by {postedBy} in a task comment.\n\n" +
-                $"Task: {_task.Title}\n" +
-                $"Assigned to: {_task.AssignedTo}\n" +
-                $"Due: {_task.DueDate:yyyy-MM-dd}\n" +
-                $"Status: {_task.Status}\n\n" +
-                $"Comment:\n{commentBody}\n\n" +
-                "Please log in to JaneERP to view the full discussion.";
-
+                $"Task: {_task.Title}\nAssigned to: {_task.AssignedTo}\nDue: {_task.DueDate:yyyy-MM-dd}\nStatus: {_task.Status}\n\n" +
+                $"Comment:\n{commentBody}\n\nPlease log in to JaneERP to view the full discussion.";
             foreach (var (_, email) in targets)
             {
                 if (string.IsNullOrWhiteSpace(email)) continue;
@@ -366,45 +501,66 @@ namespace JaneERP
             }
         }
 
-        // ── Save Due Date ─────────────────────────────────────────────────────────
+        // ── Save Changes ──────────────────────────────────────────────────────────────
 
-        private void BtnSaveDue_Click(object? sender, EventArgs e)
+        private void BtnSaveChanges_Click(object? sender, EventArgs e)
         {
             try
             {
+                // Due date
                 _repo.UpdateDueDate(_task.TaskID, dtpDueDate.Value.Date);
                 _task.DueDate = dtpDueDate.Value.Date;
 
+                // Description
                 string newDesc = txtDesc.Text.Trim();
                 _repo.UpdateDescription(_task.TaskID, newDesc);
                 _task.Description = newDesc;
 
+                // Status
+                var newStatus = cboStatus.SelectedItem?.ToString() ?? "Open";
+                if (newStatus != _task.Status)
+                {
+                    _repo.UpdateStatus(_task.TaskID, newStatus);
+                    _task.Status = newStatus;
+                }
+
+                // Assigned To
+                var newAssigned = cboAssign.SelectedItem?.ToString() ?? _task.AssignedTo;
+                if (!newAssigned.Equals(_task.AssignedTo, StringComparison.OrdinalIgnoreCase))
+                {
+                    _repo.UpdateAssignedTo(_task.TaskID, newAssigned);
+                    if (!newAssigned.Equals(AppSession.CurrentUser?.Username, StringComparison.OrdinalIgnoreCase))
+                    {
+                        var emails = _repo.GetUserEmails(new List<string> { newAssigned });
+                        var email  = emails.FirstOrDefault().Email;
+                        if (!string.IsNullOrWhiteSpace(email))
+                            _ = NotificationService.NotifyTaskAssignedAsync(email, AppSession.CurrentUser?.Username ?? "system", _task.Title);
+                    }
+                    _task.AssignedTo = newAssigned;
+                }
+
+                // Priority
+                var newPriority = cboPriority.SelectedItem?.ToString() ?? "Normal";
+                if (newPriority != _task.Priority)
+                {
+                    _repo.UpdatePriority(_task.TaskID, newPriority);
+                    _task.Priority = newPriority;
+                }
+
                 Changed      = true;
                 lblMeta.Text = BuildMetaText();
             }
-            catch (Exception ex)
-            {
-                MessageBox.Show(this, ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-            }
+            catch (Exception ex) { MessageBox.Show(this, ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error); }
         }
 
-        // ── Mark Done / Re-open ───────────────────────────────────────────────────
+        // ── Helper ────────────────────────────────────────────────────────────────────
 
-        private void BtnMarkDone_Click(object? sender, EventArgs e)
+        private class WorkflowComboItem
         {
-            var newStatus = _task.Status == "Done" ? "Open" : "Done";
-            try
-            {
-                _repo.UpdateStatus(_task.TaskID, newStatus);
-                _task.Status     = newStatus;
-                btnMarkDone.Text = newStatus == "Done" ? "Re-open" : "Mark Done";
-                Changed          = true;
-                lblMeta.Text     = BuildMetaText();
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show(this, ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-            }
+            public int?   ID      { get; }
+            public string Display { get; }
+            public WorkflowComboItem(int? id, string display) { ID = id; Display = display; }
+            public override string ToString() => Display;
         }
     }
 }

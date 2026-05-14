@@ -262,6 +262,27 @@ namespace JaneERP
                 return;
             }
 
+            // ── Stock availability check ──────────────────────────────────────────
+            try
+            {
+                var lines = _svc.GetSOReservationItems(_salesOrderId);
+                var insufficient = lines
+                    .GroupBy(l => l.ItemId)
+                    .Where(g => g.Sum(l => l.Available) < g.First().Required)
+                    .Select(g => g.First().DisplayLabel)
+                    .ToList();
+
+                if (insufficient.Count > 0)
+                {
+                    MessageBox.Show(this,
+                        "Cannot fulfil — insufficient stock for:\n\n  • " +
+                        string.Join("\n  • ", insufficient),
+                        "Insufficient Stock", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    return;
+                }
+            }
+            catch { /* if reservation check fails, fall through — don't block on a non-critical error */ }
+
             string tracking = _txtTracking.Text.Trim();
             string notes    = _txtNotes.Text.Trim();
 

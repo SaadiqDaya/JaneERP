@@ -278,7 +278,45 @@ const OrderDetailPage = (() => {
         return;
       }
 
-      listEl.innerHTML = items.map((item, idx) => `
+      // Normalise totalStock — API may return null for products with no transactions
+      items.forEach(item => { item.totalStock = item.totalStock ?? 0; });
+
+      const shortfalls = items.filter(i => i.totalStock < i.quantityNeeded);
+      const noStock    = items.filter(i => i.totalStock <= 0);
+
+      // Stock warning banner
+      let warningHtml = '';
+      if (noStock.length > 0) {
+        warningHtml = `
+          <div style="background:var(--danger-lt);border:1.5px solid var(--danger);border-radius:8px;
+                      padding:10px 12px;margin-bottom:12px;font-size:12px;color:var(--danger);font-weight:600;">
+            ⚠ ${noStock.length} item${noStock.length !== 1 ? 's' : ''} have no stock recorded.
+            Verify before packing.
+          </div>`;
+      } else if (shortfalls.length > 0) {
+        warningHtml = `
+          <div style="background:#fff8e1;border:1.5px solid #f59e0b;border-radius:8px;
+                      padding:10px 12px;margin-bottom:12px;font-size:12px;color:#92400e;font-weight:600;">
+            ⚠ ${shortfalls.length} item${shortfalls.length !== 1 ? 's' : ''} may have insufficient stock.
+          </div>`;
+      }
+
+      listEl.innerHTML = warningHtml + items.map((item, idx) => {
+        const isShort   = item.totalStock < item.quantityNeeded;
+        const isNoStock = item.totalStock <= 0;
+        let stockBadge  = '';
+        if (isNoStock) {
+          stockBadge = `<span style="font-size:12px;background:var(--danger-lt);color:var(--danger);
+                              padding:2px 8px;border-radius:6px;font-weight:600;">
+            ⚠ No stock on file
+          </span>`;
+        } else if (isShort) {
+          stockBadge = `<span style="font-size:12px;background:var(--danger-lt);color:var(--danger);
+                              padding:2px 8px;border-radius:6px;font-weight:600;">
+            ⚠ Only ${item.totalStock} avail
+          </span>`;
+        }
+        return `
         <label style="display:flex;align-items:flex-start;gap:12px;padding:12px 0;
                       border-bottom:1px solid var(--border);cursor:pointer;"
                for="pick-cb-${idx}">
@@ -297,14 +335,26 @@ const OrderDetailPage = (() => {
                            border-radius:6px;color:var(--text-2);font-weight:500;">
                 📍 ${item.primaryLocation}
               </span>` : ''}
-              ${item.totalStock < item.quantityNeeded ? `
-              <span style="font-size:12px;background:var(--danger-lt);color:var(--danger);
-                           padding:2px 8px;border-radius:6px;font-weight:600;">
-                ⚠ Low stock (${item.totalStock} avail)
-              </span>` : ''}
+              ${stockBadge}
             </div>
           </div>
-        </label>`).join('');
+        </label>`;
+      }).join('');
+
+      // Hard block: cannot pack if any items have insufficient stock
+      if (shortfalls.length > 0) {
+        listEl.insertAdjacentHTML('beforeend', `
+          <div style="background:var(--danger-lt);border:1.5px solid var(--danger);border-radius:8px;
+                      padding:12px 14px;margin-top:12px;font-size:13px;color:var(--danger);font-weight:600;">
+            Cannot pack — ${shortfalls.length} item${shortfalls.length !== 1 ? 's' : ''} have insufficient stock.
+            Receive the missing stock before packing this order.
+          </div>`);
+        if (complBtn) {
+          complBtn.disabled = true;
+          complBtn.title    = 'Insufficient stock — cannot pack';
+        }
+        return;
+      }
 
       // Enable Complete button when all items are checked
       function updateCompleteBtn() {

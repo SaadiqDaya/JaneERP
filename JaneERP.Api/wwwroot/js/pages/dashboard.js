@@ -55,30 +55,30 @@ const DashboardPage = (() => {
       </div>
 
       <div class="kpi-grid">
-        <div class="kpi-card ${salesClass}">
+        <a href="#/orders" class="kpi-card ${salesClass}" style="text-decoration:none;cursor:pointer;">
           <div class="kpi-val">${App.fmt$(d.salesTotal)}</div>
           <div class="kpi-label">Sales (${days}d)</div>
-        </div>
-        <div class="kpi-card">
+        </a>
+        <a href="#/inventory" class="kpi-card" style="text-decoration:none;cursor:pointer;">
           <div class="kpi-val">${d.totalProducts}</div>
           <div class="kpi-label">Active Products</div>
-        </div>
+        </a>
         <a href="#/inventory" class="kpi-card ${lowClass}" style="text-decoration:none;cursor:pointer;">
           <div class="kpi-val">${d.lowStockItems}</div>
           <div class="kpi-label">Low Stock ↗</div>
         </a>
-        <div class="kpi-card ${packClass}">
+        <a href="#/orders" class="kpi-card ${packClass}" style="text-decoration:none;cursor:pointer;">
           <div class="kpi-val">${d.ordersToPack}</div>
           <div class="kpi-label">Orders to Pack</div>
-        </div>
-        <div class="kpi-card ${recvClass}">
+        </a>
+        <a href="#/po" class="kpi-card ${recvClass}" style="text-decoration:none;cursor:pointer;">
           <div class="kpi-val">${d.itemsToReceive}</div>
           <div class="kpi-label">Items to Receive</div>
-        </div>
-        <div class="kpi-card ${overdueClass}">
+        </a>
+        <a href="#/po" class="kpi-card ${overdueClass}" style="text-decoration:none;cursor:pointer;">
           <div class="kpi-val">${d.overduePOs}</div>
           <div class="kpi-label">Overdue POs</div>
-        </div>
+        </a>
       </div>
 
       ${d.lowStockItems > 0 ? `

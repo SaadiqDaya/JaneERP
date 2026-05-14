@@ -40,12 +40,13 @@ const CookingPage = (() => {
 
       el.innerHTML = `<div class="list-card">
         ${sessions.map(s => {
-          const pct = s.totalSteps > 0 ? Math.round((s.doneSteps / s.totalSteps) * 100) : 0;
+          const pct  = s.totalSteps > 0 ? Math.round((s.doneSteps / s.totalSteps) * 100) : 0;
+          const loss = s.batchLossPercent > 0 ? ` · ${s.batchLossPercent}% loss` : '';
           return `
           <div class="list-item" data-id="${s.cookSessionID}">
             <div class="li-main">
               <div class="li-title">${s.sessionName}</div>
-              <div class="li-sub">${s.createdBy || '—'} · ${App.fmtDateShort(s.createdAt)}</div>
+              <div class="li-sub">${s.createdBy || '—'} · ${App.fmtDateShort(s.createdAt)}${loss}</div>
               <div style="margin-top:6px;">
                 <div style="display:flex;justify-content:space-between;margin-bottom:3px;">
                   <span class="text-small text-muted">Progress</span>
@@ -71,13 +72,25 @@ const CookingPage = (() => {
   async function showCreatePanel() {
     const el = document.getElementById('cooking-content');
     if (!el) return;
-    el.innerHTML = `<div class="card"><p class="text-muted text-small" style="text-align:center;padding:16px 0;">Loading work orders…</p></div>`;
+    el.innerHTML = `<div class="card"><p class="text-muted text-small" style="text-align:center;padding:16px 0;">Loading…</p></div>`;
 
-    let wos = [];
-    try { wos = await Api.get('/api/cooking/work-orders'); }
-    catch (err) { el.innerHTML = `<div class="empty-state"><p>${err.message}</p></div>`; return; }
+    let wos = [], settings = { flaskConfigs: [], batchLossPresets: [] };
+    try {
+      [wos, settings] = await Promise.all([
+        Api.get('/api/cooking/work-orders'),
+        Api.get('/api/cooking/manufacturing-settings'),
+      ]);
+    } catch (err) {
+      el.innerHTML = `<div class="empty-state"><p>${err.message}</p></div>`; return;
+    }
 
     const defaultName = `Cook ${new Date().toLocaleDateString('en-CA')}`;
+    const presets     = settings.batchLossPresets || [];
+
+    // Build preset options — first preset is default selection
+    const presetOpts = presets.map((p, i) =>
+      `<option value="${p.percent}" ${i === 0 ? 'selected' : ''}>${p.label} (${p.percent}%)</option>`
+    ).join('');
 
     el.innerHTML = `
       <div class="card">
@@ -87,9 +100,23 @@ const CookingPage = (() => {
           <input id="cook-name" class="form-control" value="${defaultName}">
         </div>
         <div style="margin-bottom:14px;">
+          <label class="form-label">Batch Loss</label>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <select id="cook-loss-preset" class="form-control" style="flex:1;">
+              ${presetOpts}
+              <option value="custom">Custom…</option>
+            </select>
+            <div id="cook-loss-custom-wrap" style="display:none;align-items:center;gap:4px;">
+              <input id="cook-loss-custom" type="number" class="form-control" min="0" max="100" step="0.5"
+                     style="width:80px;" value="0">
+              <span class="text-muted" style="font-size:13px;">%</span>
+            </div>
+          </div>
+        </div>
+        <div style="margin-bottom:14px;">
           <label class="form-label">Work Orders${wos.length ? ' — select one or more' : ''}</label>
           ${wos.length === 0
-            ? `<p class="text-muted text-small" style="padding:6px 0;">No pending work orders.</p>`
+            ? `<p class="text-muted text-small" style="padding:6px 0;">No in-progress work orders.</p>`
             : `<div style="border:1px solid var(--border);border-radius:10px;overflow:hidden;max-height:320px;overflow-y:auto;">
                 ${wos.map(wo => `
                   <label style="display:flex;align-items:center;gap:12px;padding:12px 14px;border-bottom:1px solid var(--bg);cursor:pointer;">
@@ -109,17 +136,35 @@ const CookingPage = (() => {
         </div>
       </div>`;
 
+    // Show/hide custom loss input
+    const presetSel  = document.getElementById('cook-loss-preset');
+    const customWrap = document.getElementById('cook-loss-custom-wrap');
+    presetSel.addEventListener('change', () => {
+      const isCustom = presetSel.value === 'custom';
+      customWrap.style.display = isCustom ? 'flex' : 'none';
+    });
+
+    function getSelectedLoss() {
+      if (presetSel.value === 'custom') {
+        return parseFloat(document.getElementById('cook-loss-custom').value) || 0;
+      }
+      return parseFloat(presetSel.value) || 0;
+    }
+
     document.getElementById('cook-cancel').addEventListener('click', loadSessions);
     document.getElementById('cook-submit').addEventListener('click', async () => {
       const name   = document.getElementById('cook-name').value.trim() || defaultName;
       const ids    = [...document.querySelectorAll('.cook-wo-check:checked')].map(cb => parseInt(cb.value, 10));
+      const loss   = getSelectedLoss();
       const errEl  = document.getElementById('cook-form-err');
       if (ids.length === 0) { errEl.style.display = ''; errEl.textContent = 'Select at least one work order.'; return; }
       errEl.style.display = 'none';
       const btn = document.getElementById('cook-submit');
       btn.disabled = true; btn.textContent = 'Starting…';
       try {
-        const res = await Api.post('/api/cooking/sessions', { sessionName: name, workOrderIds: ids });
+        const res = await Api.post('/api/cooking/sessions', {
+          sessionName: name, workOrderIds: ids, batchLossPercent: loss
+        });
         App.navigate(`cooking/${res.cookSessionId}`);
       } catch (err) {
         errEl.style.display = ''; errEl.textContent = err.message;
@@ -171,13 +216,19 @@ const CookSessionDetailPage = (() => {
     const doneSteps  = s.ingredients.reduce((n, i) => n + i.stepsDone,  0);
     const pct        = totalSteps > 0 ? Math.round((doneSteps / totalSteps) * 100) : 0;
     const isComplete = s.status === 'Complete';
+    const lossTag    = s.batchLossPercent > 0
+      ? `<span class="badge" style="background:var(--primary-lt,rgba(99,102,241,.15));color:var(--primary);font-size:11px;">${s.batchLossPercent}% loss</span>`
+      : '';
 
     contentEl.innerHTML = `
       <div class="card" style="margin-bottom:12px;">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px;">
           <div>
             <div style="font-size:17px;font-weight:800;">${s.sessionName}</div>
-            <div class="text-muted text-small">${s.createdBy || '—'} · ${App.fmtDate(s.createdAt)}</div>
+            <div class="text-muted text-small" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:3px;">
+              <span>${s.createdBy || '—'} · ${App.fmtDate(s.createdAt)}</span>
+              ${lossTag}
+            </div>
           </div>
           <span class="badge ${isComplete ? 'badge-complete' : 'badge-wip'}">${s.status}</span>
         </div>
@@ -311,7 +362,10 @@ const CookSessionDetailPage = (() => {
           ${ingr.steps.map(step => `
             <div style="display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--bg);">
               <div style="flex:1;min-width:0;">
-                <div style="font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${step.productName}</div>
+                <div style="font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+                  ${step.productName}
+                  ${step.flaskType ? `<span class="text-muted text-small" style="font-weight:400;"> [${step.flaskType}]</span>` : ''}
+                </div>
                 <div class="text-small text-muted">${step.moNumber} · ${step.requiredQty.toFixed(3)} ${ingr.unitOfMeasure || ''}</div>
               </div>
               ${step.isDone

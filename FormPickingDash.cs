@@ -14,6 +14,17 @@ namespace JaneERP
     /// </summary>
     internal class FormPickingDash : Form
     {
+        // Required for OS-level resize grip on borderless forms on Windows 11
+        protected override CreateParams CreateParams
+        {
+            get
+            {
+                var cp = base.CreateParams;
+                cp.Style |= 0x00040000; // WS_THICKFRAME
+                return cp;
+            }
+        }
+
         private readonly IShopifySyncService  _svc     = AppServices.Get<IShopifySyncService>();
         private readonly Panel               _pnlHeader = new();
         private readonly SplitContainer      _split   = new();
@@ -94,10 +105,12 @@ namespace JaneERP
             }
 
             // Split container
-            _split.Dock            = DockStyle.Fill;
-            _split.Orientation     = Orientation.Vertical;
-            _split.SplitterDistance = 420;
-            _split.SplitterWidth   = 6;
+            _split.Dock             = DockStyle.Fill;
+            _split.Orientation      = Orientation.Vertical;
+            _split.SplitterDistance = 340;
+            _split.SplitterWidth    = 6;
+            _split.Panel1MinSize    = 260;
+            _split.Panel2MinSize    = 480; // enough for 6 columns (100+fill+72+72+76+150)
 
             // Left: order list
             BuildOrdersPanel();
@@ -118,13 +131,14 @@ namespace JaneERP
             _dgvOrders.AutoGenerateColumns  = false;
             _dgvOrders.AllowUserToAddRows   = false;
             _dgvOrders.AllowUserToDeleteRows = false;
-            _dgvOrders.ReadOnly             = true;
-            _dgvOrders.RowHeadersVisible    = false;
-            _dgvOrders.SelectionMode        = DataGridViewSelectionMode.FullRowSelect;
-            _dgvOrders.MultiSelect          = false;
+            _dgvOrders.ReadOnly               = true;
+            _dgvOrders.RowHeadersVisible      = false;
+            _dgvOrders.AllowUserToResizeRows  = false;
+            _dgvOrders.SelectionMode          = DataGridViewSelectionMode.FullRowSelect;
+            _dgvOrders.MultiSelect            = false;
             _dgvOrders.Columns.AddRange(
                 new DataGridViewTextBoxColumn { Name = "colNo",       HeaderText = "Order #",  Width = 72  },
-                new DataGridViewTextBoxColumn { Name = "colCustomer", HeaderText = "Customer", Width = 158 },
+                new DataGridViewTextBoxColumn { Name = "colCustomer", HeaderText = "Customer", AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill },
                 new DataGridViewTextBoxColumn { Name = "colStatus",   HeaderText = "Status",   Width = 72  },
                 new DataGridViewTextBoxColumn { Name = "colProgress", HeaderText = "Progress", Width = 80  }
             );
@@ -144,12 +158,13 @@ namespace JaneERP
             _dgvItems.AutoGenerateColumns  = false;
             _dgvItems.AllowUserToAddRows   = false;
             _dgvItems.AllowUserToDeleteRows = false;
-            _dgvItems.RowHeadersVisible    = false;
-            _dgvItems.SelectionMode        = DataGridViewSelectionMode.FullRowSelect;
-            _dgvItems.EditMode             = DataGridViewEditMode.EditOnKeystrokeOrF2;
+            _dgvItems.RowHeadersVisible      = false;
+            _dgvItems.AllowUserToResizeRows  = false;
+            _dgvItems.SelectionMode          = DataGridViewSelectionMode.FullRowSelect;
+            _dgvItems.EditMode               = DataGridViewEditMode.EditOnKeystrokeOrF2;
             _dgvItems.Columns.AddRange(
                 new DataGridViewTextBoxColumn { Name = "colSku",      HeaderText = "SKU",       Width = 100, ReadOnly = true  },
-                new DataGridViewTextBoxColumn { Name = "colTitle",    HeaderText = "Item",       Width = 210, ReadOnly = true  },
+                new DataGridViewTextBoxColumn { Name = "colTitle",    HeaderText = "Item",       AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill, ReadOnly = true  },
                 new DataGridViewTextBoxColumn { Name = "colRequired", HeaderText = "Required",  Width = 72,  ReadOnly = true  },
                 new DataGridViewTextBoxColumn { Name = "colPicked",   HeaderText = "Picked ✏",  Width = 72,  ReadOnly = false },
                 new DataGridViewTextBoxColumn { Name = "colLeft",     HeaderText = "Remaining", Width = 76,  ReadOnly = true  },

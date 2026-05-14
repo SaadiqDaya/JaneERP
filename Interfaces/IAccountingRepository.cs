@@ -7,7 +7,7 @@ namespace JaneERP.Interfaces
         void EnsureSchema();
 
         // ── P&L summary ──────────────────────────────────────────────────────────
-        AccountingSummary GetSummary(DateTime from, DateTime to);
+        AccountingSummary GetSummary(DateTime from, DateTime to, bool paidOnly = false);
 
         // ── Expense transactions ─────────────────────────────────────────────────
         List<ExpenseRow> GetExpenseRows(DateTime from, DateTime to);
@@ -22,5 +22,12 @@ namespace JaneERP.Interfaces
 
         // ── Credit notes (read-only; written by ReturnRepository) ────────────────
         List<CustomerCredit> GetCreditNoteRows(DateTime from, DateTime to);
+
+        // ── Tax rates ─────────────────────────────────────────────────────────────
+        void           EnsureTaxRatesSchema();
+        List<TaxRate>  GetActiveTaxRates();
+        List<TaxRate>  GetAllTaxRates();
+        void           AddTaxRate(string name, decimal rate);
+        void           ToggleTaxRate(int taxRateId);
     }
 }

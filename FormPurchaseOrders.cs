@@ -108,6 +108,17 @@ namespace JaneERP
             };
             Controls.Add(btnAutoPO);
 
+            // ── Export CSV button ────────────────────────────────────────────────
+            var btnExportCsv = new Button
+            {
+                Text     = "Export CSV\u2026",
+                Location = new Point(750, 48),
+                Size     = new Size(110, 30),
+                UseVisualStyleBackColor = true
+            };
+            btnExportCsv.Click += BtnExportCsv_Click;
+            Controls.Add(btnExportCsv);
+
             // ── DataGridView ─────────────────────────────────────────────────────
             dgvPOs.Anchor   = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
             dgvPOs.Location = new Point(12, 92);
@@ -248,6 +259,79 @@ namespace JaneERP
             using var frm = new FormCreatePO(_repo, po);
             frm.ShowDialog(this);
             LoadOrders();
+        }
+
+        private void BtnExportCsv_Click(object? sender, EventArgs e)
+        {
+            if (dgvPOs.CurrentRow == null || dgvPOs.CurrentRow.Index < 0 || dgvPOs.CurrentRow.Index >= _orders.Count)
+            {
+                MessageBox.Show(this, "Select a PO first.", "No Selection", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+            var selected = _orders[dgvPOs.CurrentRow.Index];
+            var po = _repo.GetOrder(selected.POID);
+            if (po == null) return;
+
+            using var dlg = new SaveFileDialog
+            {
+                Filter   = "CSV Files (*.csv)|*.csv",
+                FileName = $"{po.PONumber}.csv"
+            };
+            if (dlg.ShowDialog(this) != DialogResult.OK) return;
+
+            try
+            {
+                ExportPOtoCsv(po, dlg.FileName);
+                lblStatus.Text = $"Exported {po.PONumber} to CSV.";
+                MessageBox.Show(this, $"Exported to {Path.GetFileName(dlg.FileName)}",
+                    "Export Complete", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, $"Export failed: {ex.Message}", "Error",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        private static void ExportPOtoCsv(PurchaseOrder po, string filePath)
+        {
+            var sb = new System.Text.StringBuilder();
+
+            // Header block
+            sb.AppendLine($"Purchase Order,{Csv(po.PONumber)}");
+            sb.AppendLine($"Supplier,{Csv(po.SupplierName ?? "")}");
+            sb.AppendLine($"Status,{Csv(po.Status)}");
+            sb.AppendLine($"Order Date,{po.OrderDate:yyyy-MM-dd}");
+            if (po.ExpectedDate.HasValue)
+                sb.AppendLine($"Expected Date,{po.ExpectedDate.Value:yyyy-MM-dd}");
+            sb.AppendLine($"Created By,{Csv(po.CreatedBy ?? "")}");
+            if (!string.IsNullOrWhiteSpace(po.Notes))
+                sb.AppendLine($"Notes,{Csv(po.Notes)}");
+            sb.AppendLine();
+
+            // Items
+            sb.AppendLine("SKU,Item Name,Qty Ordered,Qty Received,Qty Remaining,Unit Cost,Line Total");
+            foreach (var item in po.Items)
+            {
+                var line = item.QuantityOrdered * item.UnitCost;
+                sb.AppendLine($"{Csv(item.SKU ?? "")},{Csv(item.ItemName)},{item.QuantityOrdered},{item.QuantityReceived},{item.QuantityRemaining},{item.UnitCost:F2},{line:F2}");
+            }
+            sb.AppendLine();
+
+            // Totals
+            sb.AppendLine($"Subtotal,,,,,,{po.TotalCost:F2}");
+            if (po.ShippingCost != 0) sb.AppendLine($"Shipping,,,,,,{po.ShippingCost:F2}");
+            if (po.TaxAmount    != 0) sb.AppendLine($"Tax,,,,,,{po.TaxAmount:F2}");
+            sb.AppendLine($"Grand Total,,,,,,{(po.TotalCost + po.ShippingCost + po.TaxAmount):F2}");
+
+            File.WriteAllText(filePath, sb.ToString(), System.Text.Encoding.UTF8);
+        }
+
+        private static string Csv(string? value)
+        {
+            if (string.IsNullOrEmpty(value)) return "";
+            return (value.Contains(',') || value.Contains('"') || value.Contains('\n'))
+                ? $"\"{value.Replace("\"", "\"\"")}\"" : value;
         }
     }
 }

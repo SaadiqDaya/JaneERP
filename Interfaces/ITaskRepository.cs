@@ -9,6 +9,9 @@ namespace JaneERP.Interfaces
         void                UpdateStatus(int taskId, string status);
         void                UpdateDueDate(int taskId, DateTime dueDate);
         void                UpdateDescription(int taskId, string description);
+        void                UpdateAssignedTo(int taskId, string assignedTo);
+        void                UpdatePriority(int taskId, string priority);
+        void                UpdateWorkflowStatus(int taskId, int? workflowId, string? workflowStatus);
         void                Delete(int taskId);
         List<string>        GetAllUsernames();
         List<TaskComment>   GetComments(int taskId);

@@ -15,5 +15,9 @@ namespace JaneERP.Models
         public string? CustomerName { get; set; }
         public string? ShippingAddress { get; set; }
         public List<LineItem> LineItems { get; set; } = new List<LineItem>();
+
+        // Shopify payment info (populated by ShopifyClient)
+        public string? FinancialStatus { get; set; }   // "paid" | "pending" | "refunded" etc.
+        public string? PaymentGateway  { get; set; }   // e.g. "shopify_payments", "manual", "paypal"
     }
 }

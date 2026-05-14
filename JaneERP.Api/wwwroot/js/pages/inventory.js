@@ -6,7 +6,7 @@ let _invHistoryCtx = null;
 const InventoryPage = (() => {
   let searchTimer = null;
   let currentPage = 1;
-  let currentMode = 'all'; // 'all' | 'low'
+  let currentMode = 'all'; // 'all' | 'instock' | 'low'
 
   async function render(container) {
     container.innerHTML = `
@@ -28,6 +28,7 @@ const InventoryPage = (() => {
           </div>
           <div class="filter-row">
             <button class="filter-chip active" data-mode="all">All Stock</button>
+            <button class="filter-chip" data-mode="instock">In Stock</button>
             <button class="filter-chip" data-mode="low">Low Stock</button>
           </div>
           <div id="inv-list"></div>
@@ -44,6 +45,8 @@ const InventoryPage = (() => {
         currentPage = 1;
         if (currentMode === 'low') {
           loadLowStock(1);
+        } else if (currentMode === 'instock') {
+          loadInStock(1);
         } else {
           doSearch(document.getElementById('inv-search').value.trim(), 1);
         }
@@ -51,7 +54,7 @@ const InventoryPage = (() => {
     });
 
     document.getElementById('inv-search').addEventListener('input', e => {
-      if (currentMode === 'low') return;
+      if (currentMode === 'low' || currentMode === 'instock') return;
       clearTimeout(searchTimer);
       searchTimer = setTimeout(() => doSearch(e.target.value.trim(), 1), 350);
     });
@@ -65,6 +68,17 @@ const InventoryPage = (() => {
     try {
       const data = await Api.get(`/api/inventory/low-stock?page=${page}`);
       renderProductList(data, listEl, page, () => loadLowStock(page + 1));
+    } catch (err) {
+      if (page === 1) listEl.innerHTML = `<div class="empty-state"><p>${err.message}</p></div>`;
+    }
+  }
+
+  async function loadInStock(page) {
+    const listEl = document.getElementById('inv-list');
+    if (page === 1) listEl.innerHTML = App.skeletonCards(5);
+    try {
+      const data = await Api.get(`/api/inventory/in-stock?page=${page}`);
+      renderProductList(data, listEl, page, () => loadInStock(page + 1));
     } catch (err) {
       if (page === 1) listEl.innerHTML = `<div class="empty-state"><p>${err.message}</p></div>`;
     }
@@ -337,9 +351,8 @@ const InventoryPage = (() => {
               if (inp) {
                 inp.value = code;
                 currentMode = 'all';
-                document.querySelectorAll('.filter-chip[data-mode]').forEach(c => {
-                  c.classList.toggle('active', c.dataset.mode === 'all');
-                });
+                document.querySelectorAll('.filter-chip[data-mode]').forEach(c =>
+                  c.classList.toggle('active', c.dataset.mode === 'all'));
                 doSearch(code, 1);
               }
               return;

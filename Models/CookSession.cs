@@ -5,7 +5,8 @@ namespace JaneERP.Models
     {
         public int       CookSessionID { get; set; }
         public string    SessionName   { get; set; } = "";
-        public string    Status        { get; set; } = "Open";   // Open | Complete
+        public string    Status           { get; set; } = "Open";   // Open | Complete
+        public decimal   BatchLossPercent { get; set; }
         public string?   CreatedBy     { get; set; }
         public DateTime  CreatedAt     { get; set; }
         public DateTime? CompletedAt   { get; set; }
@@ -34,10 +35,16 @@ namespace JaneERP.Models
         public string? UnitOfMeasure { get; set; }
         public string  ProductName   { get; set; } = "";
         public string? ProductSKU    { get; set; }
-        /// <summary>Quantity of this part needed for this work order (BOM qty × WO qty).</summary>
-        public decimal RequiredQty   { get; set; }
+        /// <summary>Required quantity for this step (batch-loss-adjusted ml, or BOM × WO qty).</summary>
+        public decimal  RequiredQty      { get; set; }
         /// <summary>The work order quantity (number of units being produced).</summary>
-        public int     WorkOrderQty  { get; set; }
+        public int      WorkOrderQty     { get; set; }
+        /// <summary>Mixing vessel assigned to this batch (from CookSessionBatches.FlaskType).</summary>
+        public string?  FlaskType        { get; set; }
+        /// <summary>Specific gravity (g/ml). Null for count items (bottles, labels).</summary>
+        public decimal? Density          { get; set; }
+        /// <summary>Gram equivalent of RequiredQty when density is known.</summary>
+        public decimal? RequiredGrams    => Density.HasValue ? Math.Round(RequiredQty * Density.Value, 2) : null;
     }
 
     /// <summary>
@@ -45,21 +52,25 @@ namespace JaneERP.Models
     /// </summary>
     public class CookIngredientSummary
     {
-        public int     PartID         { get; set; }
-        public string  PartNumber     { get; set; } = "";
-        public string  PartName       { get; set; } = "";
-        public string? UnitOfMeasure  { get; set; }
+        public int      PartID              { get; set; }
+        public string   PartNumber          { get; set; } = "";
+        public string   PartName            { get; set; } = "";
+        public string?  UnitOfMeasure       { get; set; }
         /// <summary>Total quantity needed across all work orders in the session.</summary>
-        public decimal TotalRequired  { get; set; }
+        public decimal  TotalRequired       { get; set; }
         /// <summary>Current stock on hand.</summary>
-        public int     OnHand         { get; set; }
+        public int      OnHand              { get; set; }
         /// <summary>Number of work order steps that are done for this ingredient.</summary>
-        public int     StepsDone      { get; set; }
+        public int      StepsDone           { get; set; }
         /// <summary>Total number of work order steps for this ingredient.</summary>
-        public int     StepsTotal     { get; set; }
-        public bool    IsComplete     => StepsDone >= StepsTotal && StepsTotal > 0;
-        public bool    HasEnoughStock => OnHand >= (int)Math.Ceiling((double)TotalRequired);
-        public string  ProgressText   => $"{StepsDone}/{StepsTotal}";
+        public int      StepsTotal          { get; set; }
+        /// <summary>Specific gravity (g/ml). Null for count items.</summary>
+        public decimal? Density             { get; set; }
+        public bool     IsComplete          => StepsDone >= StepsTotal && StepsTotal > 0;
+        public bool     HasEnoughStock      => OnHand >= (int)Math.Ceiling((double)TotalRequired);
+        public string   ProgressText        => $"{StepsDone}/{StepsTotal}";
+        /// <summary>Gram equivalent of TotalRequired when density is known.</summary>
+        public decimal? TotalRequiredGrams  => Density.HasValue ? Math.Round(TotalRequired * Density.Value, 2) : null;
     }
 
     /// <summary>Row for the printable / exportable Batch Traveller document.</summary>
@@ -83,14 +94,20 @@ namespace JaneERP.Models
     /// </summary>
     public class WOBomPreviewRow
     {
-        public int     PartID      { get; set; }
-        public string  PartNumber  { get; set; } = "";
-        public string  PartName    { get; set; } = "";
-        public string? UOM         { get; set; }
-        /// <summary>BOM qty × work order qty = total required.</summary>
-        public decimal RequiredQty { get; set; }
+        public int      PartID            { get; set; }
+        public string   PartNumber        { get; set; } = "";
+        public string   PartName          { get; set; } = "";
+        public string?  UOM               { get; set; }
+        /// <summary>BOM qty × work order qty (no loss — raw amount before session loss applied).</summary>
+        public decimal  RequiredQty       { get; set; }
         /// <summary>Current stock on hand for this part.</summary>
-        public int     OnHand      { get; set; }
+        public int      OnHand            { get; set; }
+        /// <summary>True when this ingredient absorbs batch loss (liquids).</summary>
+        public bool     CreatesBatchLoss  { get; set; }
+        /// <summary>Per-row loss rate override (%). 0 = use session default.</summary>
+        public decimal  BatchLossRate     { get; set; }
+        /// <summary>Specific gravity (g/ml). Null for count items.</summary>
+        public decimal? Density           { get; set; }
     }
 
     /// <summary>Row for the label-printing CSV export.</summary>

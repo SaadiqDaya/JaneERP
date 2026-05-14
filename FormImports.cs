@@ -76,6 +76,13 @@ namespace JaneERP
                 "Email,FullName,Phone",
                 ImportCustomersCsv);
 
+            y += 6;
+            y = AddCategoryLabel(scroll, "Inventory", y);
+            y = AddImportRow(scroll, y, "Inventory Moves CSV",
+                "Move stock between locations — preview before commit. Export 'Inventory by Location' to generate a template.",
+                "SKU,FromLocation,ToLocation  (optional: RequestedQty)",
+                (_, _) => { using var frm = new FormInventoryMoveImport(); frm.ShowDialog(this); });
+
             Controls.Add(scroll);
             Controls.Add(pnlHeader);
         }

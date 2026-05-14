@@ -61,8 +61,8 @@ namespace JaneERP
         private void BuildUI()
         {
             Text          = "Breakeven Calculator";
-            ClientSize    = new Size(780, 720);
-            MinimumSize   = new Size(620, 560);
+            ClientSize    = new Size(820, 860);
+            MinimumSize   = new Size(680, 760);
             StartPosition = FormStartPosition.CenterParent;
 
             // ── Header ───────────────────────────────────────────────────────
@@ -96,7 +96,7 @@ namespace JaneERP
             var pnl = new Panel
             {
                 Location  = new Point(0, 0),
-                Size      = new Size(500, 560),
+                Size      = new Size(780, 560),
                 BackColor = Color.Transparent
             };
 
@@ -178,7 +178,7 @@ namespace JaneERP
             pnlSolveRow = new Panel
             {
                 Location  = new Point(0, y),
-                Size      = new Size(500, rowH * 2),
+                Size      = new Size(780, rowH * 2),
                 Visible   = false,
                 BackColor = Color.Transparent
             };
@@ -205,7 +205,7 @@ namespace JaneERP
             var sep = new Panel
             {
                 Location  = new Point(0, y),
-                Size      = new Size(490, 1),
+                Size      = new Size(770, 1),
                 BackColor = Theme.Border
             };
             pnl.Controls.Add(sep);
@@ -228,7 +228,7 @@ namespace JaneERP
             var sep2 = new Panel
             {
                 Location  = new Point(0, y),
-                Size      = new Size(490, 1),
+                Size      = new Size(770, 1),
                 BackColor = Theme.Border
             };
             pnl.Controls.Add(sep2);

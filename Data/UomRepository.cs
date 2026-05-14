@@ -94,5 +94,31 @@ namespace JaneERP.Data
             }
             catch (Exception ex) { Logging.AppLogger.Error($"[UomRepository.GetAbbreviations] {ex}"); return new List<string>(); }
         }
+
+        public bool TryConvert(string fromAbbr, string toAbbr, decimal quantity, out decimal result)
+        {
+            result = 0;
+            if (string.IsNullOrWhiteSpace(fromAbbr) || string.IsNullOrWhiteSpace(toAbbr)) return false;
+            if (fromAbbr.Equals(toAbbr, StringComparison.OrdinalIgnoreCase)) { result = quantity; return true; }
+
+            try
+            {
+                var all  = GetAll(includeInactive: false);
+                var from = all.FirstOrDefault(u => u.Abbreviation.Equals(fromAbbr, StringComparison.OrdinalIgnoreCase));
+                var to   = all.FirstOrDefault(u => u.Abbreviation.Equals(toAbbr,   StringComparison.OrdinalIgnoreCase));
+                if (from == null || to == null) return false;
+
+                // Both must share the same base unit (or one must be the base unit of the other)
+                string fromBase = from.BaseUnit ?? from.Abbreviation;
+                string toBase   = to.BaseUnit   ?? to.Abbreviation;
+                if (!fromBase.Equals(toBase, StringComparison.OrdinalIgnoreCase)) return false;
+
+                // Convert: quantity in fromAbbr → base unit → toAbbr
+                decimal inBase = quantity * from.ConversionFactor;
+                result = inBase / to.ConversionFactor;
+                return true;
+            }
+            catch { return false; }
+        }
     }
 }

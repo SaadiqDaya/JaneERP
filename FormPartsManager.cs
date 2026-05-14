@@ -20,6 +20,7 @@ namespace JaneERP
         private NumericUpDown nudStock   = new();
         private ComboBox      cboVendor  = new();
         private ComboBox      cboUom     = new();
+        private TextBox       txtDensity = new();
         private CheckBox      chkActive  = new();
         private Button        btnSave    = new();
         private Button        btnNew     = new();
@@ -106,6 +107,14 @@ namespace JaneERP
             Controls.Add(cboUom);
             y += 34;
 
+            Controls.Add(new Label { AutoSize = true, Location = new Point(x, y), Text = "Density g/ml (e.g. 1.072 for concentrate):" });
+            y += 20;
+            txtDensity.Location      = new Point(x, y);
+            txtDensity.Size          = new Size(120, 23);
+            txtDensity.PlaceholderText = "leave blank if N/A";
+            Controls.Add(txtDensity);
+            y += 34;
+
             chkActive.AutoSize = true;
             chkActive.Location = new Point(x, y);
             chkActive.Text     = "Active";
@@ -160,6 +169,7 @@ namespace JaneERP
             nudStock.Enabled   = enabled;
             cboVendor.Enabled  = enabled;
             cboUom.Enabled     = enabled;
+            txtDensity.Enabled = enabled;
             chkActive.Enabled  = enabled;
             btnSave.Enabled    = enabled;
         }
@@ -210,6 +220,7 @@ namespace JaneERP
             nudStock.Value    = Math.Min(part.CurrentStock, (int)nudStock.Maximum);
             cboVendor.SelectedValue = part.DefaultVendorID ?? 0;
             cboUom.Text             = part.UnitOfMeasure ?? "";
+            txtDensity.Text         = part.Density.HasValue ? part.Density.Value.ToString("G") : "";
             chkActive.Checked       = part.IsActive;
             SetEditEnabled(true);
         }
@@ -225,6 +236,9 @@ namespace JaneERP
 
             if (!decimal.TryParse(txtCost.Text, out decimal cost)) cost = 0;
             int? vendorId = cboVendor.SelectedValue is int v && v != 0 ? v : null;
+            decimal? density = decimal.TryParse(txtDensity.Text.Trim(),
+                System.Globalization.NumberStyles.Any,
+                System.Globalization.CultureInfo.InvariantCulture, out decimal d) && d > 0 ? d : null;
 
             try
             {
@@ -240,7 +254,8 @@ namespace JaneERP
                         CurrentStock    = (int)nudStock.Value,
                         IsActive        = chkActive.Checked,
                         DefaultVendorID = vendorId,
-                        UnitOfMeasure   = uom
+                        UnitOfMeasure   = uom,
+                        Density         = density
                     });
                 }
                 else
@@ -252,6 +267,7 @@ namespace JaneERP
                     _editing.IsActive        = chkActive.Checked;
                     _editing.DefaultVendorID = vendorId;
                     _editing.UnitOfMeasure   = uom;
+                    _editing.Density         = density;
                     _repo.Update(_editing);
                 }
 
@@ -275,6 +291,7 @@ namespace JaneERP
             txtName.Clear();
             txtDesc.Clear();
             txtCost.Clear();
+            txtDensity.Clear();
             nudStock.Value    = 0;
             chkActive.Checked = true;
             dgvParts.ClearSelection();
@@ -330,10 +347,16 @@ namespace JaneERP
             dgv.AllowUserToDeleteRows = true;
             dgv.SelectionMode     = DataGridViewSelectionMode.FullRowSelect;
             dgv.AutoGenerateColumns = false;
-            dgv.Columns.Add(new DataGridViewTextBoxColumn { Name = "colPartID",  Visible     = false });
-            dgv.Columns.Add(new DataGridViewTextBoxColumn { Name = "colPartNum", HeaderText  = "Part #",   Width = 110 });
-            dgv.Columns.Add(new DataGridViewTextBoxColumn { Name = "colPartName",HeaderText  = "Part Name",AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill });
-            dgv.Columns.Add(new DataGridViewTextBoxColumn { Name = "colQty",     HeaderText  = "Qty",      Width = 60  });
+            dgv.Columns.Add(new DataGridViewTextBoxColumn  { Name = "colPartID",   Visible    = false });
+            dgv.Columns.Add(new DataGridViewTextBoxColumn  { Name = "colPartNum",  HeaderText = "Part #",      Width = 110 });
+            dgv.Columns.Add(new DataGridViewTextBoxColumn  { Name = "colPartName", HeaderText = "Part Name",   AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill });
+            dgv.Columns.Add(new DataGridViewTextBoxColumn  { Name = "colQty",      HeaderText = "Qty",         Width = 60  });
+            dgv.Columns.Add(new DataGridViewCheckBoxColumn { Name = "colLoss",     HeaderText = "Batch Loss?", Width = 82, FalseValue = false, TrueValue = true });
+            dgv.Columns.Add(new DataGridViewTextBoxColumn  { Name = "colLossRate", HeaderText = "Rate %",      Width = 60, ToolTipText = "0 = use session default" });
+            dgv.CurrentCellDirtyStateChanged += (_, _) =>
+            {
+                if (dgv.IsCurrentCellDirty) dgv.CommitEdit(DataGridViewDataErrorContexts.Commit);
+            };
             Controls.Add(dgv);
 
             btnAddPart.Text     = "+ Add Part";
@@ -366,8 +389,11 @@ namespace JaneERP
             btnAddLabour.Size     = new Size(120, 28);
             btnAddLabour.Click   += (_, _) =>
             {
-                int idx = dgvLabour.Rows.Add("Labour", "0", "1", "$0.00");
-                dgvLabour.Rows[idx].Tag = 0; // LabourCostID = 0 (new)
+                decimal defaultRate = AppSettings.Load().DefaultLabourRate;
+                string rateStr  = defaultRate > 0 ? defaultRate.ToString("F2") : "0";
+                string totalStr = defaultRate > 0 ? $"${defaultRate:F2}" : "$0.00";
+                int idx = dgvLabour.Rows.Add("Labour", rateStr, "1", totalStr);
+                dgvLabour.Rows[idx].Tag = 0;
             };
             Controls.Add(btnAddLabour);
 
@@ -401,7 +427,8 @@ namespace JaneERP
             dgv.Rows.Clear();
             var bom = _repo.GetBom(_product.ProductID);
             foreach (var e in bom)
-                dgv.Rows.Add(e.PartID, e.PartNumber, e.PartName, e.Quantity);
+                dgv.Rows.Add(e.PartID, e.PartNumber, e.PartName, e.Quantity, e.CreatesBatchLoss,
+                    e.BatchLossRate > 0 ? e.BatchLossRate.ToString("G") : "0");
 
             dgvLabour.Rows.Clear();
             var labour = _repo.GetLabourCosts(_product.ProductID);
@@ -433,18 +460,20 @@ namespace JaneERP
             foreach (DataGridViewRow row in dgv.Rows)
                 if (row.Cells["colPartID"].Value?.ToString() == p.PartID.ToString()) return;
 
-            dgv.Rows.Add(p.PartID, p.PartNumber, p.PartName, 1);
+            dgv.Rows.Add(p.PartID, p.PartNumber, p.PartName, 1, false, "0");
         }
 
         private void BtnSave_Click(object? sender, EventArgs e)
         {
-            var entries = new List<(int partId, decimal qty)>();
+            var entries = new List<(int partId, decimal qty, bool createsBatchLoss, decimal batchLossRate)>();
             foreach (DataGridViewRow row in dgv.Rows)
             {
                 if (row.IsNewRow) continue;
                 if (!int.TryParse(row.Cells["colPartID"].Value?.ToString(), out int pid)) continue;
                 decimal.TryParse(row.Cells["colQty"].Value?.ToString(), out decimal qty);
-                entries.Add((pid, Math.Max(0.0001m, qty)));
+                bool createsBatchLoss = row.Cells["colLoss"].Value is true;
+                decimal.TryParse(row.Cells["colLossRate"].Value?.ToString(), out decimal lossRate);
+                entries.Add((pid, Math.Max(0.0001m, qty), createsBatchLoss, Math.Max(0, lossRate)));
             }
 
             var labourCosts = new List<BomLabourCost>();
@@ -530,6 +559,9 @@ namespace JaneERP
         // Header
         private Panel pnlHeader = new();
 
+        // Split container
+        private SplitContainer _split = new();
+
         // Left panel
         private TextBox      txtSearch = new();
         private DataGridView dgvProd   = new();
@@ -558,6 +590,11 @@ namespace JaneERP
             LoadProducts();
         }
 
+        protected override CreateParams CreateParams
+        {
+            get { var cp = base.CreateParams; cp.Style |= 0x00040000; return cp; }
+        }
+
         private void BuildUI()
         {
             Text          = "BOM Explorer";
@@ -581,10 +618,15 @@ namespace JaneERP
             });
             Controls.Add(pnlHeader);
 
-            // ── Left panel ───────────────────────────────────────────────────────
-            var pnlLeft = new Panel { Width = 280, Dock = DockStyle.Left };
+            // ── SplitContainer ───────────────────────────────────────────────────
+            _split.Dock          = DockStyle.Fill;
+            _split.Orientation   = Orientation.Vertical;
+            _split.SplitterWidth = 5;
+            // Set distance after layout so the SplitContainer has a real width
+            Load += (_, _) => { try { _split.SplitterDistance = 320; } catch { } };
 
-            pnlLeft.Controls.Add(new Label
+            // ── Left panel (inside _split.Panel1) ────────────────────────────────
+            _split.Panel1.Controls.Add(new Label
             {
                 Text      = "PRODUCTS",
                 Font      = new Font("Segoe UI", 8F, FontStyle.Bold),
@@ -594,33 +636,30 @@ namespace JaneERP
             });
 
             txtSearch.Location        = new Point(8, 30);
-            txtSearch.Size            = new Size(262, 26);
+            txtSearch.Size            = new Size(302, 26);
             txtSearch.Anchor          = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
             txtSearch.PlaceholderText = "Search…";
             txtSearch.TextChanged    += (_, _) => FilterProducts();
-            pnlLeft.Controls.Add(txtSearch);
+            _split.Panel1.Controls.Add(txtSearch);
 
-            dgvProd.Location          = new Point(8, 62);
-            dgvProd.Size              = new Size(262, 560);
-            dgvProd.Anchor            = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
+            dgvProd.Location              = new Point(8, 62);
+            dgvProd.Size                  = new Size(302, 560);
+            dgvProd.Anchor                = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
             dgvProd.ReadOnly              = true;
             dgvProd.AllowUserToAddRows    = false;
             dgvProd.AllowUserToResizeRows = false;
             dgvProd.SelectionMode         = DataGridViewSelectionMode.FullRowSelect;
-            dgvProd.MultiSelect       = false;
-            dgvProd.AutoGenerateColumns = false;
-            dgvProd.RowHeadersVisible = false;
-            dgvProd.Columns.Add(new DataGridViewTextBoxColumn { Name = "colPID",  Visible = false });
-            dgvProd.Columns.Add(new DataGridViewTextBoxColumn { Name = "colName", HeaderText = "Product", AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill });
-            dgvProd.Columns.Add(new DataGridViewTextBoxColumn { Name = "colSKU",  HeaderText = "SKU", Width = 80 });
+            dgvProd.MultiSelect           = false;
+            dgvProd.AutoGenerateColumns   = false;
+            dgvProd.RowHeadersVisible     = false;
+            dgvProd.Columns.Add(new DataGridViewTextBoxColumn { Name = "colBomNum", HeaderText = "BOM #",   Width = 80 });
+            dgvProd.Columns.Add(new DataGridViewTextBoxColumn { Name = "colPID",    Visible = false });
+            dgvProd.Columns.Add(new DataGridViewTextBoxColumn { Name = "colName",   HeaderText = "Product", AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill });
+            dgvProd.Columns.Add(new DataGridViewTextBoxColumn { Name = "colSKU",    HeaderText = "SKU",     Width = 80 });
             dgvProd.SelectionChanged += DgvProd_SelectionChanged;
-            pnlLeft.Controls.Add(dgvProd);
-            Controls.Add(pnlLeft);
+            _split.Panel1.Controls.Add(dgvProd);
 
-            // ── Divider ──────────────────────────────────────────────────────────
-            Controls.Add(new Panel { Width = 1, Dock = DockStyle.Left, BackColor = Theme.Border });
-
-            // ── Right panel (fill) ───────────────────────────────────────────────
+            // ── Right panel (inside _split.Panel2) ───────────────────────────────
             var pnlRight = new Panel { Dock = DockStyle.Fill };
 
             lblHint.Text      = "← Select a product from the list to view or edit its BOM";
@@ -650,13 +689,19 @@ namespace JaneERP
             dgvParts.SelectionMode           = DataGridViewSelectionMode.FullRowSelect;
             dgvParts.AutoGenerateColumns   = false;
             dgvParts.RowHeadersVisible     = false;
-            dgvParts.Columns.Add(new DataGridViewTextBoxColumn { Name = "colPartID",   Visible = false });
-            dgvParts.Columns.Add(new DataGridViewTextBoxColumn { Name = "colPartNum",  HeaderText = "Part #", Width = 110 });
-            dgvParts.Columns.Add(new DataGridViewTextBoxColumn { Name = "colPartName", HeaderText = "Part Name", AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill });
-            dgvParts.Columns.Add(new DataGridViewTextBoxColumn { Name = "colQty",      HeaderText = "Qty", Width = 60 });
-            dgvParts.Columns.Add(new DataGridViewTextBoxColumn { Name = "colUnitCost", HeaderText = "Unit Cost", Width = 84, ReadOnly = true });
-            dgvParts.Columns.Add(new DataGridViewTextBoxColumn { Name = "colLineCost", HeaderText = "Line Cost", Width = 84, ReadOnly = true });
+            dgvParts.Columns.Add(new DataGridViewTextBoxColumn  { Name = "colPartID",   Visible = false });
+            dgvParts.Columns.Add(new DataGridViewTextBoxColumn  { Name = "colPartNum",  HeaderText = "Part #",      Width = 110 });
+            dgvParts.Columns.Add(new DataGridViewTextBoxColumn  { Name = "colPartName", HeaderText = "Part Name",   AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill });
+            dgvParts.Columns.Add(new DataGridViewTextBoxColumn  { Name = "colQty",      HeaderText = "Qty",         Width = 60 });
+            dgvParts.Columns.Add(new DataGridViewCheckBoxColumn { Name = "colLoss",     HeaderText = "Batch Loss?", Width = 82, FalseValue = false, TrueValue = true });
+            dgvParts.Columns.Add(new DataGridViewTextBoxColumn  { Name = "colLossRate", HeaderText = "Rate %",      Width = 60, ToolTipText = "0 = use session default" });
+            dgvParts.Columns.Add(new DataGridViewTextBoxColumn  { Name = "colUnitCost", HeaderText = "Unit Cost",   Width = 84, ReadOnly = true });
+            dgvParts.Columns.Add(new DataGridViewTextBoxColumn  { Name = "colLineCost", HeaderText = "Line Cost",   Width = 84, ReadOnly = true });
             dgvParts.CellEndEdit += (_, _) => RefreshPartLineCosts();
+            dgvParts.CurrentCellDirtyStateChanged += (_, _) =>
+            {
+                if (dgvParts.IsCurrentCellDirty) dgvParts.CommitEdit(DataGridViewDataErrorContexts.Commit);
+            };
 
             btnAddPart.Text   = "+ Add Part";
             btnAddPart.Size   = new Size(110, 26);
@@ -683,7 +728,10 @@ namespace JaneERP
             btnAddLabour.Size   = new Size(120, 26);
             btnAddLabour.Click += (_, _) =>
             {
-                int idx = dgvLabour.Rows.Add("Labour", "0", "1", "$0.00");
+                decimal defaultRate = AppSettings.Load().DefaultLabourRate;
+                string rateStr = defaultRate > 0 ? defaultRate.ToString("F2") : "0";
+                string totalStr = defaultRate > 0 ? $"${defaultRate:F2}" : "$0.00";
+                int idx = dgvLabour.Rows.Add("Labour", rateStr, "1", totalStr);
                 dgvLabour.Rows[idx].Tag = 0;
             };
 
@@ -705,7 +753,8 @@ namespace JaneERP
             pnlBom.SizeChanged += (_, _) => LayoutBom();
 
             pnlRight.Controls.Add(pnlBom);
-            Controls.Add(pnlRight);
+            _split.Panel2.Controls.Add(pnlRight);
+            Controls.Add(_split);
         }
 
         /// <summary>Recalculates absolute positions of BOM pane controls on resize.</summary>
@@ -759,7 +808,7 @@ namespace JaneERP
         {
             dgvProd.Rows.Clear();
             foreach (var p in products)
-                dgvProd.Rows.Add(p.ProductID, p.ProductName, p.SKU);
+                dgvProd.Rows.Add(p.BomNumber ?? "", p.ProductID, p.ProductName, p.SKU);
         }
 
         private void DgvProd_SelectionChanged(object? sender, EventArgs e)
@@ -784,6 +833,7 @@ namespace JaneERP
             foreach (var entry in _partRepo.GetBom(_current.ProductID))
             {
                 int idx = dgvParts.Rows.Add(entry.PartID, entry.PartNumber, entry.PartName, entry.Quantity,
+                    entry.CreatesBatchLoss, entry.BatchLossRate > 0 ? entry.BatchLossRate.ToString("G") : "0",
                     $"${entry.UnitCost:N2}", $"${entry.LineCost:N2}");
                 dgvParts.Rows[idx].Tag = entry.UnitCost;  // store unit cost for recalc
             }
@@ -856,20 +906,22 @@ namespace JaneERP
             var p = dlg.SelectedPart;
             foreach (DataGridViewRow row in dgvParts.Rows)
                 if (row.Cells["colPartID"].Value?.ToString() == p.PartID.ToString()) return;
-            dgvParts.Rows.Add(p.PartID, p.PartNumber, p.PartName, 1);
+            dgvParts.Rows.Add(p.PartID, p.PartNumber, p.PartName, 1, false, "0", "$0.00", "$0.00");
         }
 
         private void BtnSave_Click(object? sender, EventArgs e)
         {
             if (_current == null) return;
 
-            var entries = new List<(int partId, decimal qty)>();
+            var entries = new List<(int partId, decimal qty, bool createsBatchLoss, decimal batchLossRate)>();
             foreach (DataGridViewRow row in dgvParts.Rows)
             {
                 if (row.IsNewRow) continue;
                 if (!int.TryParse(row.Cells["colPartID"].Value?.ToString(), out int pid)) continue;
                 decimal.TryParse(row.Cells["colQty"].Value?.ToString(), out decimal qty);
-                entries.Add((pid, Math.Max(0.0001m, qty)));
+                bool createsBatchLoss = row.Cells["colLoss"].Value is true;
+                decimal.TryParse(row.Cells["colLossRate"].Value?.ToString(), out decimal lossRate);
+                entries.Add((pid, Math.Max(0.0001m, qty), createsBatchLoss, Math.Max(0, lossRate)));
             }
 
             var labourCosts = new List<BomLabourCost>();
@@ -892,8 +944,27 @@ namespace JaneERP
             {
                 _partRepo.SetBom(_current.ProductID, entries);
                 _partRepo.SetLabourCosts(_current.ProductID, labourCosts);
+
+                // Auto-assign a BOM number if this product doesn't have one yet
+                if (string.IsNullOrEmpty(_current.BomNumber) && entries.Count > 0)
+                {
+                    string bomNum = _productRepo.NextBomNumber();
+                    _productRepo.AssignBomNumber(_current.ProductID, bomNum);
+                    _current.BomNumber = bomNum;
+                }
+
                 MessageBox.Show(this, $"BOM saved for {_current.ProductName}.", "Saved",
                     MessageBoxButtons.OK, MessageBoxIcon.Information);
+
+                // Refresh product list so BOM numbers are up to date
+                int savedId = _current.ProductID;
+                LoadProducts();
+                // Re-select the same product
+                foreach (DataGridViewRow row in dgvProd.Rows)
+                {
+                    if (row.Cells["colPID"].Value?.ToString() == savedId.ToString())
+                    { row.Selected = true; break; }
+                }
             }
             catch (Exception ex)
             {

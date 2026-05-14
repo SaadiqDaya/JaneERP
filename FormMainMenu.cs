@@ -130,6 +130,7 @@ namespace JaneERP
             btnManageUsers.Visible = isAdmin;
             btnLoginLog.Visible    = isAdmin || PermissionHelper.CanEdit("Log");
             btnActivityLog.Visible = isAdmin;
+            btnAppLogs.Visible     = isAdmin;
 
             // Quick Dial (in header) — always visible
             btnJane.Visible    = true;
@@ -321,6 +322,12 @@ namespace JaneERP
         private void btnActivityLog_Click(object sender, EventArgs e)
         {
             using var frm = new FormActivityLog();
+            frm.ShowDialog(this);
+        }
+
+        private void btnAppLogs_Click(object sender, EventArgs e)
+        {
+            using var frm = new FormLogViewer();
             frm.ShowDialog(this);
         }
 

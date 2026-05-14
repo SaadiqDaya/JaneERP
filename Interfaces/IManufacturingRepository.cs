@@ -21,7 +21,7 @@ namespace JaneERP.Interfaces
         List<Models.WOBomPreviewRow>  GetWOBomPreview(int workOrderId);
 
         // ── Cook Sessions ──────────────────────────────────────────────────────
-        int                                   CreateCookSession(string sessionName, IEnumerable<int> workOrderIds, string? createdBy = null);
+        int                                   CreateCookSession(string sessionName, IEnumerable<int> workOrderIds, decimal batchLossPercent = 0m, string? createdBy = null);
         Models.CookSession?                   GetCookSession(int cookSessionId);
         List<Models.CookSession>              GetOpenCookSessions();
         List<Models.CookSessionStep>          GetCookSessionSteps(int cookSessionId);

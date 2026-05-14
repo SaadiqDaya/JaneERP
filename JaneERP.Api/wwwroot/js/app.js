@@ -158,7 +158,7 @@ const App = (() => {
     setTimeout(() => el.remove(), 3000);
   }
 
-  function fmt$  (n)  { return '$' + (n ?? 0).toFixed(2); }
+  function fmt$  (n)  { return '$' + (n ?? 0).toLocaleString('en-CA', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
   function fmtDate(d) { if (!d) return '—'; const dt = new Date(d); return dt.toLocaleDateString('en-CA', { month:'short', day:'numeric', year:'numeric' }); }
   function fmtDateShort(d) { if (!d) return '—'; const dt = new Date(d); return dt.toLocaleDateString('en-CA', { month:'short', day:'numeric' }); }
 

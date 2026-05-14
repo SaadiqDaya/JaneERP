@@ -25,7 +25,7 @@ namespace JaneERP
         private ComboBox  _cboCategory = new();
         private ComboBox  _cboDataType = new();
         private TextBox   _txtUnit     = new();
-        private TextBox   _txtValues   = new();
+        private DataGridView _dgvValues  = new();
 
         private Button _btnSave       = new();
         private Button _btnDelete     = new();
@@ -170,13 +170,22 @@ namespace JaneERP
             y += 34;
 
             Controls.Add(MakeLabel("Allowed Values:", ex, y + 3));
-            _txtValues.Location       = new Point(ctrlX, y);
-            _txtValues.Size           = new Size(300, 100);
-            _txtValues.Multiline      = true;
-            _txtValues.ScrollBars     = ScrollBars.Vertical;
-            _txtValues.PlaceholderText = "Comma-separated, e.g. FreeBase, Salt\nLeave blank to allow any value.";
-            Controls.Add(_txtValues);
-            y += 112;
+            _dgvValues.Location           = new Point(ctrlX, y);
+            _dgvValues.Size               = new Size(300, 120);
+            _dgvValues.AllowUserToAddRows    = true;
+            _dgvValues.AllowUserToDeleteRows = true;
+            _dgvValues.RowHeadersVisible     = false;
+            _dgvValues.AutoGenerateColumns   = false;
+            _dgvValues.SelectionMode         = DataGridViewSelectionMode.FullRowSelect;
+            _dgvValues.MultiSelect           = false;
+            _dgvValues.Columns.Add(new DataGridViewTextBoxColumn
+            {
+                Name         = "colValue",
+                HeaderText   = "Allowed Value  (empty = allow any)",
+                AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill
+            });
+            Controls.Add(_dgvValues);
+            y += 132;
 
             // Buttons
             _btnSave.Text     = "Save";
@@ -198,9 +207,9 @@ namespace JaneERP
             _btnNew.Click   += (_, _) =>
             {
                 _editingId = 0;
-                _txtName.Text  = "";
-                _txtValues.Text = "";
-                _txtUnit.Text   = "";
+                _txtName.Text = "";
+                _dgvValues.Rows.Clear();
+                _txtUnit.Text = "";
                 _cboCategory.SelectedIndex = 0;
                 _cboDataType.SelectedIndex = 0;
                 _dgv.ClearSelection();
@@ -286,7 +295,10 @@ namespace JaneERP
             var match = all.FirstOrDefault(d => d.Id == _editingId);
             if (match != null)
             {
-                _txtValues.Text    = match.AllowedValues ?? "";
+                _dgvValues.Rows.Clear();
+                if (!string.IsNullOrWhiteSpace(match.AllowedValues))
+                    foreach (var v in match.AllowedValues.Split(',').Select(s => s.Trim()).Where(s => s.Length > 0))
+                        _dgvValues.Rows.Add(v);
                 _txtUnit.Text      = match.Unit ?? "";
                 _cboCategory.SelectedItem = match.Category;
                 _cboDataType.SelectedItem = match.DataType;
@@ -304,7 +316,14 @@ namespace JaneERP
                     MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }
-            string? values   = string.IsNullOrWhiteSpace(_txtValues.Text) ? null : _txtValues.Text.Trim();
+            _dgvValues.EndEdit();
+            var valList = _dgvValues.Rows
+                .Cast<DataGridViewRow>()
+                .Where(r => !r.IsNewRow)
+                .Select(r => r.Cells["colValue"].Value?.ToString()?.Trim() ?? "")
+                .Where(v => v.Length > 0)
+                .ToList();
+            string? values = valList.Count > 0 ? string.Join(",", valList) : null;
             string  category = _cboCategory.SelectedItem?.ToString() ?? "General";
             string  dataType = _cboDataType.SelectedItem?.ToString() ?? "Text";
             string? unit     = string.IsNullOrWhiteSpace(_txtUnit.Text) ? null : _txtUnit.Text.Trim();
@@ -332,7 +351,8 @@ namespace JaneERP
             {
                 _repo.DeleteAttributeDefinition(_editingId);
                 _editingId = 0;
-                _txtName.Text = _txtValues.Text = _txtUnit.Text = "";
+                _txtName.Text = _txtUnit.Text = "";
+                _dgvValues.Rows.Clear();
                 _cboCategory.SelectedIndex = 0;
                 _cboDataType.SelectedIndex = 0;
                 LoadData(_txtSearch.Text);
@@ -479,7 +499,9 @@ namespace JaneERP
 
                 string joined = string.Join(",", values);
                 _repo.UpsertAttributeDefinition(attrName, joined, cat, dtype, unit);
-                _txtValues.Text = joined;
+                _dgvValues.Rows.Clear();
+                foreach (var v in values)
+                    _dgvValues.Rows.Add(v);
 
                 LoadData(_txtSearch.Text);
                 SelectRowByName(attrName);

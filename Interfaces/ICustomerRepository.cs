@@ -14,6 +14,14 @@ namespace JaneERP.Interfaces
         /// <summary>Line items for a given sales order with computed LineTotal.</summary>
         List<CustomerOrderItem> GetOrderLineItems(int salesOrderId);
 
+        /// <summary>Marks a sales order as paid with the given payment date.</summary>
+        void MarkOrderPaid(int salesOrderId, DateTime paidAt);
+
+        // ── Payments ─────────────────────────────────────────────────────────
+        void EnsurePaymentsSchema();
+        void RecordPayment(int salesOrderId, int customerId, decimal amount, string paymentMethod, DateTime paidAt, string? notes = null);
+        List<CustomerPaymentRecord> GetPayments(int customerId);
+
         // ── CRM Notes ────────────────────────────────────────────────────────
         void EnsureNotesSchema();
         List<CustomerNote> GetNotes(int customerId);

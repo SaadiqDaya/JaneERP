@@ -35,6 +35,7 @@ namespace JaneERP
         private Button btnManageUsers;
         private Button btnLoginLog;
         private Button btnActivityLog;
+        private Button btnAppLogs;
         private Button btnDashboard;
         private Button btnReports;
         private Button btnReorderReport;
@@ -102,6 +103,7 @@ namespace JaneERP
             btnManageUsers    = MakeIconButton("\U0001F464", "Users",           btnManageUsers_Click);
             btnLoginLog       = MakeIconButton("\U0001F4DD", "Login Log",       btnLoginLog_Click);
             btnActivityLog    = MakeIconButton("\U0001F4DC", "Audit Log",       btnActivityLog_Click);
+            btnAppLogs        = MakeIconButton("\U0001F5C2", "App Logs",        btnAppLogs_Click);
             btnDashboard      = MakeIconButton("\U0001F4C9", "KPI",             btnDashboard_Click);
             btnReports        = MakeIconButton("\U0001F4C8", "Reports",         btnReports_Click);
             btnReorderReport  = MakeIconButton("\u26A0",     "Reorder",         btnReorderReport_Click);
@@ -109,7 +111,7 @@ namespace JaneERP
             btnUnverified     = MakeIconButton("\u26A0",     "Unverified",      btnUnverified_Click);
             btnExport         = MakeIconButton("\U0001F4BE", "Exports",         btnExport_Click);
             btnImports        = MakeIconButton("\U0001F4E5", "Imports",         btnImports_Click);
-            btnBreakeven      = MakeIconButton("\U0001F4B9", "Breakeven",       btnBreakeven_Click);
+            btnBreakeven      = MakeIconButton("\u2696",     "Breakeven",       btnBreakeven_Click);
             btnAccounting     = MakeIconButton("\U0001F4B0", "Accounting",      btnAccounting_Click);
             btnShopifyStores  = MakeIconButton("\U0001F6D2", "Shopify Stores",  btnShopifyStores_Click);
             btnCustomers      = MakeIconButton("\U0001F465", "Customers",        btnCustomers_Click);
@@ -146,6 +148,7 @@ namespace JaneERP
             toolTip1.SetToolTip(btnManageUsers,    "Add, edit and manage user accounts");
             toolTip1.SetToolTip(btnLoginLog,       "View login history and failed attempts");
             toolTip1.SetToolTip(btnActivityLog,    "Full audit trail of all system changes");
+            toolTip1.SetToolTip(btnAppLogs,        "View application log files");
             toolTip1.SetToolTip(btnDashboard,      "Live KPI dashboard — orders, stock, revenue");
             toolTip1.SetToolTip(btnReports,        "Stock, sales, COGS and cycle count reports");
             toolTip1.SetToolTip(btnReorderReport,  "Products and parts that need reordering");
@@ -403,6 +406,7 @@ namespace JaneERP
             pnlGrid.Controls.Add(btnManageUsers);
             pnlGrid.Controls.Add(btnLoginLog);
             pnlGrid.Controls.Add(btnActivityLog);
+            pnlGrid.Controls.Add(btnAppLogs);
             var sp5 = GrpSpacer(); pnlGrid.Controls.Add(sp5); pnlGrid.SetFlowBreak(sp5, true);
 
             // Spacer that forces the scroll area to extend well past the last button row

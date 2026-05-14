@@ -11,14 +11,16 @@ namespace JaneERP
     public class FormReorderReport : Form
     {
 
-        private TabControl     tabControl    = new();
-        private DataGridView   dgvProducts   = new();
-        private DataGridView   dgvParts      = new();
-        private Label          lblTotalCost  = new();
-        private Button         btnExportCsv  = new();
-        private Button         btnPrint      = new();
-        private Button         btnCreatePO   = new();
-        private Button         btnRefresh    = new();
+        private TabControl     tabControl          = new();
+        private DataGridView   dgvProducts         = new();
+        private DataGridView   dgvParts            = new();
+        private Label          lblTotalCost        = new();
+        private Button         btnExportCsv        = new();
+        private Button         btnPrint            = new();
+        private Button         btnCreatePO         = new();
+        private Button         btnCreatePOByVendor = new();
+        private Button         btnRefresh          = new();
+        private ComboBox       cboVendorFilter     = new();
 
         // Backing data for export
         private List<ProductReorderRow> _productRows = new();
@@ -71,7 +73,25 @@ namespace JaneERP
             btnRefresh.Click += (_, _) => LoadData();
             Theme.StyleButton(btnRefresh);
 
+            var lblVendor = new Label
+            {
+                Text      = "Vendor:",
+                AutoSize  = true,
+                Location  = new Point(564, 18),
+                ForeColor = Theme.TextSecondary,
+                BackColor = Color.Transparent
+            };
+            cboVendorFilter.Location      = new Point(618, 12);
+            cboVendorFilter.Size          = new Size(168, 26);
+            cboVendorFilter.DropDownStyle = ComboBoxStyle.DropDownList;
+            cboVendorFilter.Font          = new Font("Segoe UI", 9F);
+            cboVendorFilter.Items.Add("(All Vendors)");
+            cboVendorFilter.SelectedIndex = 0;
+            cboVendorFilter.SelectedIndexChanged += (_, _) => ApplyVendorFilter();
+
             pnlHeader.Controls.Add(lblTitle);
+            pnlHeader.Controls.Add(lblVendor);
+            pnlHeader.Controls.Add(cboVendorFilter);
             pnlHeader.Controls.Add(btnRefresh);
             Controls.Add(pnlHeader);
             Theme.MakeDraggable(this, pnlHeader);
@@ -104,14 +124,15 @@ namespace JaneERP
 
             // Parts grid
             dgvParts = BuildGrid();
-            dgvParts.Columns.Add(new DataGridViewTextBoxColumn { Name = "cPartNo",       HeaderText = "Part Number",    DataPropertyName = "PartNumber",       Width = 110, ReadOnly = true });
-            dgvParts.Columns.Add(new DataGridViewTextBoxColumn { Name = "cPartName",     HeaderText = "Part Name",      DataPropertyName = "PartName",         Width = 220, ReadOnly = true });
-            dgvParts.Columns.Add(new DataGridViewTextBoxColumn { Name = "cStock",        HeaderText = "Current Stock",  DataPropertyName = "CurrentStock",     Width = 90,  ReadOnly = true });
-            dgvParts.Columns.Add(new DataGridViewTextBoxColumn { Name = "cReorder",      HeaderText = "Reorder Point",  DataPropertyName = "ReorderPoint",     Width = 90,  ReadOnly = true });
-            dgvParts.Columns.Add(new DataGridViewTextBoxColumn { Name = "cShortfall",    HeaderText = "Shortfall",      DataPropertyName = "Shortfall",        Width = 75,  ReadOnly = true });
-            dgvParts.Columns.Add(new DataGridViewTextBoxColumn { Name = "cSuggestedQty", HeaderText = "Order Qty ✎",    DataPropertyName = "SuggestedQty",     Width = 95,  ReadOnly = false });
-            dgvParts.Columns.Add(new DataGridViewTextBoxColumn { Name = "cUnitCost",     HeaderText = "Unit Cost",      DataPropertyName = "UnitCostDisplay",  Width = 90,  ReadOnly = true });
-            dgvParts.Columns.Add(new DataGridViewTextBoxColumn { Name = "cEstCost",      HeaderText = "Est. Cost",      DataPropertyName = "EstCostDisplay",   Width = 90,  ReadOnly = true });
+            dgvParts.Columns.Add(new DataGridViewTextBoxColumn { Name = "cPartNo",       HeaderText = "Part Number",    DataPropertyName = "PartNumber",          Width = 110, ReadOnly = true });
+            dgvParts.Columns.Add(new DataGridViewTextBoxColumn { Name = "cPartName",     HeaderText = "Part Name",      DataPropertyName = "PartName",            Width = 180, ReadOnly = true });
+            dgvParts.Columns.Add(new DataGridViewTextBoxColumn { Name = "cVendor",       HeaderText = "Vendor",         DataPropertyName = "DefaultVendorName",   Width = 130, ReadOnly = true });
+            dgvParts.Columns.Add(new DataGridViewTextBoxColumn { Name = "cStock",        HeaderText = "Current Stock",  DataPropertyName = "CurrentStock",        Width = 80,  ReadOnly = true });
+            dgvParts.Columns.Add(new DataGridViewTextBoxColumn { Name = "cReorder",      HeaderText = "Reorder Point",  DataPropertyName = "ReorderPoint",        Width = 80,  ReadOnly = true });
+            dgvParts.Columns.Add(new DataGridViewTextBoxColumn { Name = "cShortfall",    HeaderText = "Shortfall",      DataPropertyName = "Shortfall",           Width = 70,  ReadOnly = true });
+            dgvParts.Columns.Add(new DataGridViewTextBoxColumn { Name = "cSuggestedQty", HeaderText = "Order Qty ✎",    DataPropertyName = "SuggestedQty",        Width = 90,  ReadOnly = false });
+            dgvParts.Columns.Add(new DataGridViewTextBoxColumn { Name = "cUnitCost",     HeaderText = "Unit Cost",      DataPropertyName = "UnitCostDisplay",     Width = 80,  ReadOnly = true });
+            dgvParts.Columns.Add(new DataGridViewTextBoxColumn { Name = "cEstCost",      HeaderText = "Est. Cost",      DataPropertyName = "EstCostDisplay",      Width = 80,  ReadOnly = true });
             tabParts.Controls.Add(dgvParts);
 
             tabControl.TabPages.Add(tabProducts);
@@ -170,16 +191,27 @@ namespace JaneERP
             {
                 Text     = "Create PO",
                 Size     = new Size(100, 30),
-                Location = new Point(736, 8),
+                Location = new Point(618, 8),
                 Font     = new Font("Segoe UI", 9F)
             };
             btnCreatePO.Click += BtnCreatePO_Click;
             Theme.StyleButton(btnCreatePO);
 
+            btnCreatePOByVendor = new Button
+            {
+                Text     = "Create POs by Vendor",
+                Size     = new Size(160, 30),
+                Location = new Point(726, 8),
+                Font     = new Font("Segoe UI", 9F)
+            };
+            btnCreatePOByVendor.Click += BtnCreatePOsByVendor_Click;
+            Theme.StyleSecondaryButton(btnCreatePOByVendor);
+
             pnlBottom.Controls.Add(lblTotalCost);
             pnlBottom.Controls.Add(btnExportCsv);
             pnlBottom.Controls.Add(btnPrint);
             pnlBottom.Controls.Add(btnCreatePO);
+            pnlBottom.Controls.Add(btnCreatePOByVendor);
             Controls.Add(pnlBottom);
         }
 
@@ -236,8 +268,35 @@ namespace JaneERP
         private void LoadParts()
         {
             _partRows = AppServices.Get<IPartRepository>().GetPartsAtReorderPoint();
+
+            // Repopulate vendor filter, preserving selection
+            var prevVendor = cboVendorFilter.SelectedItem?.ToString();
+            cboVendorFilter.Items.Clear();
+            cboVendorFilter.Items.Add("(All Vendors)");
+            foreach (var v in _partRows
+                .Where(r => !string.IsNullOrWhiteSpace(r.DefaultVendorName))
+                .Select(r => r.DefaultVendorName!)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(n => n))
+            {
+                cboVendorFilter.Items.Add(v);
+            }
+            var prevIdx = cboVendorFilter.Items.IndexOf(prevVendor ?? "");
+            cboVendorFilter.SelectedIndex = prevIdx >= 0 ? prevIdx : 0;
+
+            ApplyVendorFilter();
+        }
+
+        private void ApplyVendorFilter()
+        {
+            var vendor = cboVendorFilter.SelectedItem?.ToString();
+            var filtered = (vendor == null || vendor == "(All Vendors)")
+                ? _partRows
+                : _partRows.Where(r => string.Equals(r.DefaultVendorName, vendor,
+                                       StringComparison.OrdinalIgnoreCase)).ToList();
             dgvParts.DataSource = null;
-            dgvParts.DataSource = _partRows;
+            dgvParts.DataSource = filtered;
+            UpdateTotalLabel();
         }
 
         private void UpdateTotalLabel()
@@ -321,11 +380,13 @@ namespace JaneERP
             }
             else
             {
-                for (int i = 0; i < dgvParts.Rows.Count && i < _partRows.Count; i++)
+                // Read from the grid's current (possibly filtered) data source
+                var visibleRows = (dgvParts.DataSource as List<PartReorderRow>) ?? _partRows;
+                for (int i = 0; i < dgvParts.Rows.Count && i < visibleRows.Count; i++)
                 {
                     if (!int.TryParse(dgvParts.Rows[i].Cells["cSuggestedQty"].Value?.ToString(), out int qty) || qty <= 0)
                         continue;
-                    var r = _partRows[i];
+                    var r = visibleRows[i];
                     items.Add(new JaneERP.Models.PurchaseOrderItem
                     {
                         SKU             = r.PartNumber,
@@ -346,6 +407,66 @@ namespace JaneERP
             var repo = new JaneERP.Data.SupplierRepository();
             using var frm = new FormCreatePO(repo, prePopulateItems: items);
             frm.ShowDialog(this);
+        }
+
+        private void BtnCreatePOsByVendor_Click(object? sender, EventArgs e)
+        {
+            // Only works for Parts (which have vendor info)
+            if (tabControl.SelectedIndex != 1)
+            {
+                MessageBox.Show(this,
+                    "Create POs by Vendor is only available on the Parts tab.",
+                    "Parts Tab Required", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            dgvParts.EndEdit();
+            var visibleRows = (dgvParts.DataSource as List<PartReorderRow>) ?? _partRows;
+
+            // Build items from grid (respects user edits to Suggested Qty)
+            var allItems = new List<(string vendor, JaneERP.Models.PurchaseOrderItem item)>();
+            for (int i = 0; i < dgvParts.Rows.Count && i < visibleRows.Count; i++)
+            {
+                if (!int.TryParse(dgvParts.Rows[i].Cells["cSuggestedQty"].Value?.ToString(), out int qty) || qty <= 0)
+                    continue;
+                var r = visibleRows[i];
+                allItems.Add((r.DefaultVendorName ?? "(No Vendor)", new JaneERP.Models.PurchaseOrderItem
+                {
+                    SKU             = r.PartNumber,
+                    ItemName        = r.PartName,
+                    QuantityOrdered = qty,
+                    UnitCost        = r.UnitCost
+                }));
+            }
+
+            if (allItems.Count == 0)
+            {
+                MessageBox.Show(this, "No parts with a quantity > 0.",
+                    "Nothing to Order", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            // Group by vendor and open one PO form per vendor
+            var byVendor = allItems
+                .GroupBy(x => x.vendor, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            var repo = new JaneERP.Data.SupplierRepository();
+            int created = 0;
+            foreach (var group in byVendor)
+            {
+                var vendorName = group.Key;
+                var vendorItems = group.Select(x => x.item).ToList();
+                using var frm = new FormCreatePO(repo, prePopulateItems: vendorItems,
+                                                preselectedSupplierName: vendorName);
+                frm.Text = $"New PO — {vendorName}";
+                frm.ShowDialog(this);
+                created++;
+            }
+
+            MessageBox.Show(this,
+                $"Opened {created} PO form(s) — one per vendor.",
+                "Done", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
     }
 

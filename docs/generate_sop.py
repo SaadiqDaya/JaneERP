@@ -182,7 +182,7 @@ run2.font.color.rgb = RGBColor(68, 114, 196)
 doc.add_paragraph()
 meta = doc.add_paragraph()
 meta.alignment = WD_ALIGN_PARAGRAPH.CENTER
-meta.add_run('Version 1.0  |  May 2026\nApplies To: All JaneERP Users').font.size = Pt(12)
+meta.add_run('Version 1.1  |  May 2026\nApplies To: All JaneERP Users').font.size = Pt(12)
 
 page_break()
 
@@ -305,9 +305,9 @@ add_table(
     [
         ['Sales', 'Sales Dashboard, Create Order, Customers'],
         ['Purchasing', 'Purchase Orders, Vendors, Reorder Report'],
-        ['Inventory', 'Inventory Snapshot, Cycle Count, Adjust Stock, Stock Transfer, Locations'],
+        ['Inventory', 'Inventory Snapshot, Cycle Count, Adjust Stock, Stock Transfer, Locations, Backorder Dashboard, Expiry Dashboard'],
         ['Products', 'Products, Parts, Product Types, Attributes'],
-        ['Manufacturing', 'Manufacturing Dashboard, Work Orders'],
+        ['Manufacturing', 'Manufacturing Dashboard, Work Orders, Batch Cooking'],
         ['Analytics', 'KPI Dashboard, Reports, Breakeven Calculator'],
         ['Team', 'Task Manager, Activity Log'],
         ['Admin', 'User Management, Settings, Login Log'],
@@ -368,6 +368,22 @@ add_bullet('Select the correct currency when creating the order.')
 add_bullet('Exchange rates are configured by your administrator in Settings.')
 add_bullet('The system displays the equivalent home currency total for reference.')
 add_bullet('Reports convert all orders back to home currency.')
+
+add_heading('5.5  Creating a Return (RMA)', 2)
+add_para('Use this when a customer returns goods from a completed order.')
+add_para()
+add_numbered('From the Main Menu, click **Customers**.')
+add_numbered('Search for the customer and open their record.')
+add_numbered('Select the order you are creating a return against.')
+add_numbered('Click **Create Return**.')
+add_numbered('The return form shows all items from the original order.')
+add_numbered('For each item being returned, enter the **Return Qty**.')
+add_numbered('Set the **Condition** for each returned item: **Resalable** (can be restocked), **Damaged** (write-off or quarantine), or **Destroy** (to be disposed of).')
+add_numbered('Enter a **Reason** for the return (required).')
+add_numbered('Add any **Notes** (optional).')
+add_numbered('Click **Submit Return**.')
+add_para()
+add_note('The return is created with status Pending Approval. An administrator must review and approve it before stock adjustments are made.')
 
 page_break()
 
@@ -477,6 +493,25 @@ add_numbered('Click the **Unverified Items** badge or find it in the Inventory s
 add_numbered('Review each item.')
 add_numbered('Once confirmed, click **Mark as Verified**.')
 
+add_heading('7.6  Backorder Dashboard', 2)
+add_para('The Backorder Dashboard shows open sales orders that could not be fully fulfilled due to insufficient stock.')
+add_para()
+add_numbered('Click **Backorder Dashboard** from the Main Menu.')
+add_numbered('The list shows each backordered item: order number, customer, product, backordered quantity, and the date the backorder was created.')
+add_numbered('When stock becomes available, select the relevant rows and click **Fulfil** to allocate stock and progress the order.')
+add_para()
+add_note('Review the backorder dashboard regularly to ensure customers are not waiting unnecessarily.')
+
+add_heading('7.7  Expiry Dashboard', 2)
+add_para('The Expiry Dashboard tracks products that are approaching or past their expiry date.')
+add_para()
+add_numbered('Click **Expiry Dashboard** from the Main Menu.')
+add_numbered('The dashboard shows products grouped by expiry status:')
+add_bullet('**Expired** — past their expiry date (action required)', level=1)
+add_bullet('**Expiring Soon** — within 30 days (monitor closely)', level=1)
+add_bullet('**OK** — more than 30 days remaining', level=1)
+add_numbered('Use this screen to identify stock that should be prioritised for sale or written off.')
+
 page_break()
 
 # ===========================================================================
@@ -493,7 +528,7 @@ add_bullet('**Name** — product description', level=1)
 add_bullet('**Retail Price** — selling price to end customers', level=1)
 add_bullet('**Wholesale Price** — selling price to trade customers', level=1)
 add_bullet('**Reorder Point** — minimum quantity before a restock alert', level=1)
-add_numbered('Fill in optional fields as needed (description, product type, attributes).')
+add_numbered('Fill in optional fields as needed (description, product type, vendor, **Unit of Measure**, attributes).')
 add_numbered('Click **Save**.')
 
 add_heading('8.2  Searching for a Product', 2)
@@ -511,7 +546,7 @@ add_para('Only Admins and Editors can add or change these.')
 
 add_heading('8.4  Parts & Bills of Material (BOM)', 2)
 add_para('Parts are the components used to build finished products (e.g., raw materials, packaging).')
-add_bullet('**Parts Manager** — create and manage parts records.')
+add_bullet('**Parts Manager** — create and manage parts records. Each part can have a **Unit of Measure** (e.g., kg, L, each) set to match how it is measured and consumed.')
 add_bullet('**BOM Explorer** — view and edit the Bill of Materials (what components are used to make each product, and in what quantities).')
 add_para('Parts are consumed when a manufacturing work order is completed.')
 
@@ -543,6 +578,32 @@ add_numbered('In the completion screen: confirm the **quantity produced**, enter
 add_numbered('Click **Confirm**.')
 add_para()
 add_para('The system will add the produced quantity to inventory, record the cost of goods for profit reports, and mark the work order as completed.')
+
+add_heading('9.4  Batch Cooking', 2)
+add_para('Batch Cooking allows you to combine multiple work orders into a single cook session, aggregate the ingredient list, and export production documentation.')
+add_para()
+add_heading('Starting a Batch Cook Session', 3)
+add_numbered('Click **Batch Cooking** from the Main Menu (Manufacturing section).')
+add_numbered('The left panel shows all open work orders eligible for cooking.')
+add_numbered('**Tick the checkbox** next to each work order you want to include in this batch.')
+add_numbered('The right panel automatically updates to show the **aggregated ingredient list** — all parts required across the selected work orders, summed together, with on-hand quantities shown.')
+add_numbered('Review the ingredient list. Rows marked ✓ indicate sufficient stock on hand.')
+add_numbered('Enter a **Session Name** (optional) to identify this cook run.')
+add_numbered('Click **▶ Start Cook Session**.')
+add_para()
+add_heading('During a Cook Session', 3)
+add_para('Once started, the cook session screen opens. Work through each ingredient per work order:')
+add_numbered('The session shows each work order and its required ingredients.')
+add_numbered('As each ingredient batch is prepared, tick it off in the grid.')
+add_numbered('When all ingredients for a work order are done, you can mark it complete individually.')
+add_numbered('Once all work orders in the session are finished, click **Complete Session**.')
+add_para()
+add_heading('Exporting Production Documents', 3)
+add_para('Before or after starting a session, you can export:')
+add_bullet('**Export Traveller CSV** — a batch traveller sheet listing all selected work orders, products, quantities, and aggregated ingredients. Use this as the physical document that travels with the batch through production.')
+add_bullet('**Export Labels CSV** — a label sheet with one row per unit to be produced. Import into a label printer to generate product labels for the batch.')
+add_para()
+add_note('Export the Traveller CSV before starting production so the team has a physical checklist to follow.')
 
 page_break()
 
@@ -671,6 +732,7 @@ add_table(
         ['SMTP Email', 'Configure email settings for notifications'],
         ['Admin Contact', 'Admin name/phone shown on the login screen'],
         ['Remember Username', 'Enable/disable the remember username option'],
+        ['Units of Measure', 'Manage the list of units (kg, L, each, etc.) available for products and parts'],
     ],
     col_widths=[2.0, 4.0]
 )

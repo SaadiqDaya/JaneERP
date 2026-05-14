@@ -134,6 +134,7 @@ namespace JaneERP
             dgv.SelectionMode         = DataGridViewSelectionMode.FullRowSelect;
             dgv.MultiSelect           = false;
             dgv.RowHeadersVisible     = false;
+            dgv.AllowUserToResizeRows = false;
 
             dgv.Columns.Add(Col("colSKU",       "SKU",        80));
             dgv.Columns.Add(Col("colName",       "Product",    220, fill: true));

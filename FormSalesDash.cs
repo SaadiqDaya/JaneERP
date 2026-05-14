@@ -59,6 +59,7 @@ namespace JaneERP
             dtpTo.ValueChanged   += (_, _) => _lastToDate   = dtpTo.Value;
 
             InitializeGridColumns();
+            dgvOrders.SelectionChanged += DgvOrders_SelectionChanged;
 
             // Disable Sync if the user lacks permission — PopulateStoreFilter may further restrict it
             // based on whether a store is selected, so evaluate permission first.
@@ -252,6 +253,16 @@ namespace JaneERP
                 AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill
             });
 
+            // Payment status
+            dgvOrders.Columns.Add(new DataGridViewTextBoxColumn
+            {
+                Name             = "colPayment",
+                HeaderText       = "Payment",
+                DataPropertyName = "PaymentGateway",
+                ReadOnly         = true,
+                Width            = 110
+            });
+
             // Created at
             dgvOrders.Columns.Add(new DataGridViewTextBoxColumn
             {
@@ -285,6 +296,13 @@ namespace JaneERP
 
         private void LoadCachedOrders()
         {
+            // Keep the "to" date ceiling current so newly-arrived orders (synced today) are not filtered out
+            if (_lastToDate.Date < DateTime.Today)
+            {
+                _lastToDate    = DateTime.Today;
+                dtpTo.Value    = DateTime.Today;
+            }
+
             try
             {
                 using var db = new AppDbContext();
@@ -381,6 +399,7 @@ namespace JaneERP
         /// <summary>Updates lblLastSync with the current sync state. Must be called on the UI thread.</summary>
         private void UpdateSyncLabel()
         {
+            if (IsDisposed || !IsHandleCreated) return;
             if (_syncService == null || !_syncService.IsRunning)
             {
                 lblLastSync.Text  = "";
@@ -435,16 +454,68 @@ namespace JaneERP
             // Form may not be visible yet (race on startup sync) — bail safely
             if (!IsHandleCreated || IsDisposed) return;
 
-            if (e.Success)
+            try
             {
-                Invoke(LoadCachedOrders);
-                Invoke(() => { lblStatus.Text = $"Background sync: {e.Count} orders"; UpdateSyncLabel(); });
+                if (e.Success)
+                {
+                    if (IsErpView)
+                        Invoke(() => LoadErpOrders(null, cboStoreFilter.SelectedIndex == 1));
+                    else
+                        Invoke(LoadCachedOrders);
+                    Invoke(() => { lblStatus.Text = $"Background sync: {e.Count} orders"; UpdateSyncLabel(); });
+                }
+                else
+                {
+                    AppLogger.Audit("system", "BackgroundSyncFailed", e.Error?.ToString() ?? "unknown");
+                    Invoke(() => { lblStatus.Text = $"Background sync failed: {e.Error?.Message}"; UpdateSyncLabel(); });
+                }
             }
-            else
+            catch (ObjectDisposedException) { /* form closed during in-flight sync — safe to ignore */ }
+            catch (InvalidOperationException) { /* handle not yet created — safe to ignore */ }
+        }
+
+        private void DgvOrders_SelectionChanged(object? sender, EventArgs e)
+        {
+            if (dgvOrders.SelectedRows.Count == 0 ||
+                dgvOrders.SelectedRows[0].DataBoundItem is not Order o)
             {
-                AppLogger.Audit("system", "BackgroundSyncFailed", e.Error?.ToString() ?? "unknown");
-                Invoke(() => { lblStatus.Text = $"Background sync failed: {e.Error?.Message}"; UpdateSyncLabel(); });
+                rtbOrderDetail.Text = "Select an order to view details.";
+                return;
             }
+            PopulateOrderDetail(o);
+        }
+
+        private void PopulateOrderDetail(Order o)
+        {
+            var local = o.CreatedAt.Kind == DateTimeKind.Utc ? o.CreatedAt.ToLocalTime() : o.CreatedAt;
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine($"Order {o.Name ?? $"#{o.OrderNumber}"}");
+            sb.AppendLine(new string('─', 26));
+            sb.AppendLine();
+            sb.AppendLine($"Date:        {local:yyyy-MM-dd HH:mm}");
+            if (!string.IsNullOrEmpty(o.ContactEmail))
+                sb.AppendLine($"Email:       {o.ContactEmail}");
+            sb.AppendLine($"Store:       {o.StoreName ?? o.StoreDomain ?? "—"}");
+            sb.AppendLine();
+            sb.AppendLine($"Total:       {o.TotalPrice:C2}{(!string.IsNullOrEmpty(o.Currency) ? $" {o.Currency}" : "")}");
+            if (o.ShippingCost > 0)
+                sb.AppendLine($"Shipping:    {o.ShippingCost:C2}");
+            if (!string.IsNullOrEmpty(o.ShippingMethod))
+                sb.AppendLine($"Method:      {o.ShippingMethod}");
+            sb.AppendLine();
+            sb.AppendLine($"Payment:     {(o.IsPaid ? "✓ Paid" : "Unpaid")}");
+            if (!string.IsNullOrEmpty(o.PaymentGateway))
+                sb.AppendLine($"Pay Method:  {o.PaymentGateway}");
+            if (o.PaidAt.HasValue)
+                sb.AppendLine($"Paid At:     {o.PaidAt.Value:yyyy-MM-dd HH:mm}");
+            sb.AppendLine();
+            sb.AppendLine($"ERP Sync:    {o.SyncStatus ?? "Not Synced"}");
+            if (!string.IsNullOrEmpty(o.ErpStatus))
+                sb.AppendLine($"ERP Status:  {o.ErpStatus}");
+            if (o.ErpSalesOrderID.HasValue)
+                sb.AppendLine($"ERP ID:      #{o.ErpSalesOrderID}");
+
+            rtbOrderDetail.Text = sb.ToString();
         }
 
         // Ensure checkbox edits are committed to the data source immediately
@@ -955,12 +1026,15 @@ namespace JaneERP
             int saved = counts[0], skipped = counts[1], failed = counts[2];
             var savedList = savedNumbers.OrderBy(n => n).ToList();
 
+            if (IsDisposed || !IsHandleCreated) return;
+
             btnSyncToERP.Enabled  = Security.PermissionHelper.CanEdit("SalesOrders");
             btnCancelSync.Enabled = false;
             btnFetch.Enabled      = _currentStore != null;
 
             // Refresh the grid so ERP Sync column updates immediately
-            LoadCachedOrders();
+            if (IsErpView) LoadErpOrders(null, cboStoreFilter.SelectedIndex == 1);
+            else LoadCachedOrders();
 
             if (cancelled)
             {
@@ -988,9 +1062,17 @@ namespace JaneERP
 
         protected override void OnFormClosed(FormClosedEventArgs e)
         {
+            // Cancel any in-flight sync before disposing — prevents continuation callbacks
+            // from trying to update disposed controls after the form closes.
+            _syncCts?.Cancel();
             _syncRefreshTimer?.Stop();
             _syncRefreshTimer?.Dispose();
-            _syncService?.Dispose();
+            if (_syncService != null)
+            {
+                _syncService.SyncCompleted -= SyncService_SyncCompleted;
+                _syncService.Dispose();
+                _syncService = null;
+            }
             base.OnFormClosed(e);
         }
 

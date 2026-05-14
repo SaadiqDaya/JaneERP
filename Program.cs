@@ -60,11 +60,12 @@ namespace JaneERP
             SchemaStep("Manufacturing",  () => new ManufacturingRepository().EnsureSchema());    // creates ManufacturingOrders, WorkOrders (FK to Products)
             SchemaStep("Tasks",         () => new TaskRepository().EnsureSchema());
             SchemaStep("CycleCount",    () => new CycleCountRepository().EnsureSchema());
-            SchemaStep("Accounting",    () => new AccountingRepository().EnsureSchema());
+            SchemaStep("Accounting",    () => { var r = new AccountingRepository(); r.EnsureSchema(); r.EnsureTaxRatesSchema(); });
             SchemaStep("PackageComponents", () => new PackageRepository().EnsureSchema());
             SchemaStep("DiscountTiers",  () => { var r = new DiscountTierRepository(); r.EnsureSchema(); r.MigrateCustomerTier(); r.MigrateOrderDiscount(); });
             SchemaStep("PONotifiedAt",   () => new SupplierRepository().MigrateOverdueNotifiedColumn());
             SchemaStep("POShipping",     () => new SupplierRepository().MigrateShippingCost());
+            SchemaStep("POTaxAmount",    () => new SupplierRepository().MigrateTaxAmount());
             SchemaStep("CustomerNotes", () => new CustomerRepository().EnsureNotesSchema());
             SchemaStep("ReturnOrders",  () => new ReturnRepository().EnsureSchema());
             SchemaStep("Backorders",    () => new BackorderRepository().EnsureSchema());

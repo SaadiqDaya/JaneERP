@@ -14,6 +14,17 @@ namespace JaneERP
     /// </summary>
     internal class FormPackingDash : Form
     {
+        // Required for OS-level resize grip on borderless forms on Windows 11
+        protected override CreateParams CreateParams
+        {
+            get
+            {
+                var cp = base.CreateParams;
+                cp.Style |= 0x00040000; // WS_THICKFRAME
+                return cp;
+            }
+        }
+
         private readonly IShopifySyncService _svc = AppServices.Get<IShopifySyncService>();
         private readonly Panel              _pnlHeader  = new();
         private readonly SplitContainer     _split      = new();
@@ -113,10 +124,12 @@ namespace JaneERP
             pnlActions.Controls.Add(_chkShowShipped);
 
             // Split
-            _split.Dock            = DockStyle.Fill;
-            _split.Orientation     = Orientation.Vertical;
+            _split.Dock             = DockStyle.Fill;
+            _split.Orientation      = Orientation.Vertical;
             _split.SplitterDistance = 400;
-            _split.SplitterWidth   = 6;
+            _split.SplitterWidth    = 6;
+            _split.Panel1MinSize    = 260;
+            _split.Panel2MinSize    = 420; // enough for tracking # field (90+280=370) + margin
 
             BuildOrdersPanel();
             BuildDetailPanel();
@@ -132,13 +145,14 @@ namespace JaneERP
             _dgvOrders.AutoGenerateColumns  = false;
             _dgvOrders.AllowUserToAddRows   = false;
             _dgvOrders.AllowUserToDeleteRows = false;
-            _dgvOrders.ReadOnly             = true;
-            _dgvOrders.RowHeadersVisible    = false;
-            _dgvOrders.SelectionMode        = DataGridViewSelectionMode.FullRowSelect;
-            _dgvOrders.MultiSelect          = false;
+            _dgvOrders.ReadOnly               = true;
+            _dgvOrders.RowHeadersVisible      = false;
+            _dgvOrders.AllowUserToResizeRows  = false;
+            _dgvOrders.SelectionMode          = DataGridViewSelectionMode.FullRowSelect;
+            _dgvOrders.MultiSelect            = false;
             _dgvOrders.Columns.AddRange(
                 new DataGridViewTextBoxColumn { Name = "colNo",       HeaderText = "Order #",  Width = 72  },
-                new DataGridViewTextBoxColumn { Name = "colCustomer", HeaderText = "Customer", Width = 158 },
+                new DataGridViewTextBoxColumn { Name = "colCustomer", HeaderText = "Customer", AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill },
                 new DataGridViewTextBoxColumn { Name = "colStatus",   HeaderText = "Status",   Width = 76  },
                 new DataGridViewTextBoxColumn { Name = "colPacked",   HeaderText = "Packed At", Width = 100 }
             );
@@ -157,16 +171,17 @@ namespace JaneERP
             // Items grid (fills most of the detail panel)
             _dgvItems.Dock                 = DockStyle.Fill;
             _dgvItems.AutoGenerateColumns  = false;
-            _dgvItems.AllowUserToAddRows   = false;
+            _dgvItems.AllowUserToAddRows    = false;
             _dgvItems.AllowUserToDeleteRows = false;
-            _dgvItems.ReadOnly             = true;
-            _dgvItems.RowHeadersVisible    = false;
-            _dgvItems.SelectionMode        = DataGridViewSelectionMode.FullRowSelect;
+            _dgvItems.AllowUserToResizeRows = false;
+            _dgvItems.ReadOnly              = true;
+            _dgvItems.RowHeadersVisible     = false;
+            _dgvItems.SelectionMode         = DataGridViewSelectionMode.FullRowSelect;
             _dgvItems.Columns.AddRange(
-                new DataGridViewTextBoxColumn { Name = "colSku",   HeaderText = "SKU",      Width = 100 },
-                new DataGridViewTextBoxColumn { Name = "colTitle", HeaderText = "Item",     Width = 250 },
-                new DataGridViewTextBoxColumn { Name = "colQty",   HeaderText = "Qty",      Width = 60  },
-                new DataGridViewTextBoxColumn { Name = "colPrice", HeaderText = "Unit $",   Width = 80  }
+                new DataGridViewTextBoxColumn { Name = "colSku",   HeaderText = "SKU",    Width = 100 },
+                new DataGridViewTextBoxColumn { Name = "colTitle", HeaderText = "Item",   AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill },
+                new DataGridViewTextBoxColumn { Name = "colQty",   HeaderText = "Qty",    Width = 60  },
+                new DataGridViewTextBoxColumn { Name = "colPrice", HeaderText = "Unit $", Width = 80  }
             );
 
             // Tracking / carrier inputs
@@ -175,10 +190,10 @@ namespace JaneERP
             _lblTracking.ForeColor = Theme.TextSecondary;
             _lblTracking.Font      = new Font("Segoe UI", 9F);
 
-            _txtTracking.Font      = new Font("Segoe UI", 10F);
-            _txtTracking.Width     = 280;
-            _txtTracking.BackColor = Color.FromArgb(22, 20, 40);
-            _txtTracking.ForeColor = Theme.TextPrimary;
+            _txtTracking.Font        = new Font("Segoe UI", 10F);
+            _txtTracking.Anchor      = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Top;
+            _txtTracking.BackColor   = Color.FromArgb(22, 20, 40);
+            _txtTracking.ForeColor   = Theme.TextPrimary;
             _txtTracking.BorderStyle = BorderStyle.FixedSingle;
 
             _lblCarrier.Text      = "Carrier:";
@@ -186,10 +201,10 @@ namespace JaneERP
             _lblCarrier.ForeColor = Theme.TextSecondary;
             _lblCarrier.Font      = new Font("Segoe UI", 9F);
 
-            _txtCarrier.Font      = new Font("Segoe UI", 10F);
-            _txtCarrier.Width     = 200;
-            _txtCarrier.BackColor = Color.FromArgb(22, 20, 40);
-            _txtCarrier.ForeColor = Theme.TextPrimary;
+            _txtCarrier.Font        = new Font("Segoe UI", 10F);
+            _txtCarrier.Anchor      = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Top;
+            _txtCarrier.BackColor   = Color.FromArgb(22, 20, 40);
+            _txtCarrier.ForeColor   = Theme.TextPrimary;
             _txtCarrier.BorderStyle = BorderStyle.FixedSingle;
 
             // Shipping fields panel (docked bottom of detail panel)
@@ -204,10 +219,12 @@ namespace JaneERP
             int lx = 12, ly = 12;
             _lblTracking.Location = new Point(lx, ly + 2);
             _txtTracking.Location = new Point(lx + 90, ly);
+            _txtTracking.Size     = new Size(Math.Max(200, pnlShipping.ClientSize.Width - (lx + 90) - 12), _txtTracking.PreferredHeight);
             // row 2: Carrier
             ly += 32;
             _lblCarrier.Location  = new Point(lx, ly + 2);
             _txtCarrier.Location  = new Point(lx + 90, ly);
+            _txtCarrier.Size      = new Size(Math.Max(150, pnlShipping.ClientSize.Width - (lx + 90) - 12), _txtCarrier.PreferredHeight);
 
             pnlShipping.Controls.AddRange(new Control[]
                 { _lblTracking, _txtTracking, _lblCarrier, _txtCarrier });

@@ -33,7 +33,8 @@ namespace JaneERP.Models
         public decimal  ShippingCost    { get; set; }
 
         // Payment fields (populated from SalesOrders for ERP orders)
-        public bool      IsPaid { get; set; }
-        public DateTime? PaidAt { get; set; }
+        public bool      IsPaid         { get; set; }
+        public DateTime? PaidAt         { get; set; }
+        public string?   PaymentGateway { get; set; }
     }
 }

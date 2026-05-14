@@ -69,6 +69,7 @@ namespace JaneERP.Services
             Migrate(db, "UPDATE SalesOrders SET OrderType='Manual' WHERE ShopifyOrderID IS NULL AND OrderType='Shopify'");
             Migrate(db, "IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('SalesOrders') AND name='IsPaid') ALTER TABLE SalesOrders ADD IsPaid BIT NOT NULL DEFAULT 0");
             Migrate(db, "IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('SalesOrders') AND name='PaidAt') ALTER TABLE SalesOrders ADD PaidAt DATETIME NULL");
+            Migrate(db, "IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('SalesOrders') AND name='PaymentGateway') ALTER TABLE SalesOrders ADD PaymentGateway NVARCHAR(100) NULL");
             Migrate(db, @"
         IF NOT EXISTS (SELECT 1 FROM sysobjects WHERE name='CustomerPayments' AND xtype='U')
         CREATE TABLE CustomerPayments (
@@ -172,7 +173,8 @@ namespace JaneERP.Services
                        ISNULL(so.DiscountPercent, 0)          AS DiscountPercent,
                        ISNULL(so.ShippingCost, 0)             AS ShippingCost,
                        ISNULL(so.IsPaid, 0)                   AS IsPaid,
-                       so.PaidAt
+                       so.PaidAt,
+                       so.PaymentGateway
                 FROM  SalesOrders so
                 JOIN  Customers   c   ON c.CustomerID = so.CustomerID
                 LEFT JOIN Stores  st  ON st.StoreID   = so.StoreID
@@ -635,9 +637,11 @@ namespace JaneERP.Services
                 // ── SalesOrder ───────────────────────────────────────────────────────
                 // Shopify orders come in as Live but InventoryAffected=0;
                 // inventory is only deducted when an order is marked Fulfilled.
+                bool isPaid = string.Equals(order.FinancialStatus, "paid", StringComparison.OrdinalIgnoreCase);
+
                 var salesOrderId = db.QuerySingle<int>(@"
-                    INSERT INTO SalesOrders (ShopifyOrderID, OrderNumber, CustomerID, StoreID, OrderDate, TotalPrice, Currency, Status, InventoryAffected, OrderType)
-                    VALUES (@ShopifyOrderID, @OrderNumber, @CustomerID, @StoreID, @OrderDate, @TotalPrice, @Currency, 'Draft', 0, 'Shopify');
+                    INSERT INTO SalesOrders (ShopifyOrderID, OrderNumber, CustomerID, StoreID, OrderDate, TotalPrice, Currency, Status, InventoryAffected, OrderType, IsPaid, PaidAt, PaymentGateway)
+                    VALUES (@ShopifyOrderID, @OrderNumber, @CustomerID, @StoreID, @OrderDate, @TotalPrice, @Currency, 'Live', 0, 'Shopify', @IsPaid, @PaidAt, @PaymentGateway);
                     SELECT CAST(SCOPE_IDENTITY() AS INT);",
                     new
                     {
@@ -647,7 +651,10 @@ namespace JaneERP.Services
                         StoreID        = storeId,
                         OrderDate      = order.CreatedAt,
                         TotalPrice     = order.TotalPrice,
-                        Currency       = order.Currency
+                        Currency       = order.Currency,
+                        IsPaid         = isPaid,
+                        PaidAt         = isPaid ? (DateTime?)order.CreatedAt : null,
+                        PaymentGateway = order.PaymentGateway
                     }, tx);
 
                 // ── Line items ───────────────────────────────────────────────────────

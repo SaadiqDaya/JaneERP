@@ -180,8 +180,8 @@ namespace JaneERP
             _colAttr.Items.Clear();
             try
             {
-                foreach (var (_, name, _) in _repo.GetAttributeDefinitions())
-                    _colAttr.Items.Add(name);
+                foreach (var attr in _repo.GetAttributeDefinitions())
+                    _colAttr.Items.Add(attr.Name);
             }
             catch { /* best-effort */ }
         }

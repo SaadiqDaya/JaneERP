@@ -8,13 +8,15 @@ namespace JaneERP
     {
         private readonly TaskRepository _repo = new();
 
-        private DataGridView dgvTasks    = new();
-        private ComboBox     cboFilter   = new();
-        private Button       btnAdd      = new();
-        private Button       btnDone     = new();
-        private Button       btnDelete   = new();
-        private Button       btnEmail    = new();
-        private Button       btnClose    = new();
+        private DataGridView dgvTasks        = new();
+        private ComboBox     cboFilter       = new();
+        private ComboBox     cboStatusFilter = new();
+        private Button       btnAdd          = new();
+        private Button       btnDone         = new();
+        private Button       btnDelete       = new();
+        private Button       btnEmail        = new();
+        private Button       btnWorkflows    = new();
+        private Button       btnClose        = new();
         private Label        lblFilter   = new();
 
         // Mentions panel
@@ -70,13 +72,24 @@ namespace JaneERP
             cboFilter.SelectedIndexChanged += (_, _) => LoadTasks();
             Controls.Add(cboFilter);
 
+            Controls.Add(new Label { Text = "Status:", Location = new Point(316, 52), AutoSize = true });
+            cboStatusFilter.DropDownStyle = ComboBoxStyle.DropDownList;
+            cboStatusFilter.Location      = new Point(362, 49);
+            cboStatusFilter.Size          = new Size(130, 23);
+            cboStatusFilter.Items.AddRange(new object[] { "All Statuses", "Open", "In Progress", "Done", "Overdue" });
+            cboStatusFilter.SelectedIndex = 0;
+            cboStatusFilter.SelectedIndexChanged += (_, _) => LoadTasks();
+            Controls.Add(cboStatusFilter);
+
             // ── Grid ─────────────────────────────────────────────────────────────
             dgvTasks.AutoGenerateColumns = false;
             dgvTasks.Columns.Add(new DataGridViewTextBoxColumn { Name = "colTitle",     HeaderText = "Title",       DataPropertyName = "Title",       Width = 200 });
             dgvTasks.Columns.Add(new DataGridViewTextBoxColumn { Name = "colAssigned",  HeaderText = "Assigned To", DataPropertyName = "AssignedTo",  Width = 120 });
             dgvTasks.Columns.Add(new DataGridViewTextBoxColumn { Name = "colDue",       HeaderText = "Due Date",    DataPropertyName = "DueDate",     Width = 100 });
             dgvTasks.Columns.Add(new DataGridViewTextBoxColumn { Name = "colStatus",    HeaderText = "Status",      DataPropertyName = "Status",      Width = 90  });
+            dgvTasks.Columns.Add(new DataGridViewTextBoxColumn { Name = "colPriority",  HeaderText = "Priority",    DataPropertyName = "Priority",    Width = 80  });
             dgvTasks.Columns.Add(new DataGridViewTextBoxColumn { Name = "colCreatedBy", HeaderText = "Created By",  DataPropertyName = "CreatedBy",   Width = 110 });
+            dgvTasks.Columns.Add(new DataGridViewTextBoxColumn { Name = "colWorkflow",  HeaderText = "Workflow",    DataPropertyName = "WorkflowName", Width = 120 });
             dgvTasks.Columns.Add(new DataGridViewTextBoxColumn { Name = "colDesc",      HeaderText = "Description", DataPropertyName = "Description",  AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill });
             dgvTasks.ReadOnly              = true;
             dgvTasks.AllowUserToAddRows    = false;
@@ -93,14 +106,28 @@ namespace JaneERP
                     e.Value = dt.ToString("yyyy-MM-dd");
             };
 
-            // Color overdue rows red, Done rows muted
+            // Color overdue rows red, Done rows muted; highlight priority column
             dgvTasks.CellFormatting += (s, e) =>
             {
                 if (e.RowIndex < 0 || dgvTasks.Rows[e.RowIndex].DataBoundItem is not ErpTask t) return;
                 if (t.Status == "Done")
+                {
                     e.CellStyle.ForeColor = Theme.TextMuted;
+                }
                 else if (t.DueDate.Date < DateTime.Today)
+                {
                     e.CellStyle.ForeColor = Color.FromArgb(220, 80, 60);
+                }
+                else if (dgvTasks.Columns["colPriority"] is DataGridViewColumn colP && e.ColumnIndex == colP.Index)
+                {
+                    e.CellStyle.ForeColor = t.Priority switch
+                    {
+                        "Urgent" => Color.FromArgb(220, 60, 50),
+                        "High"   => Color.FromArgb(220, 140, 30),
+                        "Low"    => Theme.TextMuted,
+                        _        => Theme.TextPrimary
+                    };
+                }
             };
 
             // Double-click → open task detail
@@ -185,6 +212,13 @@ namespace JaneERP
             btnEmail.Click   += BtnEmail_Click;
             Controls.Add(btnEmail);
 
+            btnWorkflows.Text     = "Manage Workflows";
+            btnWorkflows.Size     = new Size(140, 30);
+            btnWorkflows.Anchor   = AnchorStyles.Bottom | AnchorStyles.Left;
+            btnWorkflows.Location = new Point(504, 694);
+            btnWorkflows.Click   += (_, _) => { using var f = new FormWorkflowEditor(_repo); f.ShowDialog(this); };
+            Controls.Add(btnWorkflows);
+
             btnClose.Text     = "Close";
             btnClose.Size     = new Size(80, 30);
             btnClose.Anchor   = AnchorStyles.Bottom | AnchorStyles.Right;
@@ -199,7 +233,13 @@ namespace JaneERP
                 ? AppSession.CurrentUser?.Username
                 : null;
 
-            var tasks = _repo.GetAll(filterUser);
+            var statusSel    = cboStatusFilter.SelectedItem?.ToString() ?? "All Statuses";
+            bool filterOverdue = statusSel == "Overdue";
+            string? filterStatus = statusSel is "All Statuses" or "Overdue" ? null : statusSel;
+
+            var tasks = _repo.GetAll(filterUser, filterStatus);
+            if (filterOverdue)
+                tasks = tasks.Where(t => t.Status != "Done" && t.DueDate.Date < DateTime.Today).ToList();
             dgvTasks.DataSource = tasks;
         }
 
@@ -344,12 +384,14 @@ namespace JaneERP
     {
         private readonly TaskRepository _repo;
 
-        // One task entry is a row: title | description | assigned-to | due-date
-        private DataGridView dgvTasks  = new();
-        private Button       btnSave   = new();
-        private Button       btnCancel = new();
-        private ComboBox     cboDefaultUser = new();
-        private DateTimePicker dtpDefaultDue = new();
+        // One task entry is a row: title | description | assigned-to | due-date | priority
+        private DataGridView   dgvTasks          = new();
+        private Button         btnSave           = new();
+        private Button         btnCancel         = new();
+        private ComboBox       cboDefaultUser    = new();
+        private DateTimePicker dtpDefaultDue     = new();
+        private ComboBox       cboDefaultPriority  = new();
+        private ComboBox       cboDefaultWorkflow  = new();
 
         public FormAddTask(TaskRepository repo)
         {
@@ -364,8 +406,8 @@ namespace JaneERP
         private void BuildUI()
         {
             Text          = "Add Tasks";
-            ClientSize    = new Size(760, 400);
-            MinimumSize   = new Size(640, 340);
+            ClientSize    = new Size(900, 430);
+            MinimumSize   = new Size(760, 370);
             StartPosition = FormStartPosition.CenterParent;
 
             Controls.Add(new Label
@@ -388,11 +430,38 @@ namespace JaneERP
 
             Controls.Add(new Label { Text = "Default Due:", Location = new Point(316, 50), AutoSize = true });
             dtpDefaultDue.Location = new Point(394, 47);
-            dtpDefaultDue.Size     = new Size(140, 23);
+            dtpDefaultDue.Size     = new Size(120, 23);
             dtpDefaultDue.Value    = DateTime.Today.AddDays(7);
             Controls.Add(dtpDefaultDue);
 
-            var btnFill = new Button { Text = "Apply Defaults", Size = new Size(120, 23), Location = new Point(546, 47) };
+            Controls.Add(new Label { Text = "Priority:", Location = new Point(524, 50), AutoSize = true });
+            cboDefaultPriority.DropDownStyle = ComboBoxStyle.DropDownList;
+            cboDefaultPriority.Location      = new Point(572, 47);
+            cboDefaultPriority.Size          = new Size(90, 23);
+            cboDefaultPriority.Items.AddRange(new object[] { "Low", "Normal", "High", "Urgent" });
+            cboDefaultPriority.SelectedIndex = 1;
+            Controls.Add(cboDefaultPriority);
+
+            Controls.Add(new Label { Text = "Workflow:", Location = new Point(12, 78), AutoSize = true });
+            cboDefaultWorkflow.Location      = new Point(80, 75);
+            cboDefaultWorkflow.Size          = new Size(200, 23);
+            cboDefaultWorkflow.DropDownStyle = ComboBoxStyle.DropDownList;
+            cboDefaultWorkflow.Items.Add("(none)");
+            try { foreach (var w in _repo.GetWorkflows()) cboDefaultWorkflow.Items.Add(w); } catch { }
+            cboDefaultWorkflow.DisplayMember = "Name";
+            cboDefaultWorkflow.SelectedIndex = 0;
+            Controls.Add(cboDefaultWorkflow);
+
+            Controls.Add(new Label
+            {
+                Text      = "Tasks will start on the first status of the selected workflow.",
+                Font      = new Font("Segoe UI", 7.5F),
+                ForeColor = Theme.TextMuted,
+                Location  = new Point(294, 79),
+                AutoSize  = true
+            });
+
+            var btnFill = new Button { Text = "Apply Defaults", Size = new Size(120, 23), Location = new Point(670, 47) };
             btnFill.Click += (_, _) =>
             {
                 foreach (DataGridViewRow r in dgvTasks.Rows)
@@ -402,30 +471,42 @@ namespace JaneERP
                         r.Cells["colAssign"].Value = cboDefaultUser.SelectedItem?.ToString();
                     if (r.Cells["colDue"]?.Value == null || r.Cells["colDue"]?.Value?.ToString() == "")
                         r.Cells["colDue"].Value = dtpDefaultDue.Value.Date.ToString("yyyy-MM-dd");
+                    if (r.Cells["colPriority"]?.Value == null || r.Cells["colPriority"]?.Value?.ToString() == "")
+                        r.Cells["colPriority"].Value = cboDefaultPriority.SelectedItem?.ToString();
                 }
             };
             Controls.Add(btnFill);
 
-            // Grid: title | description | assigned | due
+            // Grid: title | description | assigned | due | priority
             var userNames = new DataGridViewComboBoxColumn
             {
-                Name        = "colAssign",
-                HeaderText  = "Assign To",
-                Width       = 140,
+                Name         = "colAssign",
+                HeaderText   = "Assign To",
+                Width        = 140,
                 DisplayStyle = DataGridViewComboBoxDisplayStyle.Nothing
             };
             try { foreach (var u in _repo.GetAllUsernames()) userNames.Items.Add(u); } catch (Exception ex) { JaneERP.Logging.AppLogger.Info($"[FormAddTask.BuildUI]: {ex.Message}"); }
 
+            var priorities = new DataGridViewComboBoxColumn
+            {
+                Name         = "colPriority",
+                HeaderText   = "Priority",
+                Width        = 90,
+                DisplayStyle = DataGridViewComboBoxDisplayStyle.Nothing
+            };
+            priorities.Items.AddRange("Low", "Normal", "High", "Urgent");
+
             dgvTasks.AutoGenerateColumns = false;
             dgvTasks.Columns.Add(new DataGridViewTextBoxColumn { Name = "colTitle", HeaderText = "Title *", Width = 200 });
-            dgvTasks.Columns.Add(new DataGridViewTextBoxColumn { Name = "colDesc",  HeaderText = "Description", Width = 220, AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill });
+            dgvTasks.Columns.Add(new DataGridViewTextBoxColumn { Name = "colDesc",  HeaderText = "Description", Width = 200, AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill });
             dgvTasks.Columns.Add(userNames);
             dgvTasks.Columns.Add(new DataGridViewTextBoxColumn { Name = "colDue", HeaderText = "Due (yyyy-MM-dd)", Width = 130 });
+            dgvTasks.Columns.Add(priorities);
             dgvTasks.AllowUserToAddRows    = true;
             dgvTasks.AllowUserToDeleteRows = true;
-            dgvTasks.Anchor   = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
-            dgvTasks.Location = new Point(12, 80);
-            dgvTasks.Size     = new Size(736, 270);
+            dgvTasks.Anchor    = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
+            dgvTasks.Location  = new Point(12, 108);
+            dgvTasks.Size      = new Size(876, 270);
             dgvTasks.DataError += (s, e) => e.Cancel = true;
             Controls.Add(dgvTasks);
 
@@ -433,19 +514,20 @@ namespace JaneERP
             dgvTasks.Rows.Add();
             if (cboDefaultUser.SelectedItem != null)
                 dgvTasks.Rows[0].Cells["colAssign"].Value = cboDefaultUser.SelectedItem.ToString();
-            dgvTasks.Rows[0].Cells["colDue"].Value = dtpDefaultDue.Value.Date.ToString("yyyy-MM-dd");
+            dgvTasks.Rows[0].Cells["colDue"].Value      = dtpDefaultDue.Value.Date.ToString("yyyy-MM-dd");
+            dgvTasks.Rows[0].Cells["colPriority"].Value = cboDefaultPriority.SelectedItem?.ToString() ?? "Normal";
 
             btnSave.Text     = "Save All Tasks";
             btnSave.Size     = new Size(130, 30);
             btnSave.Anchor   = AnchorStyles.Bottom | AnchorStyles.Right;
-            btnSave.Location = new Point(498, 358);
+            btnSave.Location = new Point(638, 388);
             btnSave.Click   += BtnSave_Click;
             Controls.Add(btnSave);
 
             btnCancel.Text     = "Cancel";
             btnCancel.Size     = new Size(80, 30);
             btnCancel.Anchor   = AnchorStyles.Bottom | AnchorStyles.Right;
-            btnCancel.Location = new Point(636, 358);
+            btnCancel.Location = new Point(776, 388);
             btnCancel.Click   += (_, _) => { DialogResult = DialogResult.Cancel; Close(); };
             Controls.Add(btnCancel);
 
@@ -454,14 +536,15 @@ namespace JaneERP
                 Text     = "+ Add Row",
                 Size     = new Size(100, 30),
                 Anchor   = AnchorStyles.Bottom | AnchorStyles.Left,
-                Location = new Point(12, 358)
+                Location = new Point(12, 388)
             };
             btnAddRow.Click += (_, _) =>
             {
                 int idx = dgvTasks.Rows.Add();
                 if (cboDefaultUser.SelectedItem != null)
                     dgvTasks.Rows[idx].Cells["colAssign"].Value = cboDefaultUser.SelectedItem.ToString();
-                dgvTasks.Rows[idx].Cells["colDue"].Value = dtpDefaultDue.Value.Date.ToString("yyyy-MM-dd");
+                dgvTasks.Rows[idx].Cells["colDue"].Value      = dtpDefaultDue.Value.Date.ToString("yyyy-MM-dd");
+                dgvTasks.Rows[idx].Cells["colPriority"].Value = cboDefaultPriority.SelectedItem?.ToString() ?? "Normal";
             };
             Controls.Add(btnAddRow);
         }
@@ -492,7 +575,8 @@ namespace JaneERP
                     AssignedTo  = assignedTo,
                     CreatedBy   = AppSession.CurrentUser?.Username ?? "system",
                     DueDate     = due,
-                    Status      = "Open"
+                    Status      = "Open",
+                    Priority    = row.Cells["colPriority"].Value?.ToString() ?? cboDefaultPriority.SelectedItem?.ToString() ?? "Normal"
                 });
             }
 
@@ -513,6 +597,17 @@ namespace JaneERP
                     // Parse @mentions in the description and save to TaskMentions
                     if (!string.IsNullOrWhiteSpace(task.Description))
                         SaveDescriptionMentions(taskId, task.Description, task.CreatedBy);
+                    // Assign default workflow if one was selected
+                    if (cboDefaultWorkflow.SelectedItem is TaskWorkflow selWorkflow)
+                    {
+                        try
+                        {
+                            var firstStatus = _repo.GetWorkflowStatuses(selWorkflow.WorkflowID)
+                                .FirstOrDefault()?.StatusName;
+                            _repo.SetTaskWorkflow(taskId, selWorkflow.WorkflowID, firstStatus);
+                        }
+                        catch { }
+                    }
                     // Notify assignee (fire-and-forget; skip if assigning to yourself)
                     if (!string.IsNullOrEmpty(task.AssignedTo) &&
                         !task.AssignedTo.Equals(task.CreatedBy, StringComparison.OrdinalIgnoreCase))

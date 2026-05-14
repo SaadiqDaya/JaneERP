@@ -12,6 +12,8 @@ namespace JaneERP.Models
         public int?    DefaultVendorID   { get; set; }
         public string? DefaultVendorName { get; set; }
         public string? UnitOfMeasure     { get; set; }
+        /// <summary>Specific gravity (g/ml). Set for liquids so the cook session can show gram equivalents.</summary>
+        public decimal? Density          { get; set; }
         /// <summary>True when the part was created automatically (synced from a product).</summary>
         public bool    IsAutoCreated     { get; set; }
         /// <summary>True once a user has reviewed and confirmed the auto-created record.</summary>
@@ -21,14 +23,19 @@ namespace JaneERP.Models
 
     public class BomEntry
     {
-        public int     ProductID      { get; set; }
-        public int     PartID         { get; set; }
-        public string  PartNumber     { get; set; } = string.Empty;
-        public string  PartName       { get; set; } = string.Empty;
-        public decimal Quantity       { get; set; }
-        public string? UnitOfMeasure  { get; set; }
-        public decimal UnitCost       { get; set; }
-        public decimal LineCost       => UnitCost * Quantity;
+        public int     ProductID         { get; set; }
+        public int     PartID            { get; set; }
+        public string  PartNumber        { get; set; } = string.Empty;
+        public string  PartName          { get; set; } = string.Empty;
+        public decimal Quantity          { get; set; }
+        public string? UnitOfMeasure     { get; set; }
+        public decimal UnitCost          { get; set; }
+        public decimal LineCost          => UnitCost * Quantity;
+        /// <summary>True when this ingredient absorbs batch loss (liquids: VG, PG, Nic, concentrate).
+        /// False for count items (bottles, labels) and labour.</summary>
+        public bool    CreatesBatchLoss  { get; set; }
+        /// <summary>Per-row override rate (%). 0 = use the cook session's default rate.</summary>
+        public decimal BatchLossRate     { get; set; }
     }
 
     public class BomLabourCost

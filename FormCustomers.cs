@@ -9,16 +9,21 @@ namespace JaneERP
         private readonly ICustomerRepository _custRepo   = AppServices.Get<ICustomerRepository>();
         private readonly IReturnRepository   _returnRepo = AppServices.Get<IReturnRepository>();
 
-        private DataGridView _dgvCustomers = new();
-        private DataGridView _dgvOrders    = new();
-        private DataGridView _dgvNotes     = new();
-        private TextBox      _txtSearch    = new();
-        private Label        _lblName      = new();
-        private Label        _lblEmail     = new();
-        private Label        _lblStats     = new();
-        private Label        _lblStatus    = new();
-        private Button       _btnAddNote   = new();
-        private Button       _btnDelNote   = new();
+        private DataGridView _dgvCustomers      = new();
+        private DataGridView _dgvOrders         = new();
+        private DataGridView _dgvNotes          = new();
+        private TextBox      _txtSearch         = new();
+        private Label        _lblName           = new();
+        private Label        _lblEmail          = new();
+        private Label        _lblStats          = new();
+        private Label        _lblStatus         = new();
+        private Label        _lblCredit         = new();
+        private Button       _btnAddNote        = new();
+        private Button       _btnDelNote        = new();
+        private Button       _btnReceivePayment = new();
+
+        /// <summary>Tag placed on each row of the transactions grid to identify its type and ID.</summary>
+        private sealed record TxnTag(string TxnType, int ID, bool IsPaid, decimal Amount);
 
         private int _selectedCustomerId = -1;
         private List<CustomerSummary> _allCustomers = [];
@@ -30,6 +35,7 @@ namespace JaneERP
             Theme.MakeBorderless(this);
             Theme.AddCloseButton(this);
             Theme.MakeResizable(this);
+            try { _custRepo.EnsurePaymentsSchema(); } catch { }
             LoadCustomers();
         }
 
@@ -64,6 +70,7 @@ namespace JaneERP
             _dgvCustomers.ReadOnly        = true;
             _dgvCustomers.AllowUserToAddRows    = false;
             _dgvCustomers.AllowUserToDeleteRows = false;
+            _dgvCustomers.AllowUserToResizeRows = false;
             _dgvCustomers.SelectionMode   = DataGridViewSelectionMode.FullRowSelect;
             _dgvCustomers.MultiSelect     = false;
             _dgvCustomers.AutoGenerateColumns = false;
@@ -96,16 +103,22 @@ namespace JaneERP
             _lblStats.AutoSize  = true;
             Controls.Add(_lblStats);
 
+            _lblCredit.Location  = new Point(x + 300, 120);
+            _lblCredit.Font      = new Font("Segoe UI", 9F, FontStyle.Bold);
+            _lblCredit.ForeColor = Color.FromArgb(80, 210, 100);
+            _lblCredit.AutoSize  = true;
+            Controls.Add(_lblCredit);
+
             Controls.Add(new Label
             {
-                Text      = "Recent Orders:",
+                Text      = "Transactions:",
                 Font      = new Font("Segoe UI", 9F, FontStyle.Bold),
                 ForeColor = Theme.TextSecondary,
                 Location  = new Point(x, 146),
                 AutoSize  = true
             });
 
-            // Orders grid — reduced height to make room for notes panel
+            // Transactions grid — shows sales orders and returns
             _dgvOrders.Location        = new Point(x, 166);
             _dgvOrders.Size            = new Size(554, 240);
             _dgvOrders.Anchor          = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
@@ -116,17 +129,21 @@ namespace JaneERP
             _dgvOrders.AutoGenerateColumns   = false;
             _dgvOrders.RowHeadersVisible     = false;
             _dgvOrders.SelectionMode         = DataGridViewSelectionMode.FullRowSelect;
-            _dgvOrders.Columns.Add(new DataGridViewTextBoxColumn { Name = "colON",     HeaderText = "Order #",    Width = 80,  ReadOnly = true });
-            _dgvOrders.Columns.Add(new DataGridViewTextBoxColumn { Name = "colDate",   HeaderText = "Date",       Width = 110, ReadOnly = true });
-            _dgvOrders.Columns.Add(new DataGridViewTextBoxColumn { Name = "colTotal",  HeaderText = "Total",      Width = 90,  ReadOnly = true });
-            _dgvOrders.Columns.Add(new DataGridViewTextBoxColumn { Name = "colCurr",   HeaderText = "Currency",   Width = 72,  ReadOnly = true });
-            _dgvOrders.Columns.Add(new DataGridViewTextBoxColumn { Name = "colType",   HeaderText = "Type",       Width = 80,  ReadOnly = true });
-            _dgvOrders.Columns.Add(new DataGridViewTextBoxColumn { Name = "colStatus", HeaderText = "Status",     Width = 80,  ReadOnly = true });
-            _dgvOrders.Columns.Add(new DataGridViewTextBoxColumn { Name = "colPaid",   HeaderText = "Payment",    AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill, ReadOnly = true });
+            _dgvOrders.Columns.Add(new DataGridViewTextBoxColumn { Name = "colTxnType", HeaderText = "Type",      Width = 75,  ReadOnly = true });
+            _dgvOrders.Columns.Add(new DataGridViewTextBoxColumn { Name = "colRef",     HeaderText = "Reference", Width = 95,  ReadOnly = true });
+            _dgvOrders.Columns.Add(new DataGridViewTextBoxColumn { Name = "colDate",    HeaderText = "Date",      Width = 110, ReadOnly = true });
+            _dgvOrders.Columns.Add(new DataGridViewTextBoxColumn { Name = "colAmount",  HeaderText = "Amount",    Width = 90,  ReadOnly = true });
+            _dgvOrders.Columns.Add(new DataGridViewTextBoxColumn { Name = "colStatus",  HeaderText = "Status",    AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill, ReadOnly = true });
             _dgvOrders.CellDoubleClick += DgvOrders_CellDoubleClick;
+            _dgvOrders.SelectionChanged += (_, _) =>
+            {
+                if (_dgvOrders.SelectedRows.Count == 0) { _btnReceivePayment.Enabled = false; return; }
+                var tag = _dgvOrders.SelectedRows[0].Tag as TxnTag;
+                _btnReceivePayment.Enabled = tag?.TxnType == "Sale" && tag.IsPaid == false;
+            };
             Controls.Add(_dgvOrders);
 
-            // "Create Return" button — appears below orders grid, only enabled when an order is selected
+            // Buttons below the transactions grid
             var btnReturn = new Button
             {
                 Text     = "Create Return",
@@ -137,6 +154,14 @@ namespace JaneERP
             btnReturn.Click += BtnReturn_Click;
             Theme.StyleButton(btnReturn);
             Controls.Add(btnReturn);
+
+            _btnReceivePayment.Text     = "Receive Payment";
+            _btnReceivePayment.Location = new Point(x + 130, 414);
+            _btnReceivePayment.Size     = new Size(130, 27);
+            _btnReceivePayment.Enabled  = false;
+            _btnReceivePayment.Click   += BtnReceivePayment_Click;
+            Theme.StyleButton(_btnReceivePayment);
+            Controls.Add(_btnReceivePayment);
 
             // ── Notes panel ─────────────────────────────────────────────────
             Controls.Add(new Label
@@ -239,45 +264,89 @@ namespace JaneERP
 
             _selectedCustomerId = customerId;
             _btnAddNote.Enabled = true;
+            _btnReceivePayment.Enabled = false;
 
             _lblName.Text  = row.Cells["colName"].Value?.ToString() ?? "(No Name)";
             _lblEmail.Text = row.Cells["colEmail"].Value?.ToString() ?? "";
 
+            try
+            {
+                decimal balance = _returnRepo.GetActiveCreditBalance(customerId);
+                _lblCredit.Text = balance > 0 ? $"Credit: {balance:C}" : "";
+            }
+            catch { _lblCredit.Text = ""; }
+
             LoadNotes(customerId);
             _dgvOrders.Rows.Clear();
+
             try
             {
                 var orders = _custRepo.GetOrders(customerId);
-
                 decimal total = 0m, totalPaid = 0m;
+
                 foreach (var o in orders)
+                {
+                    string payStatus;
+                    if (o.IsPaid)
+                        payStatus = o.PaidAt.HasValue ? $"Paid {o.PaidAt.Value:yyyy-MM-dd}" : "Paid";
+                    else if (o.PaidAmount > 0 && o.PaidAmount < o.TotalPrice)
+                        payStatus = $"Partial (${o.PaidAmount:N2})";
+                    else
+                        payStatus = "Unpaid";
+
+                    int idx = _dgvOrders.Rows.Add();
+                    var r   = _dgvOrders.Rows[idx];
+                    r.Cells["colTxnType"].Value = "Invoice";
+                    r.Cells["colRef"].Value     = o.OrderNumber;
+                    r.Cells["colDate"].Value    = o.OrderDate.ToString("yyyy-MM-dd");
+                    r.Cells["colAmount"].Value  = $"${o.TotalPrice:N2}";
+                    r.Cells["colStatus"].Value  = $"{o.Status} · {payStatus}";
+                    r.Tag = new TxnTag("Sale", o.SalesOrderID, o.IsPaid, o.TotalPrice);
+                    if (!o.IsPaid && o.PaidAmount == 0)
+                        r.DefaultCellStyle.ForeColor = Color.FromArgb(220, 80, 80);
+                    else if (o.IsPaid)
+                        r.DefaultCellStyle.ForeColor = Color.FromArgb(80, 210, 100);
+                    total += o.TotalPrice;
+                    if (o.IsPaid) totalPaid += o.TotalPrice;
+                }
+
+                // Append returns
+                List<ReturnOrder> returns = [];
+                try { returns = _returnRepo.GetReturns(customerId); } catch { }
+                foreach (var ret in returns)
                 {
                     int idx = _dgvOrders.Rows.Add();
                     var r   = _dgvOrders.Rows[idx];
-                    r.Cells["colON"].Value     = o.OrderNumber;
-                    r.Cells["colDate"].Value   = o.OrderDate.ToString("yyyy-MM-dd");
-                    r.Cells["colTotal"].Value  = o.TotalPrice.ToString("N2");
-                    r.Cells["colCurr"].Value   = o.Currency;
-                    r.Cells["colType"].Value   = o.OrderType;
-                    r.Cells["colStatus"].Value = o.Status;
-                    r.Tag = o.SalesOrderID;
-                    total += o.TotalPrice;
-
-                    if (o.IsPaid)
-                    {
-                        string paidDate = o.PaidAt.HasValue ? o.PaidAt.Value.ToString("yyyy-MM-dd") : "";
-                        r.Cells["colPaid"].Value     = $"Paid {paidDate}".Trim();
-                        r.DefaultCellStyle.ForeColor = Color.FromArgb(80, 210, 100);
-                        totalPaid += o.TotalPrice;
-                    }
-                    else
-                    {
-                        r.Cells["colPaid"].Value = "Unpaid";
-                    }
+                    r.Cells["colTxnType"].Value = "Return";
+                    r.Cells["colRef"].Value     = $"RT-{ret.ReturnID}";
+                    r.Cells["colDate"].Value    = ret.ReturnDate.ToString("yyyy-MM-dd");
+                    r.Cells["colAmount"].Value  = "\u2014";
+                    r.Cells["colStatus"].Value  = ret.Status;
+                    r.Tag = new TxnTag("Return", ret.ReturnID, false, 0m);
+                    r.DefaultCellStyle.ForeColor = Color.FromArgb(255, 180, 80);
                 }
 
-                string paidSummary = totalPaid > 0 ? $"  |  Paid: {totalPaid:N2}" : "";
-                _lblStats.Text = $"{orders.Count} order(s)  |  Total: {total:N2}{paidSummary}";
+                // Append payment records
+                List<CustomerPaymentRecord> payments = [];
+                try { payments = _custRepo.GetPayments(customerId); } catch { }
+                foreach (var pmt in payments)
+                {
+                    int idx = _dgvOrders.Rows.Add();
+                    var r   = _dgvOrders.Rows[idx];
+                    r.Cells["colTxnType"].Value = "Payment";
+                    r.Cells["colRef"].Value     = pmt.OrderReference ?? $"SO-{pmt.SalesOrderID}";
+                    r.Cells["colDate"].Value    = pmt.PaidAt.ToString("yyyy-MM-dd");
+                    r.Cells["colAmount"].Value  = $"${pmt.Amount:N2}";
+                    string pmtStatus = pmt.PaymentMethod;
+                    if (!string.IsNullOrWhiteSpace(pmt.Notes)) pmtStatus += $" · {pmt.Notes}";
+                    r.Cells["colStatus"].Value  = pmtStatus;
+                    r.Tag = new TxnTag("Payment", pmt.PaymentID, true, pmt.Amount);
+                    r.DefaultCellStyle.ForeColor = Color.FromArgb(80, 210, 100);
+                }
+
+                string paidSummary = totalPaid > 0 ? $"  |  Paid: ${totalPaid:N2}" : "";
+                string pmtCountStr = payments.Count > 0 ? $"  |  {payments.Count} payment(s)" : "";
+                _lblStats.Text = $"{orders.Count} sale(s)  |  {returns.Count} return(s)  |  Total: ${total:N2}{paidSummary}{pmtCountStr}";
             }
             catch
             {
@@ -288,10 +357,10 @@ namespace JaneERP
         private void DgvOrders_CellDoubleClick(object? sender, DataGridViewCellEventArgs e)
         {
             if (e.RowIndex < 0) return;
-            var row = _dgvOrders.Rows[e.RowIndex];
-            if (row.Tag is not int salesOrderId) return;
-            string orderNum = row.Cells["colON"].Value?.ToString() ?? $"#{salesOrderId}";
-            ShowOrderDetail(salesOrderId, orderNum);
+            var tag = _dgvOrders.Rows[e.RowIndex].Tag as TxnTag;
+            if (tag?.TxnType != "Sale") return;
+            string orderNum = _dgvOrders.Rows[e.RowIndex].Cells["colRef"].Value?.ToString() ?? $"#{tag.ID}";
+            ShowOrderDetail(tag.ID, orderNum);
         }
 
         private void LoadNotes(int customerId)
@@ -383,12 +452,98 @@ namespace JaneERP
         private void BtnReturn_Click(object? sender, EventArgs e)
         {
             if (_dgvOrders.SelectedRows.Count == 0) return;
-            var row = _dgvOrders.SelectedRows[0];
-            if (row.Tag is not int salesOrderId) return;
-            string orderNum = row.Cells["colON"].Value?.ToString() ?? $"#{salesOrderId}";
-
-            using var frm = new FormCreateReturn(salesOrderId, orderNum);
+            var tag = _dgvOrders.SelectedRows[0].Tag as TxnTag;
+            if (tag?.TxnType != "Sale") return;
+            string orderNum = _dgvOrders.SelectedRows[0].Cells["colRef"].Value?.ToString() ?? $"#{tag.ID}";
+            using var frm = new FormCreateReturn(tag.ID, orderNum);
             frm.ShowDialog(this);
+        }
+
+        private void BtnReceivePayment_Click(object? sender, EventArgs e)
+        {
+            if (_dgvOrders.SelectedRows.Count == 0) return;
+            var tag = _dgvOrders.SelectedRows[0].Tag as TxnTag;
+            if (tag?.TxnType != "Sale" || tag.IsPaid) return;
+
+            string orderRef = _dgvOrders.SelectedRows[0].Cells["colRef"].Value?.ToString() ?? $"#{tag.ID}";
+
+            using var dlg = new Form
+            {
+                Text          = $"Receive Payment — {orderRef}",
+                ClientSize    = new Size(400, 280),
+                StartPosition = FormStartPosition.CenterParent,
+                Font          = this.Font
+            };
+            Theme.Apply(dlg);
+            Theme.MakeBorderless(dlg);
+            Theme.AddCloseButton(dlg);
+
+            var lblAmount = new Label { Text = "Amount:", Location = new Point(12, 12), AutoSize = true };
+            var nudAmount = new NumericUpDown
+            {
+                Location      = new Point(12, 32),
+                Size          = new Size(160, 26),
+                DecimalPlaces = 2,
+                Minimum       = 0m,
+                Maximum       = 9_999_999m,
+                Value         = tag.Amount
+            };
+
+            var lblMethod = new Label { Text = "Payment Method:", Location = new Point(190, 12), AutoSize = true };
+            var cboMethod = new ComboBox
+            {
+                Location      = new Point(190, 32),
+                Size          = new Size(190, 23),
+                DropDownStyle = ComboBoxStyle.DropDownList
+            };
+            cboMethod.Items.AddRange(new object[] { "Cash", "Credit Card", "Bank Transfer", "E-Transfer", "Cheque", "Store Credit", "Other" });
+            cboMethod.SelectedIndex = 0;
+
+            var lblDate = new Label { Text = "Date:", Location = new Point(12, 68), AutoSize = true };
+            var dtpDate = new DateTimePicker
+            {
+                Location = new Point(12, 88),
+                Size     = new Size(160, 23),
+                Value    = DateTime.Today,
+                Format   = DateTimePickerFormat.Short
+            };
+
+            var lblNotes = new Label { Text = "Notes (optional):", Location = new Point(12, 122), AutoSize = true };
+            var txtNotes = new TextBox
+            {
+                Location  = new Point(12, 142),
+                Size      = new Size(368, 72),
+                Multiline = true
+            };
+
+            var btnSave   = new Button { Text = "Save",   Location = new Point(12,  228), Size = new Size(80, 28) };
+            var btnCancel = new Button { Text = "Cancel", Location = new Point(100, 228), Size = new Size(80, 28) };
+            btnSave.Click   += (_, _) => { dlg.DialogResult = DialogResult.OK;     dlg.Close(); };
+            btnCancel.Click += (_, _) => { dlg.DialogResult = DialogResult.Cancel; dlg.Close(); };
+            Theme.StyleButton(btnSave);
+            Theme.StyleButton(btnCancel);
+
+            dlg.Controls.AddRange(new Control[] { lblAmount, nudAmount, lblMethod, cboMethod,
+                                                  lblDate, dtpDate, lblNotes, txtNotes,
+                                                  btnSave, btnCancel });
+
+            if (dlg.ShowDialog(this) != DialogResult.OK) return;
+
+            try
+            {
+                decimal  amount = nudAmount.Value;
+                string   method = cboMethod.SelectedItem?.ToString() ?? "Cash";
+                DateTime date   = dtpDate.Value.Date;
+                string?  notes  = string.IsNullOrWhiteSpace(txtNotes.Text) ? null : txtNotes.Text.Trim();
+
+                _custRepo.RecordPayment(tag.ID, _selectedCustomerId, amount, method, date, notes);
+                DgvCustomers_SelectionChanged(null, EventArgs.Empty);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, "Failed to record payment: " + ex.Message, "Error",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
         }
 
         private void ShowOrderDetail(int salesOrderId, string orderNumber)
