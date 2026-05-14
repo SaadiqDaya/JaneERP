@@ -45,7 +45,16 @@ namespace JaneERP
 
             BuildProgressGrid();
             BuildLayout();
-            Load += (_, _) => Reload();
+            Load += (_, _) =>
+            {
+                try { Reload(); }
+                catch (Exception ex)
+                {
+                    Logging.AppLogger.Error($"[FormCookSession.Load] {ex}");
+                    MessageBox.Show($"Failed to load cook session: {ex.Message}", "Load Error",
+                        MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                }
+            };
             Theme.Apply(this);
             Theme.MakeBorderless(this);
         }
@@ -58,12 +67,13 @@ namespace JaneERP
             _dgvProgress.SelectionMode       = DataGridViewSelectionMode.FullRowSelect;
             _dgvProgress.RowHeadersVisible   = false;
 
-            _dgvProgress.Columns.Add(new DataGridViewTextBoxColumn { Name = "colPartName",  HeaderText = "Ingredient",   Width = 200 });
-            _dgvProgress.Columns.Add(new DataGridViewTextBoxColumn { Name = "colUOM",       HeaderText = "UOM",          Width = 55  });
-            _dgvProgress.Columns.Add(new DataGridViewTextBoxColumn { Name = "colTotal",     HeaderText = "Total Needed", Width = 100 });
-            _dgvProgress.Columns.Add(new DataGridViewTextBoxColumn { Name = "colOnHand",    HeaderText = "On Hand",      Width = 80  });
-            _dgvProgress.Columns.Add(new DataGridViewTextBoxColumn { Name = "colProgress",  HeaderText = "Progress",     Width = 70  });
-            _dgvProgress.Columns.Add(new DataGridViewTextBoxColumn { Name = "colStatus",    HeaderText = "Status",       Width = 70  });
+            _dgvProgress.Columns.Add(new DataGridViewTextBoxColumn { Name = "colPartName",  HeaderText = "Ingredient",   Width = 180 });
+            _dgvProgress.Columns.Add(new DataGridViewTextBoxColumn { Name = "colUOM",       HeaderText = "UOM",          Width = 45  });
+            _dgvProgress.Columns.Add(new DataGridViewTextBoxColumn { Name = "colTotal",     HeaderText = "Total (ml)",   Width = 90  });
+            _dgvProgress.Columns.Add(new DataGridViewTextBoxColumn { Name = "colGrams",     HeaderText = "Total (g)",    Width = 90  });
+            _dgvProgress.Columns.Add(new DataGridViewTextBoxColumn { Name = "colOnHand",    HeaderText = "On Hand",      Width = 75  });
+            _dgvProgress.Columns.Add(new DataGridViewTextBoxColumn { Name = "colProgress",  HeaderText = "Progress",     Width = 65  });
+            _dgvProgress.Columns.Add(new DataGridViewTextBoxColumn { Name = "colStatus",    HeaderText = "Status",       Width = 65  });
         }
 
         private void BuildLayout()
@@ -132,8 +142,11 @@ namespace JaneERP
             _ingredients = _repo.GetCookIngredients(_sessionId);
             _steps       = _repo.GetCookSessionSteps(_sessionId);
 
-            var session = _repo.GetCookSession(_sessionId);
-            Text = $"Cook Session — {session?.SessionName ?? _sessionId.ToString()}";
+            var session  = _repo.GetCookSession(_sessionId);
+            var lossTag  = session != null && session.BatchLossPercent > 0
+                ? $"  ({session.BatchLossPercent:G}% loss)"
+                : "";
+            Text = $"Cook Session — {session?.SessionName ?? _sessionId.ToString()}{lossTag}";
             if (session?.Status == "Complete") _btnComplete.Enabled = false;
 
             RefreshProgressGrid();
@@ -168,10 +181,14 @@ namespace JaneERP
                 bool complete = ingr.IsComplete;
                 done  += ingr.StepsDone;
                 total += ingr.StepsTotal;
+                string gramsStr = ingr.TotalRequiredGrams.HasValue
+                    ? $"{ingr.TotalRequiredGrams.Value:N2}"
+                    : "—";
                 int idx = _dgvProgress.Rows.Add(
                     ingr.PartName,
                     ingr.UnitOfMeasure ?? "",
-                    $"{ingr.TotalRequired:N4}",
+                    $"{ingr.TotalRequired:N3}",
+                    gramsStr,
                     ingr.OnHand,
                     ingr.ProgressText,
                     complete ? "Done ✓" : "Pending");
@@ -232,7 +249,10 @@ namespace JaneERP
 
             if (_cmbBatch.SelectedItem is BatchItem bi)
             {
-                _lblRequired.Text = $"Required (this batch): {bi.Step.RequiredQty:N4} {ingr.UnitOfMeasure ?? ""}";
+                string reqStr = bi.Step.RequiredGrams.HasValue
+                    ? $"{bi.Step.RequiredQty:N3} {ingr.UnitOfMeasure ?? ""}  /  {bi.Step.RequiredGrams.Value:N2} g"
+                    : $"{bi.Step.RequiredQty:N3} {ingr.UnitOfMeasure ?? ""}";
+                _lblRequired.Text    = $"Required (this batch): {reqStr}";
                 _btnMarkDone.Enabled = !bi.Step.IsDone;
             }
             else
@@ -241,7 +261,10 @@ namespace JaneERP
                 _btnMarkDone.Enabled = false;
             }
 
-            _lblTotal.Text  = $"Total (all batches):    {ingr.TotalRequired:N4} {ingr.UnitOfMeasure ?? ""}";
+            string totalStr = ingr.TotalRequiredGrams.HasValue
+                ? $"{ingr.TotalRequired:N3} {ingr.UnitOfMeasure ?? ""}  /  {ingr.TotalRequiredGrams.Value:N2} g"
+                : $"{ingr.TotalRequired:N3} {ingr.UnitOfMeasure ?? ""}";
+            _lblTotal.Text  = $"Total (all batches):    {totalStr}";
             bool hasEnough  = ingr.HasEnoughStock;
             _lblOnHand.Text = $"On Hand:                {ingr.OnHand}  {(hasEnough ? "✓" : "✗ SHORTAGE")}";
             _lblOnHand.ForeColor = hasEnough ? Color.LimeGreen : Color.OrangeRed;
@@ -303,8 +326,11 @@ namespace JaneERP
 
         private record BatchItem(CookSessionStep Step)
         {
-            public override string ToString() =>
-                $"{Step.ProductName} — WO #{Step.WorkOrderID}  ×{Step.WorkOrderQty}{(Step.IsDone ? "  ✓" : "")}";
+            public override string ToString()
+            {
+                var flask = string.IsNullOrWhiteSpace(Step.FlaskType) ? "" : $"  [{Step.FlaskType}]";
+                return $"{Step.ProductName} — WO #{Step.WorkOrderID}  ×{Step.WorkOrderQty}{flask}{(Step.IsDone ? "  ✓" : "")}";
+            }
         }
     }
 }
