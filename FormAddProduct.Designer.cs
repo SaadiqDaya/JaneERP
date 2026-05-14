@@ -47,6 +47,12 @@ namespace JaneERP
             colPkgQty           = new DataGridViewTextBoxColumn();
             colPkgNotes         = new DataGridViewTextBoxColumn();
             lblPackageNote      = new Label();
+            lblSourceType        = new Label();
+            cboSourceType        = new ComboBox();
+            lblLinkedPart        = new Label();
+            cboLinkedPart        = new ComboBox();
+            lblLinkedBOM         = new Label();
+            cboLinkedBOM         = new ComboBox();
             btnManageBOM        = new Button();
             btnSave             = new Button();
             btnCancel           = new Button();
@@ -58,98 +64,98 @@ namespace JaneERP
 
             // lblSKU
             lblSKU.AutoSize = true;
-            lblSKU.Location = new Point(20, 22);
+            lblSKU.Location = new Point(20, 94);
             lblSKU.Name     = "lblSKU";
             lblSKU.Text     = "SKU:";
 
             // txtSKU
-            txtSKU.Location = new Point(150, 19);
+            txtSKU.Location = new Point(150, 91);
             txtSKU.Name     = "txtSKU";
             txtSKU.Size     = new Size(260, 23);
             txtSKU.TabIndex = 0;
 
             // lblProductName
             lblProductName.AutoSize = true;
-            lblProductName.Location = new Point(20, 57);
+            lblProductName.Location = new Point(20, 129);
             lblProductName.Name     = "lblProductName";
             lblProductName.Text     = "Product Name:";
 
             // txtProductName
-            txtProductName.Location = new Point(150, 54);
+            txtProductName.Location = new Point(150, 126);
             txtProductName.Name     = "txtProductName";
             txtProductName.Size     = new Size(260, 23);
             txtProductName.TabIndex = 1;
 
             // lblPrice
             lblPrice.AutoSize = true;
-            lblPrice.Location = new Point(20, 92);
+            lblPrice.Location = new Point(20, 164);
             lblPrice.Name     = "lblPrice";
             lblPrice.Text     = "Retail Price:";
 
             // txtPrice
-            txtPrice.Location = new Point(150, 89);
+            txtPrice.Location = new Point(150, 161);
             txtPrice.Name     = "txtPrice";
             txtPrice.Size     = new Size(260, 23);
             txtPrice.TabIndex = 2;
 
             // lblWholesalePrice
             lblWholesalePrice.AutoSize = true;
-            lblWholesalePrice.Location = new Point(20, 127);
+            lblWholesalePrice.Location = new Point(20, 199);
             lblWholesalePrice.Name     = "lblWholesalePrice";
             lblWholesalePrice.Text     = "Wholesale Price:";
 
             // txtWholesalePrice
-            txtWholesalePrice.Location = new Point(150, 124);
+            txtWholesalePrice.Location = new Point(150, 196);
             txtWholesalePrice.Name     = "txtWholesalePrice";
             txtWholesalePrice.Size     = new Size(260, 23);
             txtWholesalePrice.TabIndex = 3;
 
             // lblStock — hidden in edit mode; visible for new products only
             lblStock.AutoSize = true;
-            lblStock.Location = new Point(20, 162);
+            lblStock.Location = new Point(20, 234);
             lblStock.Name     = "lblStock";
             lblStock.Text     = "Opening Stock:";
 
             // txtStock
-            txtStock.Location = new Point(150, 159);
+            txtStock.Location = new Point(150, 231);
             txtStock.Name     = "txtStock";
             txtStock.Size     = new Size(260, 23);
             txtStock.TabIndex = 4;
 
             // lblDefaultLocation
             lblDefaultLocation.AutoSize = true;
-            lblDefaultLocation.Location = new Point(20, 197);
+            lblDefaultLocation.Location = new Point(20, 269);
             lblDefaultLocation.Name     = "lblDefaultLocation";
             lblDefaultLocation.Text     = "Default Location:";
 
             // cboDefaultLocation
             cboDefaultLocation.DropDownStyle = ComboBoxStyle.DropDownList;
-            cboDefaultLocation.Location      = new Point(150, 194);
+            cboDefaultLocation.Location      = new Point(150, 266);
             cboDefaultLocation.Name          = "cboDefaultLocation";
             cboDefaultLocation.Size          = new Size(260, 23);
             cboDefaultLocation.TabIndex      = 5;
 
             // lblProductType
             lblProductType.AutoSize = true;
-            lblProductType.Location = new Point(20, 232);
+            lblProductType.Location = new Point(20, 304);
             lblProductType.Name     = "lblProductType";
             lblProductType.Text     = "Product Type:";
 
             // cboProductType
             cboProductType.DropDownStyle = ComboBoxStyle.DropDownList;
-            cboProductType.Location      = new Point(150, 229);
+            cboProductType.Location      = new Point(150, 301);
             cboProductType.Name          = "cboProductType";
             cboProductType.Size          = new Size(260, 23);
             cboProductType.TabIndex      = 6;
 
             // lblReorderPoint
             lblReorderPoint.AutoSize = true;
-            lblReorderPoint.Location = new Point(20, 267);
+            lblReorderPoint.Location = new Point(20, 339);
             lblReorderPoint.Name     = "lblReorderPoint";
             lblReorderPoint.Text     = "Reorder Point:";
 
             // nudReorderPoint
-            nudReorderPoint.Location = new Point(150, 264);
+            nudReorderPoint.Location = new Point(150, 336);
             nudReorderPoint.Name     = "nudReorderPoint";
             nudReorderPoint.Size     = new Size(120, 23);
             nudReorderPoint.TabIndex = 7;
@@ -158,12 +164,12 @@ namespace JaneERP
 
             // lblOrderUpTo
             lblOrderUpTo.AutoSize = true;
-            lblOrderUpTo.Location = new Point(20, 299);
+            lblOrderUpTo.Location = new Point(20, 371);
             lblOrderUpTo.Name     = "lblOrderUpTo";
             lblOrderUpTo.Text     = "Order Up To:";
 
             // nudOrderUpTo
-            nudOrderUpTo.Location = new Point(150, 296);
+            nudOrderUpTo.Location = new Point(150, 368);
             nudOrderUpTo.Name     = "nudOrderUpTo";
             nudOrderUpTo.Size     = new Size(120, 23);
             nudOrderUpTo.TabIndex = 8;
@@ -172,26 +178,26 @@ namespace JaneERP
 
             // lblVendor
             lblVendor.AutoSize = true;
-            lblVendor.Location = new Point(20, 334);
+            lblVendor.Location = new Point(20, 406);
             lblVendor.Name     = "lblVendor";
             lblVendor.Text     = "Default Vendor:";
 
             // cboVendor
             cboVendor.DropDownStyle = ComboBoxStyle.DropDownList;
-            cboVendor.Location      = new Point(150, 331);
+            cboVendor.Location      = new Point(150, 403);
             cboVendor.Name          = "cboVendor";
             cboVendor.Size          = new Size(260, 23);
             cboVendor.TabIndex      = 9;
 
             // lblUom
             lblUom.AutoSize = true;
-            lblUom.Location = new Point(20, 369);
+            lblUom.Location = new Point(20, 441);
             lblUom.Name     = "lblUom";
             lblUom.Text     = "Unit of Measure:";
 
             // cboUom
             cboUom.DropDownStyle = ComboBoxStyle.DropDown;
-            cboUom.Location      = new Point(150, 366);
+            cboUom.Location      = new Point(150, 438);
             cboUom.Name          = "cboUom";
             cboUom.Size          = new Size(180, 23);
             cboUom.TabIndex      = 10;
@@ -199,7 +205,7 @@ namespace JaneERP
             // lblAttributes
             lblAttributes.AutoSize = true;
             lblAttributes.Font     = new Font("Segoe UI", 9F, FontStyle.Bold);
-            lblAttributes.Location = new Point(20, 404);
+            lblAttributes.Location = new Point(20, 476);
             lblAttributes.Name     = "lblAttributes";
             lblAttributes.Text     = "Custom Attributes:";
 
@@ -220,14 +226,14 @@ namespace JaneERP
             dgvAttributes.AllowUserToDeleteRows = true;
             dgvAttributes.ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.AutoSize;
             dgvAttributes.Columns.AddRange(new DataGridViewColumn[] { colProperty, colValue });
-            dgvAttributes.Location          = new Point(20, 424);
+            dgvAttributes.Location          = new Point(20, 496);
             dgvAttributes.Name              = "dgvAttributes";
             dgvAttributes.RowTemplate.Height = 23;
             dgvAttributes.Size              = new Size(410, 148);
             dgvAttributes.TabIndex          = 11;
 
-            // pnlPackage — shown only when product type is Package
-            pnlPackage.Location  = new Point(20, 582);
+            // pnlPackage — shown only when Package Bundle is selected
+            pnlPackage.Location  = new Point(20, 654);
             pnlPackage.Name      = "pnlPackage";
             pnlPackage.Size      = new Size(410, 180);
             pnlPackage.TabIndex  = 14;
@@ -286,18 +292,61 @@ namespace JaneERP
             pnlPackage.Controls.Add(dgvPackageComponents);
             pnlPackage.Controls.Add(lblPackageNote);
 
-            // btnManageBOM — only shown in edit mode
-            btnManageBOM.Location            = new Point(20, 590);
+            // lblSourceType
+            lblSourceType.AutoSize = true;
+            lblSourceType.Location = new Point(20, 22);
+            lblSourceType.Name     = "lblSourceType";
+            lblSourceType.Text     = "Source Type:";
+
+            // cboSourceType — BOM / Part / Package
+            cboSourceType.DropDownStyle = ComboBoxStyle.DropDownList;
+            cboSourceType.Location      = new Point(150, 19);
+            cboSourceType.Name          = "cboSourceType";
+            cboSourceType.Size          = new Size(260, 23);
+            cboSourceType.TabIndex      = 15;
+            cboSourceType.Items.AddRange(new object[] { "BOM", "Part", "Package" });
+
+            // lblLinkedPart — visible only when "Part" is selected
+            lblLinkedPart.AutoSize = true;
+            lblLinkedPart.Location = new Point(20, 57);
+            lblLinkedPart.Name     = "lblLinkedPart";
+            lblLinkedPart.Text     = "Linked Part:";
+            lblLinkedPart.Visible  = false;
+
+            // cboLinkedPart — visible only when "Part" is selected
+            cboLinkedPart.DropDownStyle = ComboBoxStyle.DropDownList;
+            cboLinkedPart.Location      = new Point(150, 54);
+            cboLinkedPart.Name          = "cboLinkedPart";
+            cboLinkedPart.Size          = new Size(260, 23);
+            cboLinkedPart.TabIndex      = 16;
+            cboLinkedPart.Visible       = false;
+
+            // lblLinkedBOM — visible only when "BOM" is selected
+            lblLinkedBOM.AutoSize = true;
+            lblLinkedBOM.Location = new Point(20, 57);
+            lblLinkedBOM.Name     = "lblLinkedBOM";
+            lblLinkedBOM.Text     = "Copy from BOM:";
+            lblLinkedBOM.Visible  = false;
+
+            // cboLinkedBOM — shows existing BOMs when "BOM" is selected
+            cboLinkedBOM.DropDownStyle = ComboBoxStyle.DropDownList;
+            cboLinkedBOM.Location      = new Point(150, 54);
+            cboLinkedBOM.Name          = "cboLinkedBOM";
+            cboLinkedBOM.Size          = new Size(260, 23);
+            cboLinkedBOM.TabIndex      = 17;
+            cboLinkedBOM.Visible       = false;
+
+            // btnManageBOM
+            btnManageBOM.Location            = new Point(20, 660);
             btnManageBOM.Name                = "btnManageBOM";
             btnManageBOM.Size                = new Size(160, 30);
             btnManageBOM.TabIndex            = 12;
             btnManageBOM.Text                = "Manage BOM / Parts";
             btnManageBOM.UseVisualStyleBackColor = true;
-            btnManageBOM.Visible             = false;
             btnManageBOM.Click              += btnManageBOM_Click;
 
             // btnSave
-            btnSave.Location            = new Point(200, 590);
+            btnSave.Location            = new Point(200, 660);
             btnSave.Name                = "btnSave";
             btnSave.Size                = new Size(110, 30);
             btnSave.TabIndex            = 13;
@@ -306,7 +355,7 @@ namespace JaneERP
             btnSave.Click              += btnSave_Click;
 
             // btnCancel
-            btnCancel.Location          = new Point(320, 590);
+            btnCancel.Location          = new Point(320, 660);
             btnCancel.Name              = "btnCancel";
             btnCancel.Size              = new Size(110, 30);
             btnCancel.TabIndex          = 14;
@@ -317,7 +366,7 @@ namespace JaneERP
             // FormAddProduct
             AutoScaleDimensions = new SizeF(7F, 15F);
             AutoScaleMode       = AutoScaleMode.Font;
-            ClientSize          = new Size(450, 640);
+            ClientSize          = new Size(450, 700);
             Controls.Add(lblSKU);
             Controls.Add(txtSKU);
             Controls.Add(lblProductName);
@@ -342,6 +391,12 @@ namespace JaneERP
             Controls.Add(cboUom);
             Controls.Add(lblAttributes);
             Controls.Add(dgvAttributes);
+            Controls.Add(lblSourceType);
+            Controls.Add(cboSourceType);
+            Controls.Add(lblLinkedBOM);
+            Controls.Add(cboLinkedBOM);
+            Controls.Add(lblLinkedPart);
+            Controls.Add(cboLinkedPart);
             Controls.Add(pnlPackage);
             Controls.Add(btnManageBOM);
             Controls.Add(btnSave);
@@ -386,6 +441,12 @@ namespace JaneERP
         private DataGridView dgvAttributes;
         private DataGridViewComboBoxColumn colProperty;
         private DataGridViewTextBoxColumn colValue;
+        private Label    lblSourceType;
+        private ComboBox cboSourceType;
+        private Label    lblLinkedBOM;
+        private ComboBox cboLinkedBOM;
+        private Label    lblLinkedPart;
+        private ComboBox cboLinkedPart;
         private Button     btnManageBOM;
         private Button     btnSave;
         private Button     btnCancel;

@@ -52,6 +52,10 @@ namespace JaneERP
         private Button btnExitApp;
         private Button btnExpiryTracker;
         private Button btnBackorders;
+        private Button btnReturnsManager;
+        private Button btnReturnsReport;
+        private Button btnInventoryMoveImport;
+        private Button btnPackageExplorer;
 
         // ── Misc ──────────────────────────────────────────────────────────────
         private Label   lblSelectDept;
@@ -112,6 +116,10 @@ namespace JaneERP
             btnVendors        = MakeIconButton("\U0001F3ED", "Vendors",          btnVendors_Click);
             btnExpiryTracker  = MakeIconButton("\u23F0",     "Expiry Tracker",   btnExpiryTracker_Click);
             btnBackorders     = MakeIconButton("\U0001F4E6", "Backorders",       btnBackorders_Click);
+            btnReturnsManager = MakeIconButton("\U0001F504", "Returns",          btnReturnsManager_Click);
+            btnReturnsReport       = MakeIconButton("\U0001F4CB", "Returns Report",      btnReturnsReport_Click);
+            btnInventoryMoveImport = MakeIconButton("\U0001F69A", "Move Import",          btnInventoryMoveImport_Click);
+            btnPackageExplorer     = MakeIconButton("\U0001F381", "Packages",              btnPackageExplorer_Click);
 
             // Header quick-dial buttons — plain style (NOT MakeIconButton so no neon tile paint handler)
             btnJane   = new Button { Text = "\U0001F4DE Jane",    UseVisualStyleBackColor = false };
@@ -154,8 +162,12 @@ namespace JaneERP
             toolTip1.SetToolTip(btnJane,           "Dial Jane directly from this screen");
             toolTip1.SetToolTip(btnOphelia,        "Dial Ophelia directly from this screen");
             toolTip1.SetToolTip(btnProductSearch,  "Explore products with custom attribute filters");
-            toolTip1.SetToolTip(btnExpiryTracker, "View lot stock by expiry date — expired, critical, and upcoming");
-            toolTip1.SetToolTip(btnBackorders,    "View and fulfill open backorder lines");
+            toolTip1.SetToolTip(btnExpiryTracker,  "View lot stock by expiry date — expired, critical, and upcoming");
+            toolTip1.SetToolTip(btnBackorders,     "View and fulfill open backorder lines");
+            toolTip1.SetToolTip(btnReturnsManager, "Review, approve and reject customer returns");
+            toolTip1.SetToolTip(btnReturnsReport,       "Date-range report: returns by condition and credit value");
+            toolTip1.SetToolTip(btnInventoryMoveImport, "Bulk-move stock between locations via CSV (SKU, FromLocation, ToLocation)");
+            toolTip1.SetToolTip(btnPackageExplorer,     "View, create, and manage product bundles and their components");
 
             // ════════════════════════════════════════════════════════════════
             // BEGIN INIT
@@ -278,8 +290,8 @@ namespace JaneERP
             pnlGrid.FlowDirection     = FlowDirection.LeftToRight;
             pnlGrid.WrapContents      = true;
             pnlGrid.AutoScroll        = true;
-            pnlGrid.AutoScrollMargin  = new Size(0, 80); // extra scrollable margin so last row clears the window edge
-            pnlGrid.Padding           = new Padding(18, 14, 18, 200); // generous bottom padding so last row is fully visible
+            pnlGrid.AutoScrollMargin  = new Size(0, 20);
+            pnlGrid.Padding           = new Padding(18, 14, 18, 14);
             pnlGrid.BackColor         = Theme.Background;
 
             // ── Group header helper ──────────────────────────────────────────
@@ -331,6 +343,7 @@ namespace JaneERP
             pnlGrid.Controls.Add(btnVendors);
             pnlGrid.Controls.Add(btnShopifyStores);
             pnlGrid.Controls.Add(btnBackorders);
+            pnlGrid.Controls.Add(btnReturnsManager);
             var sp1 = GrpSpacer(); pnlGrid.Controls.Add(sp1); pnlGrid.SetFlowBreak(sp1, true);
 
             // ── Section: Products & Inventory ────────────────────────────────
@@ -340,6 +353,7 @@ namespace JaneERP
             pnlGrid.Controls.Add(btnInventory);
             pnlGrid.Controls.Add(btnParts);
             pnlGrid.Controls.Add(btnBOM);
+            pnlGrid.Controls.Add(btnPackageExplorer);
             pnlGrid.Controls.Add(btnProductSearch);
             pnlGrid.Controls.Add(btnLocations);
             pnlGrid.Controls.Add(btnProductTypes);
@@ -369,6 +383,7 @@ namespace JaneERP
             pnlGrid.Controls.Add(btnReports);
             pnlGrid.Controls.Add(btnBreakeven);
             pnlGrid.Controls.Add(btnAccounting);
+            pnlGrid.Controls.Add(btnReturnsReport);
             var sp4 = GrpSpacer(); pnlGrid.Controls.Add(sp4); pnlGrid.SetFlowBreak(sp4, true);
 
             // ── Section: Data ─────────────────────────────────────────────────
@@ -377,6 +392,7 @@ namespace JaneERP
             pnlGrid.SetFlowBreak(hdrData, true);
             pnlGrid.Controls.Add(btnExport);
             pnlGrid.Controls.Add(btnImports);
+            pnlGrid.Controls.Add(btnInventoryMoveImport);
             var sp4b = GrpSpacer(); pnlGrid.Controls.Add(sp4b); pnlGrid.SetFlowBreak(sp4b, true);
 
             // ── Section: Team & Administration ───────────────────────────────
@@ -388,6 +404,11 @@ namespace JaneERP
             pnlGrid.Controls.Add(btnLoginLog);
             pnlGrid.Controls.Add(btnActivityLog);
             var sp5 = GrpSpacer(); pnlGrid.Controls.Add(sp5); pnlGrid.SetFlowBreak(sp5, true);
+
+            // Spacer that forces the scroll area to extend well past the last button row
+            var bottomSpacer = new Panel { Width = 1, Height = 180, Margin = new Padding(0), BackColor = Theme.Background };
+            pnlGrid.Controls.Add(bottomSpacer);
+            pnlGrid.SetFlowBreak(bottomSpacer, true);
 
             pnlGrid.Controls.Add(btnExitApp);
             pnlGrid.Controls.Add(lblSelectDept);
@@ -407,6 +428,7 @@ namespace JaneERP
             AutoScaleMode       = AutoScaleMode.Font;
             ClientSize          = new Size(980, 800);
             MinimumSize         = new Size(700, 600);
+            WindowState         = FormWindowState.Maximized;
             FormBorderStyle     = FormBorderStyle.None;
             MaximizeBox         = false;
             Name                = "FormMainMenu";

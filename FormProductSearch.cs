@@ -29,6 +29,7 @@ namespace JaneERP
         private DataGridView dgv             = new();
         private Label        lblCount        = new();
         private Button       btnConfigure    = new();
+        private Button       _btnEdit        = new();
 
         // ── Chip button tracking ──────────────────────────────────────────────────
         private readonly List<Button> _chipButtons  = new();
@@ -143,11 +144,34 @@ namespace JaneERP
             dgv.Columns.Add(Col("colRetail",     "Retail",     80,  right: true));
             dgv.Columns.Add(Col("colWholesale",  "Wholesale",  90,  right: true));
 
-            dgv.CellDoubleClick += Dgv_CellDoubleClick;
+            dgv.CellDoubleClick  += (_, e) => { if (e.RowIndex >= 0) EditSelected(); };
+            dgv.SelectionChanged += (_, _) => _btnEdit.Enabled = dgv.SelectedRows.Count > 0;
+
+            // ── Bottom action bar ─────────────────────────────────────────────────
+            var pnlActions = new Panel { Dock = DockStyle.Bottom, Height = 46, BackColor = Theme.Header };
+
+            var btnAdd = new Button { Text = "+ Add Product", Size = new Size(120, 30), Location = new Point(12, 8) };
+            Theme.StyleButton(btnAdd);
+            btnAdd.Click += (_, _) =>
+            {
+                using var frm = new FormAddProduct(null);
+                if (frm.ShowDialog(this) == DialogResult.OK) { LoadData(); ApplyFilter(); }
+            };
+
+            _btnEdit.Text     = "\u270F Edit Product";
+            _btnEdit.Size     = new Size(120, 30);
+            _btnEdit.Location = new Point(140, 8);
+            _btnEdit.Enabled  = false;
+            Theme.StyleSecondaryButton(_btnEdit);
+            _btnEdit.Click += (_, _) => EditSelected();
+
+            pnlActions.Controls.Add(btnAdd);
+            pnlActions.Controls.Add(_btnEdit);
 
             // ── Control ordering — DockStyle.Top stacks so LAST added = TOPMOST ──
             // Add Fill/Bottom first, then Top panels in reverse visual order.
-            Controls.Add(lblCount);       // Bottom
+            Controls.Add(lblCount);       // Bottom — very bottom
+            Controls.Add(pnlActions);     // Bottom — just above count
             Controls.Add(dgv);            // Fill
             Controls.Add(sepChips);       // Top — sits just above the grid
             Controls.Add(pnlChips);       // Top — collapsible chip row
@@ -400,27 +424,18 @@ namespace JaneERP
         }
 
         // ═══════════════════════════════════════════════════════════════════════════
-        // Grid double-click → open FormAddProduct in edit mode
+        // Edit selected product (used by double-click and Edit button)
         // ═══════════════════════════════════════════════════════════════════════════
-        private void Dgv_CellDoubleClick(object? sender, DataGridViewCellEventArgs e)
+        private void EditSelected()
         {
-            if (e.RowIndex < 0) return;
-            if (dgv.Rows[e.RowIndex].Tag is not Product product) return;
+            if (dgv.SelectedRows.Count == 0) return;
+            if (dgv.SelectedRows[0].Tag is not Product product) return;
 
-            // Load full attributes for this product before opening edit form
-            try
-            {
-                product.Attributes = _repo.GetAttributes(product.ProductID).ToList();
-            }
+            try { product.Attributes = _repo.GetAttributes(product.ProductID).ToList(); }
             catch { /* non-fatal */ }
 
             using var frm = new FormAddProduct(product);
-            if (frm.ShowDialog(this) == DialogResult.OK)
-            {
-                // Refresh data so the grid reflects any edits
-                LoadData();
-                ApplyFilter();
-            }
+            if (frm.ShowDialog(this) == DialogResult.OK) { LoadData(); ApplyFilter(); }
         }
 
         // ═══════════════════════════════════════════════════════════════════════════

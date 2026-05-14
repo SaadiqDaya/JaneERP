@@ -22,7 +22,9 @@ namespace JaneERP
 
         public FormAddProduct() : this(null) { }
 
-        public FormAddProduct(Product? product)
+        /// <param name="product">Existing product to edit, or null to create.</param>
+        /// <param name="presetPackage">When true and creating new, pre-selects "Package Bundle".</param>
+        public FormAddProduct(Product? product, bool presetPackage = false)
         {
             InitializeComponent();
             Theme.Apply(this);
@@ -34,6 +36,17 @@ namespace JaneERP
             LoadVendors();
             LoadUom();
             LoadAttributeNames();
+
+            // Source type wiring — load dependent dropdowns and wire change event
+            LoadLinkedParts();
+            LoadLinkedBOMs();
+            cboSourceType.SelectedIndex = 0; // default to BOM
+            cboSourceType.SelectedIndexChanged += (_, _) => UpdateSourcePanelVisibility();
+            UpdateSourcePanelVisibility();
+
+            // Pre-select Package source when called from Package Explorer
+            if (presetPackage && _editingProduct is null)
+                cboSourceType.SelectedItem = "Package";
 
             if (_editingProduct is not null)
             {
@@ -78,9 +91,6 @@ namespace JaneERP
                 lblStock.Visible = false;
                 txtStock.Visible = false;
 
-                // Show Manage BOM button in edit mode
-                btnManageBOM.Visible = true;
-
                 // Load saved attributes FIRST — before setting the product type.
                 // Setting the type fires SelectedIndexChanged which pre-fills template rows;
                 // if the saved attrs are already in the grid the duplicate-check skips them.
@@ -114,29 +124,64 @@ namespace JaneERP
                     }
                 }
 
-                // If this is a Package product, load its components after the form finishes loading
-                this.Load += (_, _) => LoadPackageComponentsIfPackage();
+                // Detect source type from saved data after form loads
+                this.Load += (_, _) => LoadSourceFromProductData();
             }
         }
 
-        private void LoadPackageComponentsIfPackage()
+        private void LoadSourceFromProductData()
         {
-            if (_editingProduct == null || !IsPackageTypeSelected()) return;
+            if (_editingProduct == null) return;
             try
             {
-                EnsurePackageProductsLoaded();
+                // Check for package components first
                 var components = new Data.PackageRepository().GetComponents(_editingProduct.ProductID);
-                dgvPackageComponents.Rows.Clear();
-                foreach (var c in components)
+                if (components.Count > 0)
                 {
-                    // Ensure SKU is in the combo
-                    var skuCol = dgvPackageComponents.Columns["colPkgSKU"] as DataGridViewComboBoxColumn;
-                    if (skuCol != null && !skuCol.Items.Contains(c.ComponentSKU))
-                        skuCol.Items.Add(c.ComponentSKU);
-                    dgvPackageComponents.Rows.Add(c.ComponentSKU, c.ComponentName, c.Quantity.ToString(), c.Notes ?? string.Empty);
+                    cboSourceType.SelectedItem = "Package"; // triggers UpdateSourcePanelVisibility
+                    EnsurePackageProductsLoaded();
+                    dgvPackageComponents.Rows.Clear();
+                    foreach (var c in components)
+                    {
+                        var skuCol = dgvPackageComponents.Columns["colPkgSKU"] as DataGridViewComboBoxColumn;
+                        if (skuCol != null && !skuCol.Items.Contains(c.ComponentSKU))
+                            skuCol.Items.Add(c.ComponentSKU);
+                        dgvPackageComponents.Rows.Add(c.ComponentSKU, c.ComponentName, c.Quantity.ToString(), c.Notes ?? string.Empty);
+                    }
+                    return;
                 }
+
+                // Check BOM entries to determine source mode
+                var bom = AppServices.Get<IPartRepository>().GetBom(_editingProduct.ProductID);
+                if (bom.Count == 1)
+                {
+                    // Single-entry BOM → Part mode, pre-select that part
+                    cboSourceType.SelectedItem = "Part"; // triggers UpdateSourcePanelVisibility
+                    foreach (var item in cboLinkedPart.Items)
+                    {
+                        if (item is Part p && p.PartID == bom[0].PartID)
+                        {
+                            cboLinkedPart.SelectedItem = item;
+                            break;
+                        }
+                    }
+                }
+                else if (bom.Count > 1)
+                {
+                    // Multi-entry BOM → BOM mode, pre-select this product's own BOM entry
+                    cboSourceType.SelectedItem = "BOM"; // triggers UpdateSourcePanelVisibility
+                    foreach (var item in cboLinkedBOM.Items)
+                    {
+                        if (item is BomChoice choice && choice.SourceProductID == _editingProduct.ProductID)
+                        {
+                            cboLinkedBOM.SelectedItem = item;
+                            break;
+                        }
+                    }
+                }
+                // else: no BOM yet → BOM mode with "(New / Custom)" selected (default)
             }
-            catch (Exception ex) { AppLogger.Info($"[FormAddProduct.LoadPackageComponentsIfPackage]: {ex.Message}"); }
+            catch (Exception ex) { AppLogger.Info($"[FormAddProduct.LoadSourceFromProductData]: {ex.Message}"); }
         }
 
         // All products for Package SKU picker — loaded once
@@ -172,37 +217,93 @@ namespace JaneERP
             catch (Exception ex) { AppLogger.Info($"[FormAddProduct.EnsurePackageProductsLoaded]: {ex.Message}"); }
         }
 
+        private void LoadLinkedParts()
+        {
+            try
+            {
+                var parts = AppServices.Get<IPartRepository>().GetAll();
+                cboLinkedPart.Items.Clear();
+                foreach (var p in parts)
+                    cboLinkedPart.Items.Add(p);
+                if (cboLinkedPart.Items.Count > 0)
+                    cboLinkedPart.SelectedIndex = 0;
+            }
+            catch (Exception ex) { AppLogger.Info($"[FormAddProduct.LoadLinkedParts]: {ex.Message}"); }
+        }
+
+        private void LoadLinkedBOMs()
+        {
+            try
+            {
+                cboLinkedBOM.Items.Clear();
+                cboLinkedBOM.Items.Add(new BomChoice { SourceProductID = 0, Display = "(New / Custom)" });
+                var boms = AppServices.Get<IPartRepository>().GetProductsWithBoms();
+                foreach (var b in boms)
+                {
+                    string display = !string.IsNullOrWhiteSpace(b.BomNumber)
+                        ? $"{b.BomNumber} — {b.ProductName} ({b.PartCount} parts)"
+                        : $"{b.ProductName} ({b.PartCount} parts)";
+                    cboLinkedBOM.Items.Add(new BomChoice { SourceProductID = b.ProductID, Display = display });
+                }
+                cboLinkedBOM.SelectedIndex = 0;
+            }
+            catch (Exception ex) { AppLogger.Info($"[FormAddProduct.LoadLinkedBOMs]: {ex.Message}"); }
+        }
+
+        private sealed class BomChoice
+        {
+            public int    SourceProductID { get; init; }
+            public string Display         { get; init; } = "";
+            public override string ToString() => Display;
+        }
+
+        private void SaveLinkedPart(int productId, int partId)
+        {
+            AppServices.Get<IPartRepository>().SetBom(productId,
+                new[] { (partId, 1m, false, 0m) });
+        }
+
         private bool IsPackageTypeSelected()
         {
             return cboProductType.SelectedItem is Models.ProductType pt
                 && pt.TypeName.Equals("Package", StringComparison.OrdinalIgnoreCase);
         }
 
-        private void UpdatePackagePanelVisibility()
+        private void UpdateSourcePanelVisibility()
         {
-            bool isPackage = IsPackageTypeSelected();
+            string source  = cboSourceType.SelectedItem?.ToString() ?? "BOM";
+            bool isPackage = source == "Package";
+            bool isPart    = source == "Part";
+            bool isBom     = source == "BOM";
+
+            pnlPackage.Visible    = isPackage;
+            lblLinkedBOM.Visible  = isBom;
+            cboLinkedBOM.Visible  = isBom;
+            lblLinkedPart.Visible = isPart;
+            cboLinkedPart.Visible = isPart;
+            btnManageBOM.Visible  = isBom;
+
             if (isPackage)
             {
                 EnsurePackageProductsLoaded();
-
-                // Wire CellEndEdit to auto-populate name column from SKU selection
                 dgvPackageComponents.CellEndEdit -= DgvPackageComponents_CellEndEdit;
                 dgvPackageComponents.CellEndEdit += DgvPackageComponents_CellEndEdit;
-
-                dgvPackageComponents.DataError -= DgvPackageComponents_DataError;
-                dgvPackageComponents.DataError += DgvPackageComponents_DataError;
+                dgvPackageComponents.DataError   -= DgvPackageComponents_DataError;
+                dgvPackageComponents.DataError   += DgvPackageComponents_DataError;
             }
 
-            pnlPackage.Visible = isPackage;
+            // Position buttons below the attributes grid (or package panel for Package mode)
+            int btnY;
+            if (isPackage)
+                btnY = pnlPackage.Bottom + 10;
+            else
+                btnY = 654; // below attributes grid (y=496 h=148 → bottom=644 + 10)
 
-            // Shift buttons down/up to accommodate the panel
-            int btnY = isPackage ? pnlPackage.Bottom + 10 : 590;
-            btnManageBOM.Location = new Point(btnManageBOM.Location.X, btnY);
-            btnSave.Location      = new Point(btnSave.Location.X,      btnY);
-            btnCancel.Location    = new Point(btnCancel.Location.X,    btnY);
+            btnManageBOM.Location = new Point(20,  btnY);
+            btnSave.Location      = new Point(200, btnY);
+            btnCancel.Location    = new Point(320, btnY);
 
-            int formH = isPackage ? 640 + 180 : 640;
-            ClientSize = new Size(ClientSize.Width, formH);
+            ClientSize = new Size(ClientSize.Width, btnY + 50);
         }
 
         private void DgvPackageComponents_DataError(object? sender, DataGridViewDataErrorEventArgs e)
@@ -227,12 +328,33 @@ namespace JaneERP
 
         private void CboProductType_SelectedIndexChanged(object? sender, EventArgs e)
         {
-            UpdatePackagePanelVisibility();
+            // Sync the source type dropdown when the product type changes to/from Package
+            bool typeIsPackage = IsPackageTypeSelected();
+            string currentSource = cboSourceType.SelectedItem?.ToString() ?? "BOM";
+            if (typeIsPackage && currentSource != "Package")
+                cboSourceType.SelectedItem = "Package"; // fires SelectedIndexChanged → UpdateSourcePanelVisibility
+            else if (!typeIsPackage && currentSource == "Package")
+                cboSourceType.SelectedItem = "BOM";
+            else
+                UpdateSourcePanelVisibility();
 
             if (cboProductType.SelectedItem is not Models.ProductType pt || pt.ProductTypeID == 0)
                 return;
 
-            // Pre-populate attribute rows for all attributes (required and optional)
+            // Load attribute definitions so we can sort and colour by category
+            List<Models.AttributeDefinition> defs;
+            try   { defs = new Data.ProductTypeRepository().GetAttributeDefinitions(); }
+            catch { defs = new List<Models.AttributeDefinition>(); }
+
+            var defMap = defs.ToDictionary(d => d.Name, d => d, StringComparer.OrdinalIgnoreCase);
+
+            static int CategoryOrder(string cat) => cat switch
+            {
+                "Manufacturing" => 0,
+                "Marketing"     => 1,
+                _               => 2
+            };
+
             var existingNames = new System.Collections.Generic.HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (DataGridViewRow row in dgvAttributes.Rows)
             {
@@ -242,12 +364,44 @@ namespace JaneERP
 
             var col = dgvAttributes.Columns["colProperty"] as DataGridViewComboBoxColumn;
             if (col == null) return;
-            foreach (var attr in pt.AllAttributes)
+
+            // Insert attributes sorted: Manufacturing → Marketing → General
+            var sorted = pt.AllAttributes
+                .Where(a => !existingNames.Contains(a.AttributeName))
+                .OrderBy(a => defMap.TryGetValue(a.AttributeName, out var d) ? CategoryOrder(d.Category) : 2)
+                .ThenBy(a => a.AttributeName);
+
+            foreach (var attr in sorted)
             {
-                if (existingNames.Contains(attr.AttributeName)) continue;
                 if (!col.Items.Contains(attr.AttributeName)) col.Items.Add(attr.AttributeName);
-                dgvAttributes.Rows.Add(attr.AttributeName, string.Empty);
+                int idx = dgvAttributes.Rows.Add(attr.AttributeName, string.Empty);
+                ApplyAttributeRowColor(dgvAttributes.Rows[idx], defMap, attr.AttributeName);
             }
+
+            // Re-colour any rows that were already loaded (e.g. from the edit-mode constructor path)
+            foreach (DataGridViewRow row in dgvAttributes.Rows)
+            {
+                if (row.IsNewRow) continue;
+                var name = row.Cells["colProperty"].Value?.ToString() ?? "";
+                ApplyAttributeRowColor(row, defMap, name);
+            }
+        }
+
+        private static void ApplyAttributeRowColor(
+            DataGridViewRow row,
+            Dictionary<string, Models.AttributeDefinition> defMap,
+            string attrName)
+        {
+            if (!defMap.TryGetValue(attrName, out var def)) return;
+            row.DefaultCellStyle.BackColor = def.Category switch
+            {
+                "Manufacturing" => Color.FromArgb(18, 50, 58),   // dark teal tint
+                "Marketing"     => Color.FromArgb(50, 42, 14),   // dark gold tint
+                _               => Color.Empty
+            };
+            // Show unit hint in the value cell tooltip for Number-type attributes
+            if (def.DataType == "Number" && !string.IsNullOrWhiteSpace(def.Unit))
+                row.Cells["colValue"].ToolTipText = $"Enter a number in {def.Unit}";
         }
 
         private void LoadLocations()
@@ -321,7 +475,13 @@ namespace JaneERP
 
         private void btnManageBOM_Click(object sender, EventArgs e)
         {
-            if (_editingProduct is null) return;
+            if (_editingProduct is null)
+            {
+                MessageBox.Show(this,
+                    "Save the product first before managing BOM entries.",
+                    "Save First", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
             var partRepo = AppServices.Get<IPartRepository>();
             using var bomEditor = new FormBomEditor(_editingProduct, partRepo);
             bomEditor.ShowDialog(this);
@@ -338,23 +498,53 @@ namespace JaneERP
                 return;
             }
 
-            // Warn if editing an existing product that has no BOM (ProductParts) entries
-            if (_editingProduct != null)
+            // Validate product source
+            string _sourceType = cboSourceType.SelectedItem?.ToString() ?? "BOM";
+            if (_sourceType == "Package")
             {
+                // Package: must have at least one component
+                dgvPackageComponents.CommitEdit(DataGridViewDataErrorContexts.Commit);
+                bool hasComponent = dgvPackageComponents.Rows
+                    .Cast<DataGridViewRow>()
+                    .Any(r => !r.IsNewRow &&
+                              !string.IsNullOrWhiteSpace(r.Cells["colPkgSKU"].Value?.ToString()));
+                if (!hasComponent)
+                {
+                    MessageBox.Show(this,
+                        "Package bundles must have at least one component product.\n\n" +
+                        "Add component products in the Package Contents grid.",
+                        "No Components", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    return;
+                }
+            }
+            else if (_sourceType == "Part")
+            {
+                // Part mode: must have a part selected
+                if (!(cboLinkedPart.SelectedItem is Part))
+                {
+                    MessageBox.Show(this,
+                        "Please select a linked part for this product.",
+                        "Part Required", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
+            }
+            else if (_editingProduct != null && _sourceType == "BOM")
+            {
+                // BOM mode — edit: block save if no BOM entries
                 try
                 {
                     int bomCount = new Data.ProductRepository().GetBomCount(_editingProduct.ProductID);
                     if (bomCount == 0)
                     {
-                        var ans = MessageBox.Show(
+                        MessageBox.Show(this,
                             "This product has no BOM (Bill of Materials) entries.\n\n" +
-                            "Without a BOM, manufacturing costs and parts consumption cannot be tracked.\n\n" +
-                            "Save anyway?",
-                            "No BOM Attached", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
-                        if (ans != DialogResult.Yes) return;
+                            "Every non-package product must have at least one part in the BOM.\n" +
+                            "Click 'Manage BOM / Parts' to add parts before saving.",
+                            "BOM Required", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                        return;
                     }
                 }
-                catch { /* best-effort — don't block save on check failure */ }
+                catch { /* don't block save on check failure */ }
             }
 
             if (!decimal.TryParse(txtPrice.Text, out decimal price))
@@ -431,7 +621,7 @@ namespace JaneERP
             if (cboVendor.SelectedItem is Vendor selVendor && selVendor.VendorID != 0)
                 defaultVendorId = selVendor.VendorID;
 
-            bool isPackage = IsPackageTypeSelected();
+            bool isPackage = _sourceType == "Package";
 
             try
             {
@@ -455,9 +645,11 @@ namespace JaneERP
                     AppLogger.Audit(AppSession.CurrentUser?.Username, "ProductUpdate",
                         $"SKU={_editingProduct.SKU} Name={_editingProduct.ProductName}");
 
-                    // Save package components if this is a Package product
+                    // Save source-specific data
                     if (isPackage)
                         SavePackageComponents(_editingProduct.ProductID);
+                    else if (_sourceType == "Part" && cboLinkedPart.SelectedItem is Part editLinkedPart)
+                        SaveLinkedPart(_editingProduct.ProductID, editLinkedPart.PartID);
 
                     MessageBox.Show("Product updated successfully!", "Success",
                         MessageBoxButtons.OK, MessageBoxIcon.Information);
@@ -502,9 +694,25 @@ namespace JaneERP
                             AppLogger.Info($"[FormAddProduct.btnSave_Click PackageComponents]: {ex2.Message}");
                         }
                     }
+                    else if (_sourceType == "Part")
+                    {
+                        // Save linked part as single-entry BOM
+                        try
+                        {
+                            var savedProduct = AppServices.Get<IProductRepository>().GetProducts()
+                                .FirstOrDefault(p => p.SKU == newProduct.SKU);
+                            if (savedProduct != null && cboLinkedPart.SelectedItem is Part newLinkedPart)
+                                SaveLinkedPart(savedProduct.ProductID, newLinkedPart.PartID);
+                        }
+                        catch (Exception ex2)
+                        {
+                            AppLogger.Info($"[FormAddProduct.btnSave_Click LinkedPart]: {ex2.Message}");
+                        }
+                    }
                     else
                     {
-                        // Auto-open BOM editor for newly created non-Package products
+                        // Auto-open BOM editor for newly created BOM products;
+                        // optionally pre-populate by copying from a selected existing BOM.
                         try
                         {
                             var savedProduct = AppServices.Get<IProductRepository>().GetProducts()
@@ -512,6 +720,16 @@ namespace JaneERP
                             if (savedProduct != null)
                             {
                                 var partRepo = AppServices.Get<IPartRepository>();
+
+                                // Copy BOM entries from selected source product if one was chosen
+                                if (cboLinkedBOM.SelectedItem is BomChoice choice && choice.SourceProductID != 0)
+                                {
+                                    var srcBom = partRepo.GetBom(choice.SourceProductID);
+                                    if (srcBom.Count > 0)
+                                        partRepo.SetBom(savedProduct.ProductID,
+                                            srcBom.Select(b => (b.PartID, b.Quantity, b.CreatesBatchLoss, b.BatchLossRate)));
+                                }
+
                                 using var bomEditor = new FormBomEditor(savedProduct, partRepo);
                                 bomEditor.ShowDialog(this);
 

@@ -95,6 +95,7 @@ namespace JaneERP
             btnInventory.Visible      = isAdmin || isEditor;  // inventory managers need this
             btnParts.Visible          = isAdmin || PermissionHelper.CanEdit("Parts");
             btnBOM.Visible            = isAdmin || PermissionHelper.CanEdit("Parts");
+            btnPackageExplorer.Visible = isAdmin || isEditor;
             btnProductSearch.Visible  = true;  // read-only, visible to all
             btnLocations.Visible      = isAdmin || PermissionHelper.CanEdit("Inventory");
             btnProductTypes.Visible   = isAdmin || PermissionHelper.CanEdit("Inventory");
@@ -103,8 +104,10 @@ namespace JaneERP
             btnInventoryDash.Visible  = isAdmin || isEditor;
             btnReorderReport.Visible  = isAdmin || isEditor;
             btnUnverified.Visible     = isAdmin || PermissionHelper.CanEdit("Inventory");
-            btnExpiryTracker.Visible  = isAdmin || isEditor;
-            btnBackorders.Visible     = isAdmin || PermissionHelper.CanEdit("SalesOrders");
+            btnExpiryTracker.Visible   = isAdmin || isEditor;
+            btnBackorders.Visible      = isAdmin || PermissionHelper.CanEdit("SalesOrders");
+            btnReturnsManager.Visible  = isAdmin || PermissionHelper.CanEdit("SalesOrders");
+            btnReturnsReport.Visible   = isAdmin || isEditor;
 
             // Manufacturing
             btnManufacturing.Visible  = isAdmin || PermissionHelper.CanEdit("Manufacturing");
@@ -118,8 +121,9 @@ namespace JaneERP
             btnAccounting.Visible = isAdmin || isEditor;
 
             // Data
-            btnImports.Visible = isAdmin || PermissionHelper.CanEdit("Inventory");
-            btnExport.Visible  = isAdmin || isEditor;
+            btnImports.Visible             = isAdmin || PermissionHelper.CanEdit("Inventory");
+            btnInventoryMoveImport.Visible = isAdmin || PermissionHelper.CanEdit("Inventory");
+            btnExport.Visible              = isAdmin || isEditor;
 
             // Team & Administration
             btnTaskManager.Visible = true;  // all roles can see and use tasks
@@ -130,6 +134,19 @@ namespace JaneERP
             // Quick Dial (in header) — always visible
             btnJane.Visible    = true;
             btnOphelia.Visible = true;
+        }
+
+        // Add WS_THICKFRAME so Windows enables OS-level resize on this borderless window.
+        // Without this, returning HTLEFT/HTRIGHT/etc from WM_NCHITTEST may be ignored on
+        // some Windows versions/DWM configurations.
+        protected override CreateParams CreateParams
+        {
+            get
+            {
+                var cp = base.CreateParams;
+                cp.Style |= 0x00040000; // WS_SIZEBOX (WS_THICKFRAME)
+                return cp;
+            }
         }
 
         private void IdleTimer_Tick(object? sender, EventArgs e)
@@ -253,6 +270,12 @@ namespace JaneERP
             frm.ShowDialog(this);
         }
 
+        private void btnPackageExplorer_Click(object sender, EventArgs e)
+        {
+            using var frm = new FormPackageExplorer();
+            frm.ShowDialog(this);
+        }
+
         private void btnManufacturing_Click(object sender, EventArgs e)
         {
             using var frm = new FormManufacturingDash();
@@ -319,6 +342,12 @@ namespace JaneERP
             frm.ShowDialog(this);
         }
 
+        private void btnInventoryMoveImport_Click(object sender, EventArgs e)
+        {
+            using var frm = new FormInventoryMoveImport();
+            frm.ShowDialog(this);
+        }
+
         private void btnTaskManager_Click(object sender, EventArgs e)
         {
             using var frm = new FormTaskManager();
@@ -382,6 +411,18 @@ namespace JaneERP
         private void btnBackorders_Click(object sender, EventArgs e)
         {
             using var frm = new FormBackorderDash();
+            frm.ShowDialog(this);
+        }
+
+        private void btnReturnsManager_Click(object sender, EventArgs e)
+        {
+            using var frm = new FormReturnsManager();
+            frm.ShowDialog(this);
+        }
+
+        private void btnReturnsReport_Click(object sender, EventArgs e)
+        {
+            using var frm = new FormReturnsReport();
             frm.ShowDialog(this);
         }
 
