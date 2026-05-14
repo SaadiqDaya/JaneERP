@@ -9,8 +9,8 @@ namespace JaneERP
         private readonly TaskRepository _repo = new();
 
         private DataGridView dgvTasks        = new();
-        private ComboBox     cboFilter       = new();
-        private ComboBox     cboStatusFilter = new();
+        private ComboBox     cboFilter      = new();
+        private ComboBox     cboStageFilter = new();
         private Button       btnAdd          = new();
         private Button       btnDone         = new();
         private Button       btnDelete       = new();
@@ -72,21 +72,23 @@ namespace JaneERP
             cboFilter.SelectedIndexChanged += (_, _) => LoadTasks();
             Controls.Add(cboFilter);
 
-            Controls.Add(new Label { Text = "Status:", Location = new Point(316, 52), AutoSize = true });
-            cboStatusFilter.DropDownStyle = ComboBoxStyle.DropDownList;
-            cboStatusFilter.Location      = new Point(362, 49);
-            cboStatusFilter.Size          = new Size(130, 23);
-            cboStatusFilter.Items.AddRange(new object[] { "All Statuses", "Open", "In Progress", "Done", "Overdue" });
-            cboStatusFilter.SelectedIndex = 0;
-            cboStatusFilter.SelectedIndexChanged += (_, _) => LoadTasks();
-            Controls.Add(cboStatusFilter);
+            Controls.Add(new Label { Text = "Stage:", Location = new Point(316, 52), AutoSize = true });
+            cboStageFilter.DropDownStyle = ComboBoxStyle.DropDownList;
+            cboStageFilter.Location      = new Point(362, 49);
+            cboStageFilter.Size          = new Size(130, 23);
+            cboStageFilter.Items.AddRange(new object[] { "All Stages", "Open", "In Progress", "Done", "Overdue" });
+            cboStageFilter.SelectedIndex = 0;
+            // After form loads, enrich with any workflow stage names
+            Load += (_, _) => EnrichStageFilter();
+            cboStageFilter.SelectedIndexChanged += (_, _) => LoadTasks();
+            Controls.Add(cboStageFilter);
 
             // ── Grid ─────────────────────────────────────────────────────────────
             dgvTasks.AutoGenerateColumns = false;
             dgvTasks.Columns.Add(new DataGridViewTextBoxColumn { Name = "colTitle",     HeaderText = "Title",       DataPropertyName = "Title",       Width = 200 });
             dgvTasks.Columns.Add(new DataGridViewTextBoxColumn { Name = "colAssigned",  HeaderText = "Assigned To", DataPropertyName = "AssignedTo",  Width = 120 });
             dgvTasks.Columns.Add(new DataGridViewTextBoxColumn { Name = "colDue",       HeaderText = "Due Date",    DataPropertyName = "DueDate",     Width = 100 });
-            dgvTasks.Columns.Add(new DataGridViewTextBoxColumn { Name = "colStatus",    HeaderText = "Status",      DataPropertyName = "Status",      Width = 90  });
+            dgvTasks.Columns.Add(new DataGridViewTextBoxColumn { Name = "colStage",     HeaderText = "Stage",       DataPropertyName = "StageDisplay", Width = 110 });
             dgvTasks.Columns.Add(new DataGridViewTextBoxColumn { Name = "colPriority",  HeaderText = "Priority",    DataPropertyName = "Priority",    Width = 80  });
             dgvTasks.Columns.Add(new DataGridViewTextBoxColumn { Name = "colCreatedBy", HeaderText = "Created By",  DataPropertyName = "CreatedBy",   Width = 110 });
             dgvTasks.Columns.Add(new DataGridViewTextBoxColumn { Name = "colWorkflow",  HeaderText = "Workflow",    DataPropertyName = "WorkflowName", Width = 120 });
@@ -106,7 +108,7 @@ namespace JaneERP
                     e.Value = dt.ToString("yyyy-MM-dd");
             };
 
-            // Color overdue rows red, Done rows muted; highlight priority column
+            // Color overdue rows red, Done rows muted; highlight priority + stage columns
             dgvTasks.CellFormatting += (s, e) =>
             {
                 if (e.RowIndex < 0 || dgvTasks.Rows[e.RowIndex].DataBoundItem is not ErpTask t) return;
@@ -126,6 +128,17 @@ namespace JaneERP
                         "High"   => Color.FromArgb(220, 140, 30),
                         "Low"    => Theme.TextMuted,
                         _        => Theme.TextPrimary
+                    };
+                }
+                else if (dgvTasks.Columns["colStage"] is DataGridViewColumn colStage && e.ColumnIndex == colStage.Index)
+                {
+                    // Colour-code stages: first stage = muted, last/Done = green, others = teal
+                    e.CellStyle.ForeColor = t.Status switch
+                    {
+                        "Open"        => Theme.TextMuted,
+                        "Done"        => Theme.TextMuted,
+                        "In Progress" => Theme.Teal,
+                        _             => Theme.Teal
                     };
                 }
             };
@@ -233,14 +246,48 @@ namespace JaneERP
                 ? AppSession.CurrentUser?.Username
                 : null;
 
-            var statusSel    = cboStatusFilter.SelectedItem?.ToString() ?? "All Statuses";
-            bool filterOverdue = statusSel == "Overdue";
-            string? filterStatus = statusSel is "All Statuses" or "Overdue" ? null : statusSel;
+            var stageSel       = cboStageFilter.SelectedItem?.ToString() ?? "All Stages";
+            bool filterOverdue = stageSel == "Overdue";
+            // Legacy statuses map directly to Status column; workflow stages map to WorkflowCurrentStatus
+            string? filterStatus = stageSel is "All Stages" or "Overdue" ? null
+                : stageSel is "Open" or "In Progress" or "Done" ? stageSel
+                : null; // workflow stage — we filter client-side below
+            string? filterStage = stageSel is "All Stages" or "Overdue" or "Open" or "In Progress" or "Done"
+                ? null : stageSel;
 
             var tasks = _repo.GetAll(filterUser, filterStatus);
+
+            // Client-side stage filter for workflow-stage names (not legacy statuses)
+            if (!string.IsNullOrEmpty(filterStage))
+                tasks = tasks.Where(t => string.Equals(t.WorkflowCurrentStatus, filterStage,
+                    StringComparison.OrdinalIgnoreCase)).ToList();
+
             if (filterOverdue)
                 tasks = tasks.Where(t => t.Status != "Done" && t.DueDate.Date < DateTime.Today).ToList();
+
             dgvTasks.DataSource = tasks;
+        }
+
+        /// <summary>Adds any workflow stage names to the stage filter combo (deduplicated).</summary>
+        private void EnrichStageFilter()
+        {
+            try
+            {
+                var workflows = _repo.GetWorkflows();
+                var allStages = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (var wf in workflows)
+                    foreach (var s in _repo.GetWorkflowStatusNames(wf.WorkflowID))
+                        allStages.Add(s);
+
+                foreach (var stage in allStages)
+                {
+                    bool exists = false;
+                    foreach (var item in cboStageFilter.Items)
+                        if (item?.ToString()?.Equals(stage, StringComparison.OrdinalIgnoreCase) == true) { exists = true; break; }
+                    if (!exists) cboStageFilter.Items.Add(stage);
+                }
+            }
+            catch { /* non-fatal */ }
         }
 
         private void LoadMentions()
@@ -362,7 +409,7 @@ namespace JaneERP
             sb.AppendLine("Outstanding Tasks:");
             sb.AppendLine();
             foreach (var t in outstanding)
-                sb.AppendLine($"• [{t.Status}] {t.Title} — Assigned: {t.AssignedTo} — Due: {t.DueDate:yyyy-MM-dd}{(string.IsNullOrEmpty(t.Description) ? "" : $"\n  {t.Description}")}");
+                sb.AppendLine($"• [{t.StageDisplay}] {t.Title} — Assigned: {t.AssignedTo} — Due: {t.DueDate:yyyy-MM-dd}{(string.IsNullOrEmpty(t.Description) ? "" : $"\n  {t.Description}")}");
 
             var body    = Uri.EscapeDataString(sb.ToString());
             var subject = Uri.EscapeDataString($"Outstanding Tasks — {DateTime.Today:yyyy-MM-dd}");

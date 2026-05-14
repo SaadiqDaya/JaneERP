@@ -42,6 +42,28 @@ namespace JaneERP.Data
                         ('Ounce',      'oz',  'g',   28.3495, 30),
                         ('Pound',      'lb',  'g',   453.592, 31),
                         ('Fluid Ounce','fl oz','mL', 29.5735, 32);
+                END
+
+                IF NOT EXISTS (SELECT 1 FROM sysobjects WHERE name='UomConversions' AND xtype='U')
+                BEGIN
+                    CREATE TABLE UomConversions (
+                        ConversionID INT           IDENTITY(1,1) PRIMARY KEY,
+                        FromUOMID    INT           NOT NULL REFERENCES UnitOfMeasures(UOMID) ON DELETE NO ACTION,
+                        ToUOMID      INT           NOT NULL REFERENCES UnitOfMeasures(UOMID) ON DELETE NO ACTION,
+                        Multiplier   DECIMAL(18,6) NOT NULL DEFAULT 1,
+                        CONSTRAINT UQ_UomConversions_Pair UNIQUE (FromUOMID, ToUOMID)
+                    );
+
+                    -- Seed with common conversions derived from the seeded units above
+                    INSERT INTO UomConversions (FromUOMID, ToUOMID, Multiplier)
+                    SELECT f.UOMID, t.UOMID,
+                           CASE WHEN f.BaseUnit = t.Abbreviation THEN f.ConversionFactor
+                                WHEN t.BaseUnit = f.Abbreviation THEN 1.0 / t.ConversionFactor
+                                ELSE f.ConversionFactor / t.ConversionFactor END
+                    FROM UnitOfMeasures f
+                    JOIN UnitOfMeasures t ON f.UOMID <> t.UOMID
+                                        AND ISNULL(f.BaseUnit, f.Abbreviation) = ISNULL(t.BaseUnit, t.Abbreviation)
+                    WHERE f.IsActive = 1 AND t.IsActive = 1;
                 END");
         }
 
@@ -103,6 +125,18 @@ namespace JaneERP.Data
 
             try
             {
+                // First try explicit pairwise conversions table
+                using IDbConnection db = new SqlConnection(_connectionString);
+                var explict = db.QueryFirstOrDefault<decimal?>(@"
+                    SELECT c.Multiplier
+                    FROM   UomConversions c
+                    JOIN   UnitOfMeasures f ON f.UOMID = c.FromUOMID
+                    JOIN   UnitOfMeasures t ON t.UOMID = c.ToUOMID
+                    WHERE  f.Abbreviation = @fromAbbr AND t.Abbreviation = @toAbbr",
+                    new { fromAbbr, toAbbr });
+                if (explict.HasValue) { result = quantity * explict.Value; return true; }
+
+                // Fall back to base-unit conversion factor arithmetic
                 var all  = GetAll(includeInactive: false);
                 var from = all.FirstOrDefault(u => u.Abbreviation.Equals(fromAbbr, StringComparison.OrdinalIgnoreCase));
                 var to   = all.FirstOrDefault(u => u.Abbreviation.Equals(toAbbr,   StringComparison.OrdinalIgnoreCase));
@@ -119,6 +153,41 @@ namespace JaneERP.Data
                 return true;
             }
             catch { return false; }
+        }
+
+        // ── Pairwise conversions ──────────────────────────────────────────────────
+
+        public List<UomConversion> GetConversions()
+        {
+            using IDbConnection db = new SqlConnection(_connectionString);
+            try
+            {
+                return db.Query<UomConversion>(@"
+                    SELECT c.ConversionID, c.FromUOMID, c.ToUOMID, c.Multiplier,
+                           f.Abbreviation AS FromAbbr,
+                           t.Abbreviation AS ToAbbr
+                    FROM   UomConversions c
+                    JOIN   UnitOfMeasures f ON f.UOMID = c.FromUOMID
+                    JOIN   UnitOfMeasures t ON t.UOMID = c.ToUOMID
+                    ORDER  BY f.DisplayOrder, f.Abbreviation, t.Abbreviation").ToList();
+            }
+            catch { return new List<UomConversion>(); }
+        }
+
+        public void AddConversion(int fromUomId, int toUomId, decimal multiplier)
+        {
+            using IDbConnection db = new SqlConnection(_connectionString);
+            db.Execute(@"
+                INSERT INTO UomConversions (FromUOMID, ToUOMID, Multiplier)
+                VALUES (@fromUomId, @toUomId, @multiplier)",
+                new { fromUomId, toUomId, multiplier });
+        }
+
+        public void DeleteConversion(int conversionId)
+        {
+            using IDbConnection db = new SqlConnection(_connectionString);
+            db.Execute("DELETE FROM UomConversions WHERE ConversionID = @conversionId",
+                new { conversionId });
         }
     }
 }

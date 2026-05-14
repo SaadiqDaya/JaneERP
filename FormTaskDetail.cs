@@ -20,11 +20,12 @@ namespace JaneERP
         private Button         btnClose           = new();
         private DateTimePicker dtpDueDate         = new();
         private Button         btnSaveChanges     = new();
-        private ComboBox       cboStatus          = new();
+        /// <summary>Stage dropdown — shows workflow stages when a workflow is active, legacy statuses otherwise.</summary>
+        private ComboBox       cboStage           = new();
+        private Label          lblStageHint       = new();
         private ComboBox       cboAssign          = new();
         private ComboBox       cboPriority        = new();
         private ComboBox       cboWorkflow        = new();
-        private Label          lblWorkflowStep    = new();
         private Button         btnAdvanceWorkflow = new();
 
         // @-mention popup
@@ -110,15 +111,21 @@ namespace JaneERP
 
             Controls.Add(pnlHeader);
 
-            // ── Properties row (Status | Assigned | Priority) ─────────────────────────
-            Controls.Add(new Label { Text = "Status:", Location = new Point(12, 86), AutoSize = true });
-            cboStatus.DropDownStyle = ComboBoxStyle.DropDownList;
-            cboStatus.Location      = new Point(62, 82);
-            cboStatus.Size          = new Size(118, 23);
-            cboStatus.Items.AddRange(new object[] { "Open", "In Progress", "Done" });
-            cboStatus.SelectedItem = _task.Status;
-            if (cboStatus.SelectedIndex < 0) cboStatus.SelectedIndex = 0;
-            Controls.Add(cboStatus);
+            // ── Properties row (Stage | Assigned | Priority) ──────────────────────────
+            Controls.Add(new Label { Text = "Stage:", Location = new Point(12, 86), AutoSize = true });
+            cboStage.DropDownStyle = ComboBoxStyle.DropDownList;
+            cboStage.Location      = new Point(62, 82);
+            cboStage.Size          = new Size(140, 23);
+            // Initial population: legacy statuses (overridden by workflow once loaded)
+            PopulateStageDropdown(null);
+            Controls.Add(cboStage);
+
+            lblStageHint.Location  = new Point(210, 86);
+            lblStageHint.AutoSize  = true;
+            lblStageHint.ForeColor = Theme.TextMuted;
+            lblStageHint.Font      = new Font("Segoe UI", 7.5F);
+            lblStageHint.Text      = "(select a workflow to use workflow stages)";
+            Controls.Add(lblStageHint);
 
             Controls.Add(new Label { Text = "Assigned:", Location = new Point(192, 86), AutoSize = true });
             cboAssign.DropDownStyle = ComboBoxStyle.DropDownList;
@@ -174,20 +181,16 @@ namespace JaneERP
             cboWorkflow.SelectedIndexChanged += CboWorkflow_SelectedIndexChanged;
             Controls.Add(cboWorkflow);
 
-            lblWorkflowStep.Location  = new Point(274, 210);
-            lblWorkflowStep.AutoSize  = true;
-            lblWorkflowStep.ForeColor = Theme.Teal;
-            Controls.Add(lblWorkflowStep);
-
-            btnAdvanceWorkflow.Text     = "Advance >";
-            btnAdvanceWorkflow.Size     = new Size(95, 23);
+            btnAdvanceWorkflow.Text     = "→ Next Stage";
+            btnAdvanceWorkflow.Size     = new Size(105, 23);
             btnAdvanceWorkflow.Anchor   = AnchorStyles.Top | AnchorStyles.Right;
-            btnAdvanceWorkflow.Location = new Point(593, 206);
+            btnAdvanceWorkflow.Location = new Point(583, 206);
             btnAdvanceWorkflow.Visible  = false;
             btnAdvanceWorkflow.Click   += BtnAdvanceWorkflow_Click;
             Controls.Add(btnAdvanceWorkflow);
 
-            RefreshWorkflowUI();
+            // After workflow combo is wired, refresh stage dropdown to match the task's workflow/stage
+            RefreshStageDropdown();
 
             // ── Discussion ────────────────────────────────────────────────────────────
             Controls.Add(new Label { Text = "Discussion (type @ to tag a user):", Location = new Point(12, 242), AutoSize = true });
@@ -241,8 +244,11 @@ namespace JaneERP
             Controls.Add(btnClose);
         }
 
-        private string BuildMetaText() =>
-            $"Created by: {_task.CreatedBy}   •   Status: {_task.Status}   •   Priority: {_task.Priority}   •   Assigned: {_task.AssignedTo}";
+        private string BuildMetaText()
+        {
+            var stageDisplay = _task.WorkflowCurrentStatus ?? _task.Status;
+            return $"Created by: {_task.CreatedBy}   •   Stage: {stageDisplay}   •   Priority: {_task.Priority}   •   Assigned: {_task.AssignedTo}";
+        }
 
         private void LoadComments()
         {
@@ -255,39 +261,57 @@ namespace JaneERP
             catch { lstComments.Items.Add("(Could not load comments)"); }
         }
 
-        // ── Workflow ──────────────────────────────────────────────────────────────────
+        // ── Workflow + Stage ─────────────────────────────────────────────────────────
 
-        private void RefreshWorkflowUI()
+        /// <summary>
+        /// Populates <see cref="cboStage"/> based on the currently selected workflow.
+        /// When no workflow is active, shows the legacy Open/In Progress/Done statuses.
+        /// </summary>
+        private void PopulateStageDropdown(List<string>? stages)
+        {
+            cboStage.Items.Clear();
+            if (stages == null || stages.Count == 0)
+            {
+                // Legacy mode — no workflow
+                cboStage.Items.AddRange(new object[] { "Open", "In Progress", "Done" });
+                lblStageHint.Text = "(no workflow — using legacy statuses)";
+                // Select from task's Status field
+                cboStage.SelectedItem = _task.Status;
+                if (cboStage.SelectedIndex < 0) cboStage.SelectedIndex = 0;
+                btnAdvanceWorkflow.Visible = false;
+            }
+            else
+            {
+                foreach (var s in stages) cboStage.Items.Add(s);
+                var current = _task.WorkflowCurrentStatus ?? stages[0];
+                int idx = stages.IndexOf(current);
+                cboStage.SelectedIndex = idx >= 0 ? idx : 0;
+
+                int curIdx = cboStage.SelectedIndex;
+                lblStageHint.Text = curIdx + 1 < stages.Count
+                    ? $"Step {curIdx + 1}/{stages.Count}  (next: {stages[curIdx + 1]})"
+                    : $"Step {stages.Count}/{stages.Count}  (final step)";
+                btnAdvanceWorkflow.Text    = (curIdx + 1 < stages.Count) ? "→ Next Stage" : "Complete ✓";
+                btnAdvanceWorkflow.Visible = true;
+            }
+        }
+
+        /// <summary>Re-reads the workflow combo and refreshes Stage dropdown accordingly.</summary>
+        private void RefreshStageDropdown()
         {
             if (cboWorkflow.SelectedItem is not WorkflowComboItem wfItem || wfItem.ID == null)
             {
-                lblWorkflowStep.Text      = "";
-                btnAdvanceWorkflow.Visible = false;
+                PopulateStageDropdown(null);
                 return;
             }
             try
             {
                 var statuses = _repo.GetWorkflowStatusNames(wfItem.ID.Value);
-                if (statuses.Count == 0)
-                {
-                    lblWorkflowStep.Text      = "(no statuses defined)";
-                    btnAdvanceWorkflow.Visible = false;
-                    return;
-                }
-                var current = _task.WorkflowCurrentStatus ?? statuses[0];
-                var idx     = statuses.IndexOf(current);
-                if (idx < 0) idx = 0;
-                var text = $"Step {idx + 1}/{statuses.Count}: {statuses[idx]}";
-                if (idx + 1 < statuses.Count) text += $"  →  {statuses[idx + 1]}";
-                else                           text += "  (final step)";
-                lblWorkflowStep.Text       = text;
-                btnAdvanceWorkflow.Text    = (idx + 1 < statuses.Count) ? "Advance >" : "Complete ✓";
-                btnAdvanceWorkflow.Visible = true;
+                PopulateStageDropdown(statuses.Count > 0 ? statuses : null);
             }
             catch
             {
-                lblWorkflowStep.Text      = "";
-                btnAdvanceWorkflow.Visible = false;
+                PopulateStageDropdown(null);
             }
         }
 
@@ -303,7 +327,7 @@ namespace JaneERP
                     _task.WorkflowCurrentStatus = null;
                     Changed = true;
                 }
-                RefreshWorkflowUI();
+                RefreshStageDropdown();
                 return;
             }
             try
@@ -314,7 +338,7 @@ namespace JaneERP
                 _task.WorkflowID            = wfItem.ID;
                 _task.WorkflowCurrentStatus = initial;
                 Changed = true;
-                RefreshWorkflowUI();
+                RefreshStageDropdown();
             }
             catch (Exception ex) { MessageBox.Show(this, ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error); }
         }
@@ -338,7 +362,6 @@ namespace JaneERP
                     _repo.UpdateStatus(_task.TaskID, "Done");
                     _task.WorkflowCurrentStatus = statuses[^1];
                     _task.Status = "Done";
-                    cboStatus.SelectedItem = "Done";
                 }
                 else
                 {
@@ -347,7 +370,7 @@ namespace JaneERP
                     _task.WorkflowCurrentStatus = next;
                 }
                 Changed = true;
-                RefreshWorkflowUI();
+                RefreshStageDropdown();
                 lblMeta.Text = BuildMetaText();
             }
             catch (Exception ex) { MessageBox.Show(this, ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error); }
@@ -482,9 +505,10 @@ namespace JaneERP
             List<(string username, string email)> targets;
             try { targets = _repo.GetUserEmails(mentions); } catch { return; }
             var subject  = $"[JaneERP] You were mentioned in task: {_task.Title}";
+            var stageDisplay = _task.WorkflowCurrentStatus ?? _task.Status;
             var bodyText =
                 $"You were mentioned by {postedBy} in a task comment.\n\n" +
-                $"Task: {_task.Title}\nAssigned to: {_task.AssignedTo}\nDue: {_task.DueDate:yyyy-MM-dd}\nStatus: {_task.Status}\n\n" +
+                $"Task: {_task.Title}\nAssigned to: {_task.AssignedTo}\nDue: {_task.DueDate:yyyy-MM-dd}\nStage: {stageDisplay}\n\n" +
                 $"Comment:\n{commentBody}\n\nPlease log in to JaneERP to view the full discussion.";
             foreach (var (_, email) in targets)
             {
@@ -516,12 +540,30 @@ namespace JaneERP
                 _repo.UpdateDescription(_task.TaskID, newDesc);
                 _task.Description = newDesc;
 
-                // Status
-                var newStatus = cboStatus.SelectedItem?.ToString() ?? "Open";
-                if (newStatus != _task.Status)
+                // Stage / Status
+                // If a workflow is active, save the selected stage as WorkflowCurrentStatus
+                // and derive Status from it (Done if last stage, otherwise In Progress/Open).
+                var stageVal = cboStage.SelectedItem?.ToString() ?? "";
+                if (cboWorkflow.SelectedItem is WorkflowComboItem wfi && wfi.ID != null)
                 {
-                    _repo.UpdateStatus(_task.TaskID, newStatus);
-                    _task.Status = newStatus;
+                    // Workflow active — save stage
+                    if (stageVal != _task.WorkflowCurrentStatus)
+                    {
+                        _repo.UpdateWorkflowStatus(_task.TaskID, wfi.ID, stageVal);
+                        _task.WorkflowCurrentStatus = stageVal;
+                        // Auto-derive legacy Status
+                        var allStages = _repo.GetWorkflowStatusNames(wfi.ID.Value);
+                        bool isFinal = allStages.Count > 0 && stageVal == allStages[^1];
+                        var derived  = isFinal ? "Done" : (allStages.IndexOf(stageVal) == 0 ? "Open" : "In Progress");
+                        if (derived != _task.Status) { _repo.UpdateStatus(_task.TaskID, derived); _task.Status = derived; }
+                        RefreshStageDropdown();
+                    }
+                }
+                else
+                {
+                    // No workflow — stage combo holds legacy statuses
+                    var newStatus = stageVal is "Open" or "In Progress" or "Done" ? stageVal : "Open";
+                    if (newStatus != _task.Status) { _repo.UpdateStatus(_task.TaskID, newStatus); _task.Status = newStatus; }
                 }
 
                 // Assigned To

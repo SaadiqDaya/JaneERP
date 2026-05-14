@@ -57,7 +57,16 @@ namespace JaneERP
             Theme.MakeResizable(this);
             Theme.MakeDraggable(this, _pnlHeader);
 
-            Load += (_, _) => RefreshOrders();
+            Load += (_, _) =>
+            {
+                try { RefreshOrders(); }
+                catch (Exception ex)
+                {
+                    Logging.AppLogger.Error($"[FormPickingDash.Load] {ex}");
+                    MessageBox.Show($"Picking screen error: {ex.Message}", "Error",
+                        MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
+            };
         }
 
         // ── Layout ────────────────────────────────────────────────────────────────
@@ -194,7 +203,16 @@ namespace JaneERP
         private void RefreshOrders()
         {
             int? prevId = _current?.SalesOrderID;
-            _orders = _svc.GetFulfillmentOrders("Live", "Picking");
+            try { _orders = _svc.GetFulfillmentOrders("Live", "Picking"); }
+            catch (Exception ex)
+            {
+                Logging.AppLogger.Error($"[FormPickingDash.RefreshOrders] {ex}");
+                _orders = [];
+                _dgvOrders.Rows.Clear();
+                _lblOrderInfo.Text = $"Could not load orders: {ex.Message}";
+                UpdateButtons();
+                return;
+            }
 
             _dgvOrders.SuspendLayout();
             _dgvOrders.Rows.Clear();
@@ -228,15 +246,24 @@ namespace JaneERP
 
         private void LoadItems(int salesOrderId)
         {
-            _items = _svc.GetOrderItemsWithPicking(salesOrderId);
+            try { _items = _svc.GetOrderItemsWithPicking(salesOrderId); }
+            catch (Exception ex)
+            {
+                Logging.AppLogger.Error($"[FormPickingDash.LoadItems] {ex}");
+                _items = [];
+                _dgvItems.Rows.Clear();
+                _lblOrderInfo.Text = $"Could not load items: {ex.Message}";
+                UpdateButtons();
+                return;
+            }
             _dgvItems.SuspendLayout();
             _dgvItems.Rows.Clear();
             foreach (var item in _items)
             {
                 int remaining = Math.Max(0, item.Quantity - item.PickedQty);
                 int i = _dgvItems.Rows.Add(
-                    item.SKU,
-                    item.Title,
+                    item.SKU ?? "",
+                    item.Title ?? "",
                     item.Quantity,
                     item.PickedQty,
                     remaining,
@@ -328,45 +355,74 @@ namespace JaneERP
         private void BtnStartPicking_Click(object? sender, EventArgs e)
         {
             if (_current == null || _current.Status != "Live") return;
-
-            // Show inventory reservation dialog so the picker can lock specific locations
-            var lines = _svc.GetSOReservationItems(_current.SalesOrderID);
-            if (lines.Count > 0)
+            try
             {
-                using var resForm = new FormStockReservation(
-                    $"Lock Inventory — Order #{_current.OrderNumber}  ({_current.CustomerName})", lines);
-                if (resForm.ShowDialog(this) != DialogResult.OK) return;
-                if (resForm.ConfirmedLines?.Count > 0)
-                    _svc.SaveSOReservations(_current.SalesOrderID, resForm.ConfirmedLines);
-            }
+                // Show inventory reservation dialog so the picker can lock specific locations
+                List<ReservationLine> lines;
+                try { lines = _svc.GetSOReservationItems(_current.SalesOrderID); }
+                catch { lines = []; }
 
-            _svc.UpdateOrderStatus(_current.SalesOrderID, "Picking");
-            Logging.AppLogger.Audit(AppSession.CurrentUser?.Username ?? "system",
-                "StartPicking", $"OrderID={_current.SalesOrderID} #{_current.OrderNumber}");
-            RefreshOrders();
+                if (lines.Count > 0)
+                {
+                    using var resForm = new FormStockReservation(
+                        $"Lock Inventory — Order #{_current.OrderNumber}  ({_current.CustomerName})", lines);
+                    if (resForm.ShowDialog(this) != DialogResult.OK) return;
+                    if (resForm.ConfirmedLines?.Count > 0)
+                        _svc.SaveSOReservations(_current.SalesOrderID, resForm.ConfirmedLines);
+                }
+
+                _svc.UpdateOrderStatus(_current.SalesOrderID, "Picking");
+                Logging.AppLogger.Audit(AppSession.CurrentUser?.Username ?? "system",
+                    "StartPicking", $"OrderID={_current.SalesOrderID} #{_current.OrderNumber}");
+                RefreshOrders();
+            }
+            catch (Exception ex)
+            {
+                Logging.AppLogger.Error($"[FormPickingDash.BtnStartPicking_Click] {ex}");
+                MessageBox.Show(this, $"Could not start picking: {ex.Message}", "Error",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
         }
 
         private void BtnPickAll_Click(object? sender, EventArgs e)
         {
             if (_current == null || _current.Status != "Picking") return;
-            string picker = AppSession.CurrentUser?.Username ?? "system";
-            foreach (var item in _items)
+            try
             {
-                item.PickedQty = item.Quantity;
-                _svc.UpdatePickedQty(item.SalesOrderItemID, item.Quantity, picker);
+                string picker = AppSession.CurrentUser?.Username ?? "system";
+                foreach (var item in _items)
+                {
+                    item.PickedQty = item.Quantity;
+                    _svc.UpdatePickedQty(item.SalesOrderItemID, item.Quantity, picker);
+                }
+                LoadItems(_current.SalesOrderID);
+                RefreshOrders();
             }
-            LoadItems(_current.SalesOrderID);
-            RefreshOrders();
+            catch (Exception ex)
+            {
+                Logging.AppLogger.Error($"[FormPickingDash.BtnPickAll_Click] {ex}");
+                MessageBox.Show(this, $"Could not pick all items: {ex.Message}", "Error",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
         }
 
         private void BtnSave_Click(object? sender, EventArgs e)
         {
             if (_current == null) return;
-            CommitAndSave();
-            MessageBox.Show(this, "Pick progress saved.", "Saved",
-                MessageBoxButtons.OK, MessageBoxIcon.Information);
-            LoadItems(_current.SalesOrderID);
-            RefreshOrders();
+            try
+            {
+                CommitAndSave();
+                MessageBox.Show(this, "Pick progress saved.", "Saved",
+                    MessageBoxButtons.OK, MessageBoxIcon.Information);
+                LoadItems(_current.SalesOrderID);
+                RefreshOrders();
+            }
+            catch (Exception ex)
+            {
+                Logging.AppLogger.Error($"[FormPickingDash.BtnSave_Click] {ex}");
+                MessageBox.Show(this, $"Could not save pick progress: {ex.Message}", "Error",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
         }
 
         private void BtnComplete_Click(object? sender, EventArgs e)
@@ -379,11 +435,20 @@ namespace JaneERP
                     "Incomplete", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }
-            CommitAndSave();
-            _svc.UpdateOrderStatus(_current.SalesOrderID, "Packing");
-            Logging.AppLogger.Audit(AppSession.CurrentUser?.Username ?? "system",
-                "PickingComplete", $"OrderID={_current.SalesOrderID} #{_current.OrderNumber}");
-            RefreshOrders();
+            try
+            {
+                CommitAndSave();
+                _svc.UpdateOrderStatus(_current.SalesOrderID, "Packing");
+                Logging.AppLogger.Audit(AppSession.CurrentUser?.Username ?? "system",
+                    "PickingComplete", $"OrderID={_current.SalesOrderID} #{_current.OrderNumber}");
+                RefreshOrders();
+            }
+            catch (Exception ex)
+            {
+                Logging.AppLogger.Error($"[FormPickingDash.BtnComplete_Click] {ex}");
+                MessageBox.Show(this, $"Could not complete picking: {ex.Message}", "Error",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
         }
 
         // ── Helpers ───────────────────────────────────────────────────────────────

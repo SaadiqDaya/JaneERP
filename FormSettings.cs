@@ -11,6 +11,7 @@ namespace JaneERP
         private readonly IUomRepository       _uomRepo       = AppServices.Get<IUomRepository>();
         private readonly IAccountingRepository _accountingRepo = AppServices.Get<IAccountingRepository>();
         private DataGridView            _dgvUom         = new();
+        private DataGridView            _dgvConversions = new();
         private DataGridView            _dgvTaxRates    = new();
         private DataGridView            _dgvFlasks      = new();
         private DataGridView            _dgvLossPresets = new();
@@ -77,6 +78,7 @@ namespace JaneERP
             LoadShippingMethods();
             LoadManufacturingSettings();
             LoadUoms();
+            LoadConversions();
         }
 
         private void BuildUI()
@@ -622,40 +624,40 @@ namespace JaneERP
             var pnl = new Panel { AutoScroll = true };
             int y = 16;
 
+            // ── Section 1: Unit Definitions ───────────────────────────────────────
             pnl.Controls.Add(new Label
             {
                 Text = "Units of Measure", Font = new Font("Segoe UI", 11F, FontStyle.Bold),
                 ForeColor = Theme.Gold, Location = new Point(16, y), AutoSize = true
             });
-            y += 28;
-
+            y += 24;
             pnl.Controls.Add(new Label
             {
-                Text      = "ConversionFactor = how many base units equal 1 of this unit  (e.g. kg → g: factor = 1000)",
+                Text      = "Define unit names and abbreviations.  BaseUnit + ConversionFactor power the conversion calculator.",
                 ForeColor = Theme.TextSecondary, Location = new Point(16, y), AutoSize = true
             });
             y += 22;
 
             _dgvUom.AutoGenerateColumns = false;
-            _dgvUom.Columns.Add(new DataGridViewTextBoxColumn  { Name = "colUomID",    Visible = false });
-            _dgvUom.Columns.Add(new DataGridViewTextBoxColumn  { Name = "colName",     HeaderText = "Name",              Width = 110 });
-            _dgvUom.Columns.Add(new DataGridViewTextBoxColumn  { Name = "colAbbr",     HeaderText = "Abbreviation",      Width = 90  });
-            _dgvUom.Columns.Add(new DataGridViewTextBoxColumn  { Name = "colBase",     HeaderText = "Base Unit",         Width = 80  });
-            _dgvUom.Columns.Add(new DataGridViewTextBoxColumn  { Name = "colFactor",   HeaderText = "Conversion Factor", Width = 110 });
-            _dgvUom.Columns.Add(new DataGridViewTextBoxColumn  { Name = "colOrder",    HeaderText = "Display Order",     Width = 90  });
-            _dgvUom.Columns.Add(new DataGridViewCheckBoxColumn { Name = "colUomActive",HeaderText = "Active",            Width = 58  });
+            _dgvUom.Columns.Add(new DataGridViewTextBoxColumn  { Name = "colUomID",     Visible = false });
+            _dgvUom.Columns.Add(new DataGridViewTextBoxColumn  { Name = "colName",      HeaderText = "Name",              Width = 110 });
+            _dgvUom.Columns.Add(new DataGridViewTextBoxColumn  { Name = "colAbbr",      HeaderText = "Abbreviation",      Width = 90  });
+            _dgvUom.Columns.Add(new DataGridViewTextBoxColumn  { Name = "colBase",      HeaderText = "Base Unit",         Width = 80  });
+            _dgvUom.Columns.Add(new DataGridViewTextBoxColumn  { Name = "colFactor",    HeaderText = "Conv. Factor",      Width = 90  });
+            _dgvUom.Columns.Add(new DataGridViewTextBoxColumn  { Name = "colOrder",     HeaderText = "Order",             Width = 56  });
+            _dgvUom.Columns.Add(new DataGridViewCheckBoxColumn { Name = "colUomActive", HeaderText = "Active",            Width = 58  });
             _dgvUom.AllowUserToAddRows    = false;
             _dgvUom.AllowUserToDeleteRows = false;
             _dgvUom.SelectionMode         = DataGridViewSelectionMode.FullRowSelect;
             _dgvUom.Location              = new Point(16, y);
-            _dgvUom.Size                  = new Size(600, 280);
+            _dgvUom.Size                  = new Size(560, 220);
             _dgvUom.Anchor                = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
             pnl.Controls.Add(_dgvUom);
-            y += 290;
+            y += 230;
 
             var btnAddUomRow = new Button { Text = "+ Add Row",       Size = new Size(90, 28),  Location = new Point(16, y) };
             var btnDelUomRow = new Button { Text = "Delete Selected", Size = new Size(120, 28), Location = new Point(114, y) };
-            var btnSaveUoms  = new Button { Text = "Save Changes",    Size = new Size(120, 28), Location = new Point(496, y) };
+            var btnSaveUoms  = new Button { Text = "Save Changes",    Size = new Size(120, 28), Location = new Point(448, y) };
             btnAddUomRow.Click += (_, _) =>
             {
                 int nextOrder = _dgvUom.Rows.Count * 10;
@@ -671,9 +673,108 @@ namespace JaneERP
             pnl.Controls.Add(btnAddUomRow);
             pnl.Controls.Add(btnDelUomRow);
             pnl.Controls.Add(btnSaveUoms);
-            y += 38;
+            y += 44;
 
-            // ── Conversion calculator ─────────────────────────────────────────────
+            // ── Section 2: Conversion Rates ───────────────────────────────────────
+            pnl.Controls.Add(new Label
+            {
+                Text = "Conversion Rates", Font = new Font("Segoe UI", 11F, FontStyle.Bold),
+                ForeColor = Theme.Gold, Location = new Point(16, y), AutoSize = true
+            });
+            y += 24;
+            pnl.Controls.Add(new Label
+            {
+                Text      = "Explicit pairwise conversions: 1 unit of From = Multiplier units of To  (e.g. 1 kg = 1000 g).",
+                ForeColor = Theme.TextSecondary, Location = new Point(16, y), AutoSize = true
+            });
+            y += 22;
+
+            _dgvConversions.AutoGenerateColumns = false;
+            _dgvConversions.Columns.Add(new DataGridViewTextBoxColumn { Name = "colConvID",         Visible = false });
+            _dgvConversions.Columns.Add(new DataGridViewTextBoxColumn { Name = "colConvFrom",       HeaderText = "From Unit",   Width = 100, ReadOnly = true });
+            _dgvConversions.Columns.Add(new DataGridViewTextBoxColumn { Name = "colConvTo",         HeaderText = "To Unit",     Width = 100, ReadOnly = true });
+            _dgvConversions.Columns.Add(new DataGridViewTextBoxColumn { Name = "colConvMultiplier", HeaderText = "Multiplier",  Width = 110, ReadOnly = true });
+            _dgvConversions.AllowUserToAddRows    = false;
+            _dgvConversions.AllowUserToDeleteRows = false;
+            _dgvConversions.SelectionMode         = DataGridViewSelectionMode.FullRowSelect;
+            _dgvConversions.Location              = new Point(16, y);
+            _dgvConversions.Size                  = new Size(560, 180);
+            _dgvConversions.Anchor                = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
+            pnl.Controls.Add(_dgvConversions);
+            y += 190;
+
+            // Add conversion controls
+            var cboConvAddFrom = new ComboBox { Location = new Point(16, y), Size = new Size(100, 23), DropDownStyle = ComboBoxStyle.DropDownList };
+            pnl.Controls.Add(new Label { Text = "×", AutoSize = true, Location = new Point(122, y + 3), ForeColor = Theme.TextPrimary });
+            var txtConvMult    = new TextBox { Location = new Point(136, y), Size = new Size(90, 23), PlaceholderText = "1000" };
+            pnl.Controls.Add(new Label { Text = "→", AutoSize = true, Location = new Point(232, y + 3), ForeColor = Theme.TextPrimary });
+            var cboConvAddTo   = new ComboBox { Location = new Point(246, y), Size = new Size(100, 23), DropDownStyle = ComboBoxStyle.DropDownList };
+            var btnAddConv     = new Button   { Text = "+ Add", Size = new Size(70, 23), Location = new Point(354, y) };
+            var btnDelConv     = new Button   { Text = "Delete", Size = new Size(70, 23), Location = new Point(432, y) };
+
+            pnl.VisibleChanged += (_, _) =>
+            {
+                if (!pnl.Visible) return;
+                LoadConversions(cboConvAddFrom, cboConvAddTo);
+            };
+
+            btnAddConv.Click += (_, _) =>
+            {
+                var fromItem = cboConvAddFrom.SelectedItem as UnitOfMeasure;
+                var toItem   = cboConvAddTo.SelectedItem   as UnitOfMeasure;
+                if (fromItem == null || toItem == null || fromItem.UOMID == toItem.UOMID)
+                {
+                    MessageBox.Show(this, "Select two different units.", "Validation",
+                        MessageBoxButtons.OK, MessageBoxIcon.Warning); return;
+                }
+                if (!decimal.TryParse(txtConvMult.Text,
+                        System.Globalization.NumberStyles.Any,
+                        System.Globalization.CultureInfo.InvariantCulture, out decimal mult) || mult <= 0)
+                {
+                    MessageBox.Show(this, "Enter a valid positive multiplier.", "Validation",
+                        MessageBoxButtons.OK, MessageBoxIcon.Warning); return;
+                }
+                try
+                {
+                    _uomRepo.AddConversion(fromItem.UOMID, toItem.UOMID, mult);
+                    txtConvMult.Clear();
+                    LoadConversions(cboConvAddFrom, cboConvAddTo);
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show(this, "Save failed: " + ex.Message, "Error",
+                        MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
+            };
+
+            btnDelConv.Click += (_, _) =>
+            {
+                if (_dgvConversions.SelectedRows.Count == 0) return;
+                if (!int.TryParse(_dgvConversions.SelectedRows[0].Cells["colConvID"].Value?.ToString(), out int cid) || cid <= 0) return;
+                if (MessageBox.Show(this, "Delete this conversion?", "Confirm Delete",
+                        MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
+                try { _uomRepo.DeleteConversion(cid); LoadConversions(cboConvAddFrom, cboConvAddTo); }
+                catch (Exception ex) { MessageBox.Show(this, "Delete failed: " + ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error); }
+            };
+
+            pnl.Controls.Add(cboConvAddFrom);
+            pnl.Controls.Add(txtConvMult);
+            pnl.Controls.Add(cboConvAddTo);
+            pnl.Controls.Add(btnAddConv);
+            pnl.Controls.Add(btnDelConv);
+            y += 36;
+
+            pnl.Controls.Add(new Label
+            {
+                Text      = "Hint: 1 kg × 1000 → g means 1 kg = 1000 g",
+                ForeColor = Theme.TextMuted,
+                Font      = new Font("Segoe UI", 7.5F),
+                Location  = new Point(16, y),
+                AutoSize  = true
+            });
+            y += 28;
+
+            // ── Section 3: Conversion Calculator ─────────────────────────────────
             pnl.Controls.Add(new Label
             {
                 Text = "Conversion Calculator", Font = new Font("Segoe UI", 10F, FontStyle.Bold),
@@ -682,7 +783,7 @@ namespace JaneERP
             y += 26;
             pnl.Controls.Add(new Label
             {
-                Text = "Units sharing the same Base Unit can be converted. Conversion = quantity × FromFactor ÷ ToFactor.",
+                Text = "Tests the conversion rules above. Uses pairwise table first, then base-unit fallback.",
                 ForeColor = Theme.TextSecondary, Location = new Point(16, y), AutoSize = true
             });
             y += 22;
@@ -694,7 +795,7 @@ namespace JaneERP
             var lblConvResult = new Label { Location = new Point(326, y + 3), AutoSize = true, ForeColor = Theme.Teal, Font = new Font("Segoe UI", 9.5F, FontStyle.Bold) };
             var btnConvert  = new Button  { Text = "Convert", Size = new Size(76, 23), Location = new Point(480, y) };
 
-            // Populate combos when page becomes visible (after UOMs are loaded)
+            // Calculator combos are also refreshed when the page becomes visible
             pnl.VisibleChanged += (_, _) =>
             {
                 if (!pnl.Visible) return;
@@ -712,7 +813,7 @@ namespace JaneERP
                 if (_uomRepo.TryConvert(from, to, nudConvQty.Value, out decimal r))
                     lblConvResult.Text = $"= {r:G} {to}";
                 else
-                    lblConvResult.Text = "Cannot convert (incompatible base units)";
+                    lblConvResult.Text = "Cannot convert (incompatible units)";
             };
 
             pnl.Controls.Add(nudConvQty);
@@ -722,6 +823,49 @@ namespace JaneERP
             pnl.Controls.Add(btnConvert);
 
             return pnl;
+        }
+
+        /// <summary>Populates the Conversion Rates grid and refreshes the From/To ComboBoxes.</summary>
+        private void LoadConversions(ComboBox? cboFrom = null, ComboBox? cboTo = null)
+        {
+            // Refresh the Add-row unit dropdowns with current UOM list
+            var units = new List<UnitOfMeasure>();
+            try { units = _uomRepo.GetAll(includeInactive: false); } catch { }
+
+            if (cboFrom != null)
+            {
+                var prevFrom = cboFrom.SelectedItem;
+                cboFrom.DataSource    = null;
+                cboFrom.DataSource    = new List<UnitOfMeasure>(units);
+                cboFrom.DisplayMember = "Abbreviation";
+                cboFrom.ValueMember   = "UOMID";
+                if (prevFrom is UnitOfMeasure pf)
+                    cboFrom.SelectedIndex = units.FindIndex(u => u.UOMID == pf.UOMID);
+                else if (units.Count > 0) cboFrom.SelectedIndex = 0;
+            }
+
+            if (cboTo != null)
+            {
+                var prevTo = cboTo.SelectedItem;
+                cboTo.DataSource    = null;
+                cboTo.DataSource    = new List<UnitOfMeasure>(units);
+                cboTo.DisplayMember = "Abbreviation";
+                cboTo.ValueMember   = "UOMID";
+                if (prevTo is UnitOfMeasure pt)
+                    cboTo.SelectedIndex = units.FindIndex(u => u.UOMID == pt.UOMID);
+                else if (units.Count > 1) cboTo.SelectedIndex = 1;
+                else if (units.Count > 0) cboTo.SelectedIndex = 0;
+            }
+
+            // Reload grid
+            _dgvConversions.Rows.Clear();
+            try
+            {
+                foreach (var c in _uomRepo.GetConversions())
+                    _dgvConversions.Rows.Add(c.ConversionID, c.FromAbbr, c.ToAbbr,
+                        c.Multiplier.ToString("G"));
+            }
+            catch { /* table may not exist yet */ }
         }
 
         private Panel BuildPageBackup()

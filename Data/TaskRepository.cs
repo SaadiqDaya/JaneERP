@@ -34,6 +34,14 @@ namespace JaneERP
         public string?  WorkflowCurrentStatus { get; set; }
         public string?  WorkflowName          { get; set; }
         public DateTime CreatedAt             { get; set; }
+
+        /// <summary>
+        /// Resolved stage for display: shows WorkflowCurrentStatus when a workflow is active,
+        /// otherwise falls back to the legacy Status value.
+        /// </summary>
+        public string StageDisplay => !string.IsNullOrWhiteSpace(WorkflowCurrentStatus)
+            ? WorkflowCurrentStatus
+            : Status;
     }
 
     public class TaskComment

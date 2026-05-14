@@ -1,4 +1,6 @@
 using JaneERP.Data;
+using JaneERP.Infrastructure;
+using JaneERP.Interfaces;
 using JaneERP.Models;
 
 namespace JaneERP
@@ -14,7 +16,8 @@ namespace JaneERP
     /// </summary>
     public class FormAttributeLists : Form
     {
-        private readonly ProductTypeRepository _repo = new();
+        private readonly ProductTypeRepository _repo    = new();
+        private readonly IUomRepository        _uomRepo = AppServices.Get<IUomRepository>();
 
         // ── Left panel ────────────────────────────────────────────────────────────
         private DataGridView _dgv       = new();
@@ -24,7 +27,7 @@ namespace JaneERP
         private TextBox   _txtName     = new();
         private ComboBox  _cboCategory = new();
         private ComboBox  _cboDataType = new();
-        private TextBox   _txtUnit     = new();
+        private ComboBox  _cboUnit     = new();
         private DataGridView _dgvValues  = new();
 
         private Button _btnSave       = new();
@@ -43,6 +46,7 @@ namespace JaneERP
             Theme.AddCloseButton(this);
             Theme.MakeResizable(this);
             try { _repo.EnsureSchema(); } catch { }
+            LoadUomDropdown();
             SeedFromProductTypeAttributes();
             LoadData();
         }
@@ -155,16 +159,17 @@ namespace JaneERP
             y += 34;
 
             Controls.Add(MakeLabel("Unit (optional):", ex, y + 3));
-            _txtUnit.Location        = new Point(ctrlX, y);
-            _txtUnit.Size            = new Size(100, 24);
-            _txtUnit.PlaceholderText = "ml, mg/ml, %…";
-            Controls.Add(_txtUnit);
+            _cboUnit.Location        = new Point(ctrlX, y);
+            _cboUnit.Size            = new Size(110, 24);
+            _cboUnit.DropDownStyle   = ComboBoxStyle.DropDownList;
+            // Populate from settings UOM definitions; populated again in constructor after EnsureSchema
+            Controls.Add(_cboUnit);
             Controls.Add(new Label
             {
                 Text      = "Only relevant for Number type",
                 Font      = new Font("Segoe UI", 7.5F),
                 ForeColor = Theme.TextMuted,
-                Location  = new Point(ctrlX + 108, y + 4),
+                Location  = new Point(ctrlX + 118, y + 4),
                 AutoSize  = true
             });
             y += 34;
@@ -209,7 +214,7 @@ namespace JaneERP
                 _editingId = 0;
                 _txtName.Text = "";
                 _dgvValues.Rows.Clear();
-                _txtUnit.Text = "";
+                _cboUnit.SelectedIndex = 0;
                 _cboCategory.SelectedIndex = 0;
                 _cboDataType.SelectedIndex = 0;
                 _dgv.ClearSelection();
@@ -253,6 +258,20 @@ namespace JaneERP
         private void PositionGrid()
         {
             _dgv.Size = new Size(_dgv.Width, ClientSize.Height - _dgv.Top - 66);
+        }
+
+        /// <summary>Populates the Unit dropdown from the UOM definitions in Settings.</summary>
+        private void LoadUomDropdown()
+        {
+            _cboUnit.Items.Clear();
+            _cboUnit.Items.Add("(none)");   // index 0 = no unit
+            try
+            {
+                var abbrs = _uomRepo.GetAbbreviations();
+                foreach (var a in abbrs) _cboUnit.Items.Add(a);
+            }
+            catch { /* UOM table may not exist yet on first boot */ }
+            if (_cboUnit.Items.Count > 0) _cboUnit.SelectedIndex = 0;
         }
 
         private void LoadData(string? filter = null)
@@ -299,7 +318,10 @@ namespace JaneERP
                 if (!string.IsNullOrWhiteSpace(match.AllowedValues))
                     foreach (var v in match.AllowedValues.Split(',').Select(s => s.Trim()).Where(s => s.Length > 0))
                         _dgvValues.Rows.Add(v);
-                _txtUnit.Text      = match.Unit ?? "";
+                // Select matching unit in dropdown; fall back to first item
+                var unitVal = match.Unit ?? "";
+                int uIdx = _cboUnit.Items.Cast<string>().ToList().IndexOf(unitVal);
+                _cboUnit.SelectedIndex = uIdx >= 0 ? uIdx : 0;
                 _cboCategory.SelectedItem = match.Category;
                 _cboDataType.SelectedItem = match.DataType;
                 if (_cboCategory.SelectedIndex < 0) _cboCategory.SelectedIndex = 0;
@@ -326,7 +348,7 @@ namespace JaneERP
             string? values = valList.Count > 0 ? string.Join(",", valList) : null;
             string  category = _cboCategory.SelectedItem?.ToString() ?? "General";
             string  dataType = _cboDataType.SelectedItem?.ToString() ?? "Text";
-            string? unit     = string.IsNullOrWhiteSpace(_txtUnit.Text) ? null : _txtUnit.Text.Trim();
+            string? unit     = _cboUnit.SelectedIndex > 0 ? _cboUnit.SelectedItem?.ToString() : null;
 
             try
             {
@@ -351,7 +373,8 @@ namespace JaneERP
             {
                 _repo.DeleteAttributeDefinition(_editingId);
                 _editingId = 0;
-                _txtName.Text = _txtUnit.Text = "";
+                _txtName.Text = "";
+                if (_cboUnit.Items.Count > 0) _cboUnit.SelectedIndex = 0;
                 _dgvValues.Rows.Clear();
                 _cboCategory.SelectedIndex = 0;
                 _cboDataType.SelectedIndex = 0;

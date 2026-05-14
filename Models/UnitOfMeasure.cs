@@ -14,4 +14,20 @@ namespace JaneERP.Models
 
         public override string ToString() => Abbreviation;
     }
+
+    /// <summary>
+    /// An explicit pairwise conversion between two units.
+    /// The conversion is: 1 unit of FromUnit = Multiplier units of ToUnit.
+    /// E.g. FromAbbr="kg", ToAbbr="g", Multiplier=1000.
+    /// </summary>
+    public class UomConversion
+    {
+        public int     ConversionID { get; set; }
+        public int     FromUOMID    { get; set; }
+        public int     ToUOMID      { get; set; }
+        public decimal Multiplier   { get; set; } = 1;
+        // Joined for display
+        public string  FromAbbr     { get; set; } = "";
+        public string  ToAbbr       { get; set; } = "";
+    }
 }
