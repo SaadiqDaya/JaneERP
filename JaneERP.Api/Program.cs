@@ -9,9 +9,22 @@ using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
+using Serilog;
 
 
 var builder = WebApplication.CreateBuilder(args);
+
+// ── Serilog ───────────────────────────────────────────────────────────────────
+builder.Host.UseSerilog((context, services, configuration) => configuration
+    .ReadFrom.Configuration(context.Configuration)
+    .ReadFrom.Services(services)
+    .Enrich.FromLogContext()
+    .WriteTo.Console()
+    .WriteTo.File(
+        path: Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            "JaneERP", "logs", "api-.log"),
+        rollingInterval: RollingInterval.Day,
+        retainedFileCountLimit: 30));
 
 // ── Services ──────────────────────────────────────────────────────────────────
 
@@ -41,6 +54,15 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 
 builder.Services.AddAuthorization();
 
+// ── CORS ──────────────────────────────────────────────────────────────────────
+// Internal mobile PWA — allow all origins but require credentials (JWT cookie/header).
+// No specific domain is configured in appsettings, so SetIsOriginAllowed is used.
+builder.Services.AddCors(opts => opts.AddDefaultPolicy(policy =>
+    policy.SetIsOriginAllowed(_ => true)   // Internal app — allow all origins but require credentials
+          .AllowAnyMethod()
+          .AllowAnyHeader()
+          .AllowCredentials()));
+
 // ── Rate Limiting ─────────────────────────────────────────────────────────────
 // "general"  — 60 req/min per IP, for all protected endpoints
 // "auth"     — 10 req/min per IP, for the login endpoint (brute-force protection)
@@ -50,6 +72,19 @@ builder.Services.AddRateLimiter(options =>
 
     // Default policy applied to all endpoints not covered by a named policy
     options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(ctx =>
+        RateLimitPartition.GetSlidingWindowLimiter(
+            ctx.Connection.RemoteIpAddress?.ToString() ?? "anon",
+            _ => new SlidingWindowRateLimiterOptions
+            {
+                PermitLimit          = 60,
+                Window               = TimeSpan.FromMinutes(1),
+                SegmentsPerWindow    = 6,
+                QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+                QueueLimit           = 0
+            }));
+
+    // Named policy for general API endpoints: matches the global default
+    options.AddPolicy("general", ctx =>
         RateLimitPartition.GetSlidingWindowLimiter(
             ctx.Connection.RemoteIpAddress?.ToString() ?? "anon",
             _ => new SlidingWindowRateLimiterOptions
@@ -106,6 +141,7 @@ builder.Services.AddSwaggerGen(c =>
             Array.Empty<string>()
         }
     });
+    c.IncludeXmlComments(Path.Combine(AppContext.BaseDirectory, "JaneERP.Api.xml"), true);
 });
 
 // Scoped per request — populated by CompanyMiddleware
@@ -135,10 +171,23 @@ builder.Services.AddHttpClient<ApiShopifyClient>();
 
 var app = builder.Build();
 
+// Global exception handler — must be first so it catches errors from all subsequent middleware
+app.UseGlobalExceptionHandler();
+
 // HTTPS redirect — always redirect HTTP → HTTPS in production
 app.UseHttpsRedirection();
 if (!app.Environment.IsDevelopment())
     app.UseHsts();
+
+// Correlation ID — propagate or generate X-Correlation-ID for every request
+app.Use(async (context, next) =>
+{
+    var correlationId = context.Request.Headers["X-Correlation-ID"].FirstOrDefault()
+        ?? Guid.NewGuid().ToString("N")[..8];
+    context.Response.Headers["X-Correlation-ID"] = correlationId;
+    using (Serilog.Context.LogContext.PushProperty("CorrelationId", correlationId))
+    { await next(); }
+});
 
 // Swagger UI only in development (don't expose schema in production)
 if (app.Environment.IsDevelopment())
@@ -150,16 +199,6 @@ if (app.Environment.IsDevelopment())
         c.RoutePrefix = "swagger";   // available at /swagger
     });
 }
-
-// Global exception handler — always return JSON, never HTML
-app.UseExceptionHandler(errApp => errApp.Run(async ctx =>
-{
-    var ex = ctx.Features.Get<IExceptionHandlerFeature>()?.Error;
-    ctx.Response.ContentType = "application/json";
-    ctx.Response.StatusCode  = 500;
-    var msg = ex?.Message ?? "An unexpected error occurred.";
-    await ctx.Response.WriteAsync(JsonSerializer.Serialize(new { error = msg }));
-}));
 
 app.UseRateLimiter();
 
@@ -173,6 +212,7 @@ app.UseAuthentication();
 app.UseMiddleware<CompanyMiddleware>();
 
 app.UseAuthorization();
+app.UseCors();
 app.MapControllers();
 
 // SPA fallback: non-API routes serve index.html; API misses get a JSON 404
