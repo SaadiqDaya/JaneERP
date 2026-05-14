@@ -6,11 +6,12 @@ using JaneERP.Models;
 
 namespace JaneERP
 {
-    /// <summary>Dialog for creating a new Purchase Order or viewing an existing one.</summary>
+    /// <summary>Dialog for creating a new Purchase Order, editing a Draft, or viewing an existing one.</summary>
     public class FormCreatePO : Form
     {
         private readonly SupplierRepository    _repo;
         private readonly PurchaseOrder?        _viewOnly;
+        private readonly bool                  _editDraft;   // true = existing Draft being edited
         private readonly IPartRepository       _partRepo      = AppServices.Get<IPartRepository>();
         private readonly IProductRepository    _productRepo   = AppServices.Get<IProductRepository>();
         private readonly IAccountingRepository _accountingRepo = AppServices.Get<IAccountingRepository>();
@@ -40,12 +41,15 @@ namespace JaneERP
 
         /// <param name="prePopulateItems">Optional items to pre-load (e.g. from the Reorder Report).</param>
         /// <param name="preselectedSupplierName">Supplier name to auto-select (fuzzy match on load).</param>
+        /// <param name="editDraft">When true, the PO is an existing Draft opened for editing (not read-only).</param>
         public FormCreatePO(SupplierRepository repo, PurchaseOrder? po = null,
                             IEnumerable<PurchaseOrderItem>? prePopulateItems = null,
-                            string? preselectedSupplierName = null)
+                            string? preselectedSupplierName = null,
+                            bool editDraft = false)
         {
-            _repo     = repo;
-            _viewOnly = po;
+            _repo      = repo;
+            _viewOnly  = po;
+            _editDraft = editDraft;
             BuildUI();
             Theme.Apply(this);
             Theme.MakeBorderless(this);
@@ -76,8 +80,11 @@ namespace JaneERP
 
         private void BuildUI()
         {
-            bool readOnly = _viewOnly != null;
-            Text          = readOnly ? "View Purchase Order" : "New Purchase Order";
+            // readOnly = viewing a non-draft PO; draft edits and new POs are both editable
+            bool readOnly = _viewOnly != null && !_editDraft;
+            Text          = _editDraft ? $"Edit Draft PO: {_viewOnly!.PONumber}"
+                          : readOnly   ? $"View Purchase Order: {_viewOnly!.PONumber}"
+                          :              "New Purchase Order";
             ClientSize    = new Size(860, 640);
             MinimumSize   = new Size(760, 560);
             StartPosition = FormStartPosition.CenterParent;
@@ -87,7 +94,9 @@ namespace JaneERP
             // ── Title ─────────────────────────────────────────────────────────────
             Controls.Add(new Label
             {
-                Text      = readOnly ? $"PO: {_viewOnly!.PONumber}" : "Create Purchase Order",
+                Text      = _editDraft ? $"Edit Draft PO: {_viewOnly!.PONumber}"
+                          : readOnly   ? $"PO: {_viewOnly!.PONumber}"
+                          :              "Create Purchase Order",
                 Font      = new Font("Segoe UI", 13F, FontStyle.Bold),
                 ForeColor = Theme.Gold,
                 AutoSize  = false,
@@ -208,7 +217,7 @@ namespace JaneERP
             txtShipping.Enabled       = !readOnly;
             txtShipping.Size          = new Size(80, 23);
             txtShipping.TextChanged  += (_, _) => UpdateTotal();
-            txtShipping.Leave        += (_, _) => { if (decimal.TryParse(txtShipping.Text, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var v)) txtShipping.Text = v.ToString("F2"); else txtShipping.Text = "0.00"; };
+            txtShipping.Leave        += TxtShipping_Leave;
             Controls.Add(txtShipping);
 
             // Tax rate preset selector — picks a named rate and auto-calculates the tax amount
@@ -224,7 +233,7 @@ namespace JaneERP
             txtTax.Enabled            = !readOnly;
             txtTax.Size               = new Size(80, 23);
             txtTax.TextChanged       += (_, _) => UpdateTotal();
-            txtTax.Leave             += (_, _) => { if (decimal.TryParse(txtTax.Text, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var v)) txtTax.Text = v.ToString("F2"); else txtTax.Text = "0.00"; };
+            txtTax.Leave             += TxtTax_Leave;
             Controls.Add(txtTax);
 
             lblTotal.AutoSize  = false;
@@ -237,8 +246,8 @@ namespace JaneERP
             // ── Action buttons ────────────────────────────────────────────────────
             if (!readOnly)
             {
-                btnSave.Text   = "Save PO";
-                btnSave.Size   = new Size(100, 30);
+                btnSave.Text   = _editDraft ? "Save Changes" : "Save PO";
+                btnSave.Size   = new Size(110, 30);
                 btnSave.UseVisualStyleBackColor = true;
                 btnSave.Click += BtnSave_Click;
                 Controls.Add(btnSave);
@@ -342,6 +351,31 @@ namespace JaneERP
             // Auto-calculate tax from subtotal × rate
             decimal subtotal = _items.Sum(i => i.QuantityOrdered * i.UnitCost);
             txtTax.Text = (subtotal * rate.Rate).ToString("F2");
+        }
+
+        private static string StripCurrencyChars(string text) =>
+            text.Replace("$", "").Replace("R", "").Replace(",", "").Trim();
+
+        private void TxtShipping_Leave(object? sender, EventArgs e)
+        {
+            if (decimal.TryParse(StripCurrencyChars(txtShipping.Text),
+                System.Globalization.NumberStyles.Any,
+                System.Globalization.CultureInfo.InvariantCulture, out var v))
+                txtShipping.Text = v.ToString("F2");
+            else
+                txtShipping.Text = "0.00";
+            UpdateTotal();
+        }
+
+        private void TxtTax_Leave(object? sender, EventArgs e)
+        {
+            if (decimal.TryParse(StripCurrencyChars(txtTax.Text),
+                System.Globalization.NumberStyles.Any,
+                System.Globalization.CultureInfo.InvariantCulture, out var v))
+                txtTax.Text = v.ToString("F2");
+            else
+                txtTax.Text = "0.00";
+            UpdateTotal();
         }
 
         private void PopulateSupplierCombo()
@@ -505,20 +539,47 @@ namespace JaneERP
                 return;
             }
 
+            decimal.TryParse(StripCurrencyChars(txtShipping.Text), System.Globalization.NumberStyles.Any,
+                System.Globalization.CultureInfo.InvariantCulture, out var sc);
+            decimal.TryParse(StripCurrencyChars(txtTax.Text), System.Globalization.NumberStyles.Any,
+                System.Globalization.CultureInfo.InvariantCulture, out var ta);
+
             try
             {
-                var po = new PurchaseOrder
+                if (_editDraft && _viewOnly != null)
                 {
-                    SupplierID   = supplier.SupplierID,
-                    Status       = "Draft",
-                    OrderDate    = DateTime.Now,
-                    ExpectedDate = chkNoExpected.Checked ? (DateTime?)null : dtpExpected.Value.Date,
-                    Notes        = string.IsNullOrWhiteSpace(txtNotes.Text) ? null : txtNotes.Text.Trim(),
-                    ShippingCost = decimal.TryParse(txtShipping.Text, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var sc) ? sc : 0m,
-                    TaxAmount    = decimal.TryParse(txtTax.Text, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var ta) ? ta : 0m,
-                    Items        = _items
-                };
-                _repo.CreateOrder(po);
+                    // Update the existing Draft PO in-place
+                    var updated = new PurchaseOrder
+                    {
+                        POID         = _viewOnly.POID,
+                        PONumber     = _viewOnly.PONumber,
+                        SupplierID   = supplier.SupplierID,
+                        Status       = "Draft",
+                        OrderDate    = _viewOnly.OrderDate,
+                        ExpectedDate = chkNoExpected.Checked ? (DateTime?)null : dtpExpected.Value.Date,
+                        Notes        = string.IsNullOrWhiteSpace(txtNotes.Text) ? null : txtNotes.Text.Trim(),
+                        ShippingCost = sc,
+                        TaxAmount    = ta,
+                        Items        = _items
+                    };
+                    _repo.UpdateDraftOrder(_viewOnly.POID, updated);
+                }
+                else
+                {
+                    // Create brand-new PO
+                    var po = new PurchaseOrder
+                    {
+                        SupplierID   = supplier.SupplierID,
+                        Status       = "Draft",
+                        OrderDate    = DateTime.Now,
+                        ExpectedDate = chkNoExpected.Checked ? (DateTime?)null : dtpExpected.Value.Date,
+                        Notes        = string.IsNullOrWhiteSpace(txtNotes.Text) ? null : txtNotes.Text.Trim(),
+                        ShippingCost = sc,
+                        TaxAmount    = ta,
+                        Items        = _items
+                    };
+                    _repo.CreateOrder(po);
+                }
                 DialogResult = DialogResult.OK;
                 Close();
             }

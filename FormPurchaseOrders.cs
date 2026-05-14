@@ -256,7 +256,10 @@ namespace JaneERP
             var selected = _orders[e.RowIndex];
             var po = _repo.GetOrder(selected.POID);
             if (po == null) return;
-            using var frm = new FormCreatePO(_repo, po);
+
+            // Draft POs open in edit mode; all others are read-only
+            bool isDraft = selected.Status == "Draft";
+            using var frm = new FormCreatePO(_repo, po, editDraft: isDraft);
             frm.ShowDialog(this);
             LoadOrders();
         }

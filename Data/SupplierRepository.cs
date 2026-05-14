@@ -246,7 +246,8 @@ namespace JaneERP.Data
                 new { name });
         }
 
-        /// <summary>Replaces the line items of a Draft purchase order without changing its status.</summary>
+        /// <summary>Replaces the line items of a Draft purchase order without changing its status.
+        /// Also persists ShippingCost, TaxAmount and recalculates TotalCost.</summary>
         public void UpdateDraftOrder(int poid, PurchaseOrder updated)
         {
             using var db = new SqlConnection(_cs);
@@ -254,14 +255,22 @@ namespace JaneERP.Data
             using var tx = db.BeginTransaction();
             try
             {
+                // Recalculate total: items subtotal + shipping + tax
+                decimal totalCost = (updated.Items?.Sum(i => i.UnitCost * i.QuantityOrdered) ?? 0m)
+                                  + updated.ShippingCost + updated.TaxAmount;
+
                 db.Execute(@"
                     UPDATE PurchaseOrders
-                    SET PONumber    = @PONumber,
-                        SupplierID  = @SupplierID,
-                        Notes       = @Notes,
-                        ExpectedDate = @ExpectedDate
+                    SET PONumber     = @PONumber,
+                        SupplierID   = @SupplierID,
+                        Notes        = @Notes,
+                        ExpectedDate = @ExpectedDate,
+                        ShippingCost = @ShippingCost,
+                        TaxAmount    = @TaxAmount,
+                        TotalCost    = @TotalCost
                     WHERE POID = @POID AND Status = 'Draft'",
-                    new { updated.PONumber, updated.SupplierID, updated.Notes, updated.ExpectedDate, updated.POID }, tx);
+                    new { updated.PONumber, updated.SupplierID, updated.Notes, updated.ExpectedDate,
+                          updated.ShippingCost, updated.TaxAmount, TotalCost = totalCost, updated.POID }, tx);
 
                 db.Execute("DELETE FROM PurchaseOrderItems WHERE POID = @poid", new { poid }, tx);
 
@@ -272,6 +281,9 @@ namespace JaneERP.Data
                         new { POID = poid, item.PartID, item.ProductID, item.SKU, item.ItemName, item.QuantityOrdered, item.UnitCost }, tx);
 
                 tx.Commit();
+
+                AppLogger.Audit(AppSession.CurrentUser?.Username ?? "system",
+                    "UpdateDraftPO", $"POID={poid} PO# {updated.PONumber} items={updated.Items?.Count ?? 0}");
             }
             catch { tx.Rollback(); throw; }
         }
