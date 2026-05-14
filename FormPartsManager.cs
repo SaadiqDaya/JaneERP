@@ -654,10 +654,11 @@ namespace JaneERP
             dgvProd.MultiSelect           = false;
             dgvProd.AutoGenerateColumns   = false;
             dgvProd.RowHeadersVisible     = false;
-            dgvProd.Columns.Add(new DataGridViewTextBoxColumn { Name = "colBomNum", HeaderText = "Source",  Width = 90 });
-            dgvProd.Columns.Add(new DataGridViewTextBoxColumn { Name = "colPID",    Visible = false });
-            dgvProd.Columns.Add(new DataGridViewTextBoxColumn { Name = "colName",   HeaderText = "Product", AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill });
-            dgvProd.Columns.Add(new DataGridViewTextBoxColumn { Name = "colSKU",    HeaderText = "SKU",     Width = 80 });
+            dgvProd.Columns.Add(new DataGridViewTextBoxColumn { Name = "colSourceType", HeaderText = "Source Type",   Width = 72 });
+            dgvProd.Columns.Add(new DataGridViewTextBoxColumn { Name = "colSourceNum",  HeaderText = "Source Number", Width = 90 });
+            dgvProd.Columns.Add(new DataGridViewTextBoxColumn { Name = "colPID",         Visible = false });
+            dgvProd.Columns.Add(new DataGridViewTextBoxColumn { Name = "colName",        HeaderText = "Product", AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill });
+            dgvProd.Columns.Add(new DataGridViewTextBoxColumn { Name = "colSKU",         HeaderText = "SKU",     Width = 80 });
             dgvProd.SelectionChanged += DgvProd_SelectionChanged;
             _split.Panel1.Controls.Add(dgvProd);
 
@@ -812,12 +813,31 @@ namespace JaneERP
             dgvProd.Rows.Clear();
             foreach (var p in products)
             {
-                string source =
-                    string.Equals(p.ProductTypeName, "Package", StringComparison.OrdinalIgnoreCase) ? "Package"
-                    : p.BomNumber != null                                                            ? p.BomNumber
-                    : _linkedParts.TryGetValue(p.ProductID, out var pn)                             ? pn
-                    : "—";
-                dgvProd.Rows.Add(source, p.ProductID, p.ProductName, p.SKU);
+                string sourceType;
+                string sourceNum;
+
+                if (string.Equals(p.ProductTypeName, "Package", StringComparison.OrdinalIgnoreCase))
+                {
+                    sourceType = "Package";
+                    sourceNum  = "Package";
+                }
+                else if (p.BomNumber != null)
+                {
+                    sourceType = "BOM";
+                    sourceNum  = p.BomNumber;
+                }
+                else if (_linkedParts.TryGetValue(p.ProductID, out var pn))
+                {
+                    sourceType = "Part";
+                    sourceNum  = pn;
+                }
+                else
+                {
+                    sourceType = "—";
+                    sourceNum  = "—";
+                }
+
+                dgvProd.Rows.Add(sourceType, sourceNum, p.ProductID, p.ProductName, p.SKU);
             }
         }
 

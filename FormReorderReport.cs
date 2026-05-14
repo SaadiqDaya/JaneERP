@@ -269,17 +269,29 @@ namespace JaneERP
         {
             _partRows = AppServices.Get<IPartRepository>().GetPartsAtReorderPoint();
 
-            // Repopulate vendor filter, preserving selection
+            // Repopulate vendor filter from all active vendors, preserving selection
             var prevVendor = cboVendorFilter.SelectedItem?.ToString();
             cboVendorFilter.Items.Clear();
             cboVendorFilter.Items.Add("(All Vendors)");
-            foreach (var v in _partRows
-                .Where(r => !string.IsNullOrWhiteSpace(r.DefaultVendorName))
-                .Select(r => r.DefaultVendorName!)
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .OrderBy(n => n))
+            try
             {
-                cboVendorFilter.Items.Add(v);
+                var allVendors = AppServices.Get<IVendorRepository>().GetAll()
+                    .OrderBy(v => v.VendorName)
+                    .ToList();
+                foreach (var v in allVendors)
+                    cboVendorFilter.Items.Add(v.VendorName);
+            }
+            catch
+            {
+                // Fallback: derive vendor names from part rows if vendor repo unavailable
+                foreach (var name in _partRows
+                    .Where(r => !string.IsNullOrWhiteSpace(r.DefaultVendorName))
+                    .Select(r => r.DefaultVendorName!)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .OrderBy(n => n))
+                {
+                    cboVendorFilter.Items.Add(name);
+                }
             }
             var prevIdx = cboVendorFilter.Items.IndexOf(prevVendor ?? "");
             cboVendorFilter.SelectedIndex = prevIdx >= 0 ? prevIdx : 0;
@@ -411,62 +423,71 @@ namespace JaneERP
 
         private void BtnCreatePOsByVendor_Click(object? sender, EventArgs e)
         {
-            // Only works for Parts (which have vendor info)
-            if (tabControl.SelectedIndex != 1)
+            try
             {
-                MessageBox.Show(this,
-                    "Create POs by Vendor is only available on the Parts tab.",
-                    "Parts Tab Required", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                return;
-            }
-
-            dgvParts.EndEdit();
-            var visibleRows = (dgvParts.DataSource as List<PartReorderRow>) ?? _partRows;
-
-            // Build items from grid (respects user edits to Suggested Qty)
-            var allItems = new List<(string vendor, JaneERP.Models.PurchaseOrderItem item)>();
-            for (int i = 0; i < dgvParts.Rows.Count && i < visibleRows.Count; i++)
-            {
-                if (!int.TryParse(dgvParts.Rows[i].Cells["cSuggestedQty"].Value?.ToString(), out int qty) || qty <= 0)
-                    continue;
-                var r = visibleRows[i];
-                allItems.Add((r.DefaultVendorName ?? "(No Vendor)", new JaneERP.Models.PurchaseOrderItem
+                // Only works for Parts (which have vendor info)
+                if (tabControl.SelectedIndex != 1)
                 {
-                    SKU             = r.PartNumber,
-                    ItemName        = r.PartName,
-                    QuantityOrdered = qty,
-                    UnitCost        = r.UnitCost
-                }));
-            }
+                    MessageBox.Show(this,
+                        "Create POs by Vendor is only available on the Parts tab.",
+                        "Parts Tab Required", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    return;
+                }
 
-            if (allItems.Count == 0)
+                dgvParts.EndEdit();
+                var visibleRows = (dgvParts.DataSource as List<PartReorderRow>) ?? _partRows;
+
+                // Build items from grid (respects user edits to Suggested Qty)
+                var allItems = new List<(string vendor, JaneERP.Models.PurchaseOrderItem item)>();
+                for (int i = 0; i < dgvParts.Rows.Count && i < visibleRows.Count; i++)
+                {
+                    if (!int.TryParse(dgvParts.Rows[i].Cells["cSuggestedQty"].Value?.ToString(), out int qty) || qty <= 0)
+                        continue;
+                    var r = visibleRows[i];
+                    allItems.Add((r.DefaultVendorName ?? "(No Vendor)", new JaneERP.Models.PurchaseOrderItem
+                    {
+                        SKU             = r.PartNumber,
+                        ItemName        = r.PartName,
+                        QuantityOrdered = qty,
+                        UnitCost        = r.UnitCost
+                    }));
+                }
+
+                if (allItems.Count == 0)
+                {
+                    MessageBox.Show(this, "No parts with a quantity > 0.",
+                        "Nothing to Order", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    return;
+                }
+
+                // Group by vendor and open one PO form per vendor
+                var byVendor = allItems
+                    .GroupBy(x => x.vendor, StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+
+                var repo = new JaneERP.Data.SupplierRepository();
+                int created = 0;
+                foreach (var group in byVendor)
+                {
+                    var vendorName  = group.Key;
+                    var vendorItems = group.Select(x => x.item).ToList();
+                    using var frm = new FormCreatePO(repo, prePopulateItems: vendorItems,
+                                                    preselectedSupplierName: vendorName);
+                    frm.Text = $"New PO — {vendorName}";
+                    frm.ShowDialog(this);
+                    created++;
+                }
+
+                MessageBox.Show(this,
+                    $"Opened {created} PO form(s) — one per vendor.",
+                    "Done", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
+            catch (Exception ex)
             {
-                MessageBox.Show(this, "No parts with a quantity > 0.",
-                    "Nothing to Order", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                return;
+                Logging.AppLogger.Error($"[CreatePOByVendor] {ex}");
+                MessageBox.Show($"Failed to create PO: {ex.Message}", "Error",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
-
-            // Group by vendor and open one PO form per vendor
-            var byVendor = allItems
-                .GroupBy(x => x.vendor, StringComparer.OrdinalIgnoreCase)
-                .ToList();
-
-            var repo = new JaneERP.Data.SupplierRepository();
-            int created = 0;
-            foreach (var group in byVendor)
-            {
-                var vendorName = group.Key;
-                var vendorItems = group.Select(x => x.item).ToList();
-                using var frm = new FormCreatePO(repo, prePopulateItems: vendorItems,
-                                                preselectedSupplierName: vendorName);
-                frm.Text = $"New PO — {vendorName}";
-                frm.ShowDialog(this);
-                created++;
-            }
-
-            MessageBox.Show(this,
-                $"Opened {created} PO form(s) — one per vendor.",
-                "Done", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
     }
 
