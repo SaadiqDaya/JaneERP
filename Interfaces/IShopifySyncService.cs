@@ -24,6 +24,8 @@ namespace JaneERP.Interfaces
                                      decimal discountPercent = 0,
                                      decimal shippingCost = 0);
         bool                     ProcessShopifyOrder(OrderDetails order, int? storeId = null);
+        /// <summary>Count of products created from order sync (IsAutoCreated=1) that still need manual setup (IsVerified=0).</summary>
+        int                      GetUnverifiedProductCount();
         List<FulfillmentOrder>   GetFulfillmentOrders(params string[] statuses);
         List<SalesOrderItem>     GetOrderItemsWithPicking(int salesOrderId);
         void                     UpdatePickedQty(int salesOrderItemId, int pickedQty, string pickedBy);

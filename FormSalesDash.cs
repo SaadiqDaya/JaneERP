@@ -30,6 +30,11 @@ namespace JaneERP
         private CancellationTokenSource? _syncCts;
         private System.Windows.Forms.Timer? _syncRefreshTimer;
 
+        // Product setup notification bar (shown when unverified auto-created products exist)
+        private Panel  _pnlSetupNotice = new();
+        private Label  _lblSetupMsg    = new();
+        private Button _btnReviewProds = new();
+
         // Persisted across form instances within the same session
         private static DateTime _lastFromDate = new DateTime(2026, 4, 1);
         private static DateTime _lastToDate   = DateTime.Today;
@@ -66,6 +71,7 @@ namespace JaneERP
             if (!Security.PermissionHelper.CanEdit("SalesOrders"))
                 btnSyncToERP.Enabled = false;
 
+            BuildSetupNotice();
             PopulateStoreFilter();   // sets initial store state and may disable Sync/Fetch buttons
             LoadCachedOrders();
 
@@ -340,6 +346,7 @@ namespace JaneERP
 
                 _fullOrders = cached;
                 ApplyFilters();
+                RefreshSetupNotice();
             }
             catch (Exception ex)
             {
@@ -370,6 +377,71 @@ namespace JaneERP
             _currentOrders       = new BindingList<Order>(filtered);
             dgvOrders.DataSource = _currentOrders;
             lblStatus.Text       = $"{filtered.Count} order(s) shown";
+        }
+
+        // ── Product setup notification ────────────────────────────────────────────
+
+        private void BuildSetupNotice()
+        {
+            _pnlSetupNotice.Dock      = DockStyle.Top;
+            _pnlSetupNotice.Height    = 38;
+            _pnlSetupNotice.BackColor = Color.FromArgb(255, 190, 0);
+            _pnlSetupNotice.Visible   = false;
+
+            _lblSetupMsg.AutoSize  = false;
+            _lblSetupMsg.Dock      = DockStyle.Fill;
+            _lblSetupMsg.TextAlign = ContentAlignment.MiddleLeft;
+            _lblSetupMsg.Padding   = new Padding(10, 0, 0, 0);
+            _lblSetupMsg.ForeColor = Color.FromArgb(50, 30, 0);
+            _lblSetupMsg.Font      = new Font("Segoe UI", 9F, FontStyle.Bold);
+            _pnlSetupNotice.Controls.Add(_lblSetupMsg);
+
+            _btnReviewProds.Text      = "Set Up Products →";
+            _btnReviewProds.Size      = new Size(148, 26);
+            _btnReviewProds.Anchor    = AnchorStyles.Right | AnchorStyles.Top;
+            _btnReviewProds.Top       = 6;
+            _btnReviewProds.FlatStyle = FlatStyle.Flat;
+            _btnReviewProds.BackColor = Color.FromArgb(220, 150, 0);
+            _btnReviewProds.ForeColor = Color.FromArgb(50, 30, 0);
+            _btnReviewProds.Font      = new Font("Segoe UI", 9F, FontStyle.Bold);
+            _btnReviewProds.FlatAppearance.BorderColor = Color.FromArgb(180, 110, 0);
+            _btnReviewProds.Click += (_, _) =>
+            {
+                using var frm = new FormUnverifiedItems();
+                frm.ShowDialog(this);
+                RefreshSetupNotice();   // re-check after user finishes setup
+            };
+            _pnlSetupNotice.Controls.Add(_btnReviewProds);
+
+            // Position button from right on resize
+            _pnlSetupNotice.SizeChanged += (_, _) =>
+                _btnReviewProds.Left = _pnlSetupNotice.ClientSize.Width - _btnReviewProds.Width - 10;
+
+            // Insert the notice bar below the filter row and above the grid.
+            // The Fill-docked splitMain is at Controls index 0; we use SetChildIndex to
+            // place this Top panel between the filter separator and the split container.
+            Controls.Add(_pnlSetupNotice);
+            Controls.SetChildIndex(_pnlSetupNotice, 1);
+        }
+
+        /// <summary>Checks the unverified product count and shows / hides the notice bar.</summary>
+        private void RefreshSetupNotice()
+        {
+            if (IsDisposed) return;
+            try
+            {
+                int count = AppServices.Get<IShopifySyncService>().GetUnverifiedProductCount();
+                if (count > 0)
+                {
+                    _lblSetupMsg.Text       = $"⚠  {count} product{(count == 1 ? "" : "s")} from orders need setup before they can be used in fulfilment.";
+                    _pnlSetupNotice.Visible = true;
+                }
+                else
+                {
+                    _pnlSetupNotice.Visible = false;
+                }
+            }
+            catch { _pnlSetupNotice.Visible = false; }
         }
 
         private void StartBackgroundSync(string store, string token)
@@ -462,7 +534,7 @@ namespace JaneERP
                         Invoke(() => LoadErpOrders(null, cboStoreFilter.SelectedIndex == 1));
                     else
                         Invoke(LoadCachedOrders);
-                    Invoke(() => { lblStatus.Text = $"Background sync: {e.Count} orders"; UpdateSyncLabel(); });
+                    Invoke(() => { lblStatus.Text = $"Background sync: {e.Count} orders"; UpdateSyncLabel(); RefreshSetupNotice(); });
                 }
                 else
                 {
@@ -1045,6 +1117,7 @@ namespace JaneERP
 
             lblStatus.Text = $"Sync done — {saved} saved, {skipped} skipped, {failed} failed";
             AppLogger.Audit(_store, "ShopifySyncCompleted", $"Saved={saved} Skipped={skipped} Failed={failed}");
+            RefreshSetupNotice();
 
             var ordersSummary = savedList.Count > 0
                 ? "\n\nOrders synced:\n" + string.Join(", ", savedList)

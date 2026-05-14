@@ -550,27 +550,13 @@ namespace JaneERP.Services
                         "SELECT ProductID FROM Products WHERE SKU = @sku", new { sku }, tx);
                     if (productId == null)
                     {
+                        // Placeholder — needs setup via the product review screen (no Part/BOM auto-created).
                         productId = db.QuerySingle<int>(@"
                             INSERT INTO Products (SKU, ProductName, RetailPrice, IsActive, IsAutoCreated, IsVerified)
                             VALUES (@SKU, @ProductName, @RetailPrice, 1, 1, 0);
                             SELECT CAST(SCOPE_IDENTITY() AS INT);",
                             new { SKU = sku, ProductName = li.Title, RetailPrice = li.UnitPrice }, tx);
-
-                        // Every product must have a Part and a BOM entry
-                        var partId = db.ExecuteScalar<int?>(
-                            "SELECT PartID FROM Parts WHERE PartNumber = @sku", new { sku }, tx);
-                        if (partId == null)
-                        {
-                            partId = db.QuerySingle<int>(@"
-                                INSERT INTO Parts (PartNumber, PartName, UnitCost, CurrentStock, IsActive, IsAutoCreated, IsVerified)
-                                VALUES (@sku, @name, 0, 0, 1, 1, 0);
-                                SELECT CAST(SCOPE_IDENTITY() AS INT);",
-                                new { sku, name = li.Title ?? sku }, tx);
-                        }
-                        db.Execute(@"
-                            IF NOT EXISTS (SELECT 1 FROM ProductParts WHERE ProductID=@pid AND PartID=@partId)
-                            INSERT INTO ProductParts (ProductID, PartID, Quantity) VALUES (@pid, @partId, 1);",
-                            new { pid = productId, partId }, tx);
+                        AppLogger.Info($"ManualOrder: queued new product for setup SKU={sku}");
                     }
 
                     db.Execute(@"
@@ -672,6 +658,10 @@ namespace JaneERP.Services
 
                     if (productId == null)
                     {
+                        // Create a placeholder product so the order line item can be saved.
+                        // IsAutoCreated=1 / IsVerified=0 signals it needs full setup before use.
+                        // Part and BOM are NOT auto-created here — the user must configure the
+                        // product source (Part/BOM/Package) via the product setup screen.
                         productId = db.QuerySingle<int>(@"
                             INSERT INTO Products (SKU, ProductName, RetailPrice, IsActive, IsAutoCreated, IsVerified)
                             VALUES (@SKU, @ProductName, @RetailPrice, 1, 1, 0);
@@ -683,23 +673,7 @@ namespace JaneERP.Services
                                 RetailPrice = li.Price
                             }, tx);
 
-                        AppLogger.Info($"ShopifySync: auto-created product SKU={sku}");
-
-                        // Every product must have a Part and a BOM entry
-                        var partId = db.ExecuteScalar<int?>(
-                            "SELECT PartID FROM Parts WHERE PartNumber = @sku", new { sku }, tx);
-                        if (partId == null)
-                        {
-                            partId = db.QuerySingle<int>(@"
-                                INSERT INTO Parts (PartNumber, PartName, UnitCost, CurrentStock, IsActive, IsAutoCreated, IsVerified)
-                                VALUES (@sku, @name, 0, 0, 1, 1, 0);
-                                SELECT CAST(SCOPE_IDENTITY() AS INT);",
-                                new { sku, name = li.Title ?? sku }, tx);
-                        }
-                        db.Execute(@"
-                            IF NOT EXISTS (SELECT 1 FROM ProductParts WHERE ProductID=@pid AND PartID=@partId)
-                            INSERT INTO ProductParts (ProductID, PartID, Quantity) VALUES (@pid, @partId, 1);",
-                            new { pid = productId, partId }, tx);
+                        AppLogger.Info($"ShopifySync: queued new product for setup SKU={sku}");
                     }
 
                     // SalesOrderItem
@@ -772,6 +746,17 @@ namespace JaneERP.Services
                 tx.Rollback();
                 throw;
             }
+        }
+
+        public int GetUnverifiedProductCount()
+        {
+            try
+            {
+                using IDbConnection db = new SqlConnection(_connectionString);
+                return db.ExecuteScalar<int>(
+                    "SELECT COUNT(1) FROM Products WHERE IsAutoCreated = 1 AND IsVerified = 0 AND IsActive = 1");
+            }
+            catch { return 0; }
         }
 
         // ── Fulfillment: Picking / Packing / Shipping ─────────────────────────────
