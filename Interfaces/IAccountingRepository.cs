@@ -7,7 +7,7 @@ namespace JaneERP.Interfaces
         void EnsureSchema();
 
         // ── P&L summary ──────────────────────────────────────────────────────────
-        AccountingSummary GetSummary(DateTime from, DateTime to, bool paidOnly = false);
+        AccountingSummary GetSummary(DateTime from, DateTime to, bool showPaid = false);
 
         // ── Expense transactions ─────────────────────────────────────────────────
         List<ExpenseRow> GetExpenseRows(DateTime from, DateTime to);

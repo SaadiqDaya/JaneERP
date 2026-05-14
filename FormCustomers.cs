@@ -463,7 +463,8 @@ namespace JaneERP
         {
             if (_dgvOrders.SelectedRows.Count == 0) return;
             var tag = _dgvOrders.SelectedRows[0].Tag as TxnTag;
-            if (tag?.TxnType != "Sale" || tag.IsPaid) return;
+            if (tag == null || tag.TxnType != "Sale" || tag.IsPaid) return;
+            if (_selectedCustomerId < 0) return;
 
             string orderRef = _dgvOrders.SelectedRows[0].Cells["colRef"].Value?.ToString() ?? $"#{tag.ID}";
 

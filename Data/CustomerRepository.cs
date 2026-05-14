@@ -97,17 +97,27 @@ namespace JaneERP.Data
         public void RecordPayment(int salesOrderId, int customerId, decimal amount,
                                   string paymentMethod, DateTime paidAt, string? notes = null)
         {
-            using IDbConnection db = new SqlConnection(_cs);
+            using var db = new SqlConnection(_cs);
+            db.Open();   // must be open before BeginTransaction
             using var tx = db.BeginTransaction();
-            db.Execute(
-                @"INSERT INTO CustomerPayments (SalesOrderID, CustomerID, Amount, PaymentMethod, PaidAt, Notes, RecordedBy)
-                  VALUES (@salesOrderId, @customerId, @amount, @paymentMethod, @paidAt, @notes, @recordedBy)",
-                new { salesOrderId, customerId, amount, paymentMethod, paidAt, notes,
-                      recordedBy = JaneERP.Security.AppSession.CurrentUser?.Username ?? "system" }, tx);
-            db.Execute(
-                "UPDATE SalesOrders SET IsPaid = 1, PaidAt = @paidAt WHERE SalesOrderID = @salesOrderId",
-                new { salesOrderId, paidAt }, tx);
-            tx.Commit();
+            try
+            {
+                db.Execute(
+                    @"INSERT INTO CustomerPayments (SalesOrderID, CustomerID, Amount, PaymentMethod, PaidAt, Notes, RecordedBy)
+                      VALUES (@salesOrderId, @customerId, @amount, @paymentMethod, @paidAt, @notes, @recordedBy)",
+                    new { salesOrderId, customerId, amount, paymentMethod, paidAt, notes,
+                          recordedBy = JaneERP.Security.AppSession.CurrentUser?.Username ?? "system" }, tx);
+                db.Execute(
+                    "UPDATE SalesOrders SET IsPaid = 1, PaidAt = @paidAt WHERE SalesOrderID = @salesOrderId",
+                    new { salesOrderId, paidAt }, tx);
+                tx.Commit();
+            }
+            catch (Exception ex)
+            {
+                tx.Rollback();
+                Logging.AppLogger.Error($"[CustomerRepository.RecordPayment] salesOrderId={salesOrderId} customerId={customerId}: {ex}");
+                throw;
+            }
         }
 
         public List<CustomerPaymentRecord> GetPayments(int customerId)

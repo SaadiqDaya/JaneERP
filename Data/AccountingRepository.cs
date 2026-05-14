@@ -49,13 +49,15 @@ namespace JaneERP.Data
                 END");
         }
 
-        public AccountingSummary GetSummary(DateTime from, DateTime to, bool paidOnly = false)
+        public AccountingSummary GetSummary(DateTime from, DateTime to, bool showPaid = false)
         {
             using var db = new SqlConnection(_cs);
 
-            string revenueFilter = paidOnly
-                ? "AND (ISNULL(IsPaid, 0) = 1 OR Status = 'Complete')"
-                : "";
+            // showPaid=false  → only unpaid/outstanding invoices count toward revenue
+            // showPaid=true   → all invoices (paid + unpaid) count toward revenue
+            string revenueFilter = showPaid
+                ? ""
+                : "AND ISNULL(IsPaid, 0) = 0";
 
             decimal revenue = db.ExecuteScalar<decimal>($@"
                 SELECT ISNULL(SUM(TotalPrice), 0)

@@ -199,10 +199,10 @@ namespace JaneERP
             };
             Controls.Add(_btnAddExpBulk);
 
-            _chkPaidOnly.Text     = "Show paid/completed only";
+            _chkPaidOnly.Text     = "Show Paid";
             _chkPaidOnly.Location = new Point(340, y + 6);
             _chkPaidOnly.AutoSize = true;
-            _chkPaidOnly.Checked  = false;
+            _chkPaidOnly.Checked  = false;   // default: only unpaid/outstanding invoices
             _chkPaidOnly.CheckedChanged += (_, _) => LoadData();
             Controls.Add(_chkPaidOnly);
 
