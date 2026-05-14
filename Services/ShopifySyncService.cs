@@ -137,6 +137,8 @@ namespace JaneERP.Services
             Migrate(db, "IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('SalesOrderItems') AND name='PickedQty') ALTER TABLE SalesOrderItems ADD PickedQty INT NOT NULL DEFAULT 0");
             Migrate(db, "IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('SalesOrderItems') AND name='PickedBy') ALTER TABLE SalesOrderItems ADD PickedBy NVARCHAR(100) NULL");
             Migrate(db, "IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('SalesOrderItems') AND name='PickedAt') ALTER TABLE SalesOrderItems ADD PickedAt DATETIME NULL");
+            Migrate(db, "IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('SalesOrders') AND name='CancelledAt') ALTER TABLE SalesOrders ADD CancelledAt DATETIME NULL");
+            Migrate(db, "IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('SalesOrders') AND name='PaymentStatus') ALTER TABLE SalesOrders ADD PaymentStatus NVARCHAR(50) NULL");
         }
 
         private static void Migrate(IDbConnection db, string sql)
@@ -183,10 +185,14 @@ namespace JaneERP.Services
         }
 
         /// <summary>
-        /// Updates the Status of a SalesOrder.
-        /// If transitioning to "Live" and inventory has not yet been deducted,
-        /// creates InventoryTransactions for each line item and marks InventoryAffected = 1.
-        /// Returns true if the row was found.
+        /// Updates the Status of a SalesOrder, enforcing business rules:
+        /// – Complete and Cancelled are terminal (cannot transition out).
+        /// – Reverting to Draft or Cancelled from an active status releases reservations and
+        ///   reverses any previously-recorded InventoryTransactions (if InventoryAffected=1),
+        ///   then resets InventoryAffected=0 so the order can be re-processed.
+        /// – Going to Shipped (primary) or Complete (fallback) deducts inventory once;
+        ///   a hard stock-sufficiency check blocks the transition if stock is short.
+        /// Returns true if the row was found and updated.
         /// </summary>
         public bool UpdateOrderStatus(int salesOrderId, string newStatus)
         {
@@ -202,6 +208,15 @@ namespace JaneERP.Services
                 if (order == null) { tx.Rollback(); return false; }
 
                 string currentStatus = (string)order.Status;
+                bool   wasAffected   = (bool)order.InventoryAffected;
+
+                // Terminal states: Complete and Cancelled cannot be transitioned out of
+                if (currentStatus is "Complete" or "Cancelled")
+                {
+                    tx.Rollback();
+                    throw new InvalidOperationException(
+                        $"Order #{order.OrderNumber} is {currentStatus} and cannot be changed.");
+                }
 
                 db.Execute(
                     "UPDATE SalesOrders SET Status = @s WHERE SalesOrderID = @id",
@@ -216,43 +231,83 @@ namespace JaneERP.Services
                         new { packedBy, id = salesOrderId }, tx);
                 }
 
-                // Release stock reservations when completing or reverting to Draft from any active status
+                // Record cancellation timestamp
+                if (newStatus == "Cancelled")
+                    db.Execute(
+                        "UPDATE SalesOrders SET CancelledAt = GETDATE() WHERE SalesOrderID = @id",
+                        new { id = salesOrderId }, tx);
+
+                // Release stock reservations on terminal or revert transitions
                 var activeStatuses = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
                     { "Live", "Picking", "Packing", "Shipped", "WIP" };
-                if (newStatus == "Complete" ||
-                    (newStatus == "Draft" && activeStatuses.Contains(currentStatus)))
-                {
+                bool releaseReservations =
+                    newStatus is "Complete" or "Shipped" or "Cancelled" ||
+                    (newStatus == "Draft" && activeStatuses.Contains(currentStatus));
+                if (releaseReservations)
                     db.Execute("DELETE FROM StockReservations WHERE SalesOrderID = @id",
                         new { id = salesOrderId }, tx);
-                }
 
-                // Deduct inventory once when first going Complete
-                // Dapper returns BIT as bool — cast directly, don't cast to int
-                bool wasAffected = (bool)order.InventoryAffected;
-                if (newStatus == "Complete" && !wasAffected)
+                // Reverse inventory when cancelling or reverting to Draft (if already deducted)
+                if ((newStatus is "Draft" or "Cancelled") && wasAffected)
                 {
-                    var items = db.Query(
-                        "SELECT ProductID, Quantity, SalesOrderID FROM SalesOrderItems WHERE SalesOrderID = @id",
+                    var revertItems = db.Query(
+                        "SELECT ProductID, Quantity FROM SalesOrderItems WHERE SalesOrderID = @id",
                         new { id = salesOrderId }, tx).ToList();
 
-                    // Check stock sufficiency before deducting
-                    var stockShortages = new List<string>();
-                    foreach (var li in items)
+                    int orderNum = (int)order.OrderNumber;
+                    foreach (var li in revertItems)
                     {
-                        int currentStock = db.ExecuteScalar<int>(
-                            "SELECT ISNULL(SUM(QuantityChange), 0) FROM InventoryTransactions WHERE ProductID = @pid",
-                            new { pid = (int)li.ProductID }, tx);
-                        if (currentStock < (int)li.Quantity)
-                            stockShortages.Add($"ProductID {li.ProductID}: need {li.Quantity}, have {currentStock}");
+                        db.Execute(@"
+                            INSERT INTO InventoryTransactions (ProductID, QuantityChange, TransactionType, Notes, TransactionDate)
+                            VALUES (@ProductID, @QuantityChange, 'Sale Reversal', @Notes, @TransactionDate);",
+                            new
+                            {
+                                ProductID       = (int)li.ProductID,
+                                QuantityChange  = (int)li.Quantity,   // positive — returns stock
+                                Notes           = $"Order #{orderNum} → {newStatus} (reversal)",
+                                TransactionDate = DateTime.Now
+                            }, tx);
                     }
 
-                    if (stockShortages.Any())
-                        AppLogger.Audit("system", "StockShortageOnLive",
-                            $"OrderID={salesOrderId}: {string.Join("; ", stockShortages)}");
-                    // Proceed with deduction regardless — log is the warning; don't block the status change
+                    db.Execute(
+                        "UPDATE SalesOrders SET InventoryAffected = 0 WHERE SalesOrderID = @id",
+                        new { id = salesOrderId }, tx);
 
-                    int orderNumber = (int)order.OrderNumber;
-                    foreach (var li in items)
+                    AppLogger.Audit(Security.AppSession.CurrentUser?.Username ?? "system",
+                        "InventoryReversed",
+                        $"OrderID={salesOrderId} OrderNumber={order.OrderNumber} Reason={newStatus} items={revertItems.Count}");
+                }
+
+                // Deduct inventory once when going Shipped (primary trigger) or Complete (fallback
+                // for orders that skip the Shipped step, e.g. Draft → Complete directly).
+                // The wasAffected flag prevents double-deduction across both paths.
+                if ((newStatus is "Shipped" or "Complete") && !wasAffected)
+                {
+                    var deductItems = db.Query(
+                        "SELECT ProductID, Quantity FROM SalesOrderItems WHERE SalesOrderID = @id",
+                        new { id = salesOrderId }, tx).ToList();
+
+                    // Hard block: refuse the transition if any item is short on stock
+                    var shortages = new List<string>();
+                    foreach (var li in deductItems)
+                    {
+                        int stock = db.ExecuteScalar<int>(
+                            "SELECT ISNULL(SUM(QuantityChange), 0) FROM InventoryTransactions WHERE ProductID = @pid",
+                            new { pid = (int)li.ProductID }, tx);
+                        if (stock < (int)li.Quantity)
+                            shortages.Add($"ProductID {li.ProductID}: need {li.Quantity}, have {stock}");
+                    }
+
+                    if (shortages.Any())
+                    {
+                        tx.Rollback();
+                        throw new InvalidOperationException(
+                            $"Cannot {newStatus.ToLower()} order #{order.OrderNumber}: insufficient stock.\n" +
+                            string.Join("\n", shortages));
+                    }
+
+                    int orderNum = (int)order.OrderNumber;
+                    foreach (var li in deductItems)
                     {
                         db.Execute(@"
                             INSERT INTO InventoryTransactions (ProductID, QuantityChange, TransactionType, Notes, TransactionDate)
@@ -261,7 +316,7 @@ namespace JaneERP.Services
                             {
                                 ProductID       = (int)li.ProductID,
                                 QuantityChange  = -(int)li.Quantity,
-                                Notes           = $"Order #{orderNumber} → Complete",
+                                Notes           = $"Order #{orderNum} → {newStatus}",
                                 TransactionDate = DateTime.Now
                             }, tx);
                     }
@@ -272,7 +327,7 @@ namespace JaneERP.Services
 
                     AppLogger.Audit(Security.AppSession.CurrentUser?.Username ?? "system",
                         "InventoryDeducted",
-                        $"OrderID={salesOrderId} OrderNumber={order.OrderNumber} items={items.Count}");
+                        $"OrderID={salesOrderId} OrderNumber={order.OrderNumber} items={deductItems.Count}");
                 }
 
                 tx.Commit();
@@ -282,10 +337,12 @@ namespace JaneERP.Services
         }
 
         /// <summary>
-        /// Marks a SalesOrder as paid and records a CustomerPayment transaction.
-        /// Throws if the order is not found or is already paid.
+        /// Records a payment against a SalesOrder and marks it fully paid when the amount
+        /// meets or exceeds the order total. Supports partial payments: pass a specific
+        /// <paramref name="amount"/> to record less than the full total — IsPaid stays false
+        /// until the full amount is recorded. Pass null to record the full TotalPrice at once.
         /// </summary>
-        public void MarkAsPaid(int salesOrderId, string? paymentMethod = null, string? notes = null)
+        public void MarkAsPaid(int salesOrderId, string? paymentMethod = null, string? notes = null, decimal? amount = null)
         {
             using var db = new SqlConnection(_connectionString);
             db.Open();
@@ -297,14 +354,23 @@ namespace JaneERP.Services
                     new { id = salesOrderId }, tx)
                     ?? throw new InvalidOperationException("Sales order not found.");
 
-                if ((bool)order.IsPaid)
-                    throw new InvalidOperationException("This order is already marked as paid.");
+                decimal paymentAmount = amount ?? (decimal)order.TotalPrice;
+                if (paymentAmount <= 0)
+                    throw new InvalidOperationException("Payment amount must be greater than zero.");
 
                 var now = DateTime.Now;
 
-                db.Execute(
-                    "UPDATE SalesOrders SET IsPaid = 1, PaidAt = @now WHERE SalesOrderID = @id",
-                    new { now, id = salesOrderId }, tx);
+                // Sum all prior payments to determine whether this payment completes the order
+                decimal priorPaid = db.ExecuteScalar<decimal>(
+                    "SELECT ISNULL(SUM(Amount), 0) FROM CustomerPayments WHERE SalesOrderID = @id",
+                    new { id = salesOrderId }, tx);
+
+                bool isNowFullyPaid = (priorPaid + paymentAmount) >= (decimal)order.TotalPrice;
+
+                if (isNowFullyPaid && !(bool)order.IsPaid)
+                    db.Execute(
+                        "UPDATE SalesOrders SET IsPaid = 1, PaidAt = @now WHERE SalesOrderID = @id",
+                        new { now, id = salesOrderId }, tx);
 
                 db.Execute(@"
                     INSERT INTO CustomerPayments (CustomerID, SalesOrderID, Amount, PaymentMethod, Notes, PaidAt)
@@ -313,7 +379,7 @@ namespace JaneERP.Services
                     {
                         CustomerID    = (int)order.CustomerID,
                         SalesOrderID  = salesOrderId,
-                        Amount        = (decimal)order.TotalPrice,
+                        Amount        = paymentAmount,
                         PaymentMethod = paymentMethod,
                         Notes         = notes,
                         PaidAt        = now
@@ -322,7 +388,8 @@ namespace JaneERP.Services
                 tx.Commit();
 
                 AppLogger.Audit(Security.AppSession.CurrentUser?.Username ?? "system",
-                    "MarkAsPaid", $"OrderID={salesOrderId} OrderNumber={order.OrderNumber} Amount={order.TotalPrice:N2}");
+                    "PaymentRecorded",
+                    $"OrderID={salesOrderId} OrderNumber={order.OrderNumber} Amount={paymentAmount:N2} FullyPaid={isNowFullyPaid}");
             }
             catch { tx.Rollback(); throw; }
         }
@@ -523,9 +590,12 @@ namespace JaneERP.Services
                         new { email, fullName = customerName ?? email }, tx);
                 }
 
-                // Auto-generate order number for manual orders
+                // Auto-generate order number using UPDLOCK + HOLDLOCK so concurrent inserts
+                // within the same READ COMMITTED transaction isolation level cannot read the
+                // same MAX and produce duplicate order numbers.
                 var orderNumber = db.ExecuteScalar<int>(
-                    "SELECT ISNULL(MAX(OrderNumber), 0) + 1 FROM SalesOrders WHERE ShopifyOrderID IS NULL", null, tx);
+                    "SELECT ISNULL(MAX(OrderNumber), 0) + 1 FROM SalesOrders WITH (UPDLOCK, HOLDLOCK) WHERE ShopifyOrderID IS NULL",
+                    null, tx);
 
                 decimal subtotal = lineItems.Sum(li => li.Qty * li.UnitPrice);
                 decimal total    = subtotal - discountAmount + shippingCost;
@@ -543,6 +613,8 @@ namespace JaneERP.Services
                           DiscountType = discountType, DiscountAmount = discountAmount, DiscountPercent = discountPercent,
                           ShippingCost = shippingCost }, tx);
 
+                // Pass 1: find/create products and insert order items; collect (productId, qty, sku) for inventory
+                var inventoryItems = new List<(int productId, int qty, string sku)>();
                 foreach (var li in lineItems)
                 {
                     var sku = li.Sku.Trim();
@@ -565,12 +637,32 @@ namespace JaneERP.Services
                         new { SalesOrderID = salesOrderId, ProductID = productId,
                               SKU = sku, Title = li.Title, Quantity = li.Qty, UnitPrice = li.UnitPrice }, tx);
 
-                    if (affectsInventory)
+                    inventoryItems.Add((productId.Value, li.Qty, sku));
+                }
+
+                // Pass 2: stock guard then deduction (only for Live orders)
+                if (affectsInventory)
+                {
+                    var shortages = new List<string>();
+                    foreach (var (pid, qty, sku) in inventoryItems)
+                    {
+                        int stock = db.ExecuteScalar<int>(
+                            "SELECT ISNULL(SUM(QuantityChange), 0) FROM InventoryTransactions WHERE ProductID = @pid",
+                            new { pid }, tx);
+                        if (stock < qty)
+                            shortages.Add($"SKU {sku}: need {qty}, have {stock}");
+                    }
+
+                    if (shortages.Any())
+                        throw new InvalidOperationException(
+                            $"Insufficient stock for order #{orderNumber}:\n{string.Join("\n", shortages)}");
+
+                    foreach (var (pid, qty, sku) in inventoryItems)
                     {
                         db.Execute(@"
                             INSERT INTO InventoryTransactions (ProductID, QuantityChange, TransactionType, Notes, TransactionDate)
                             VALUES (@ProductID, @QuantityChange, 'Manual Sale', @Notes, @TransactionDate);",
-                            new { ProductID = productId, QuantityChange = -li.Qty,
+                            new { ProductID = pid, QuantityChange = -qty,
                                   Notes = $"Manual Order #{orderNumber}", TransactionDate = orderDate }, tx);
                     }
                 }
@@ -621,13 +713,20 @@ namespace JaneERP.Services
                 }
 
                 // ── SalesOrder ───────────────────────────────────────────────────────
-                // Shopify orders come in as Live but InventoryAffected=0;
-                // inventory is only deducted when an order is marked Fulfilled.
                 bool isPaid = string.Equals(order.FinancialStatus, "paid", StringComparison.OrdinalIgnoreCase);
 
+                // Map refunded/voided Shopify orders directly to Cancelled in ERP
+                bool isCancelled = order.FinancialStatus != null &&
+                    (order.FinancialStatus.Equals("refunded", StringComparison.OrdinalIgnoreCase) ||
+                     order.FinancialStatus.Equals("voided",   StringComparison.OrdinalIgnoreCase));
+
+                string    erpStatus     = isCancelled ? "Cancelled" : "Live";
+                DateTime? cancelledAt   = isCancelled ? order.CreatedAt : (DateTime?)null;
+                string?   paymentStatus = order.FinancialStatus; // preserve raw Shopify value (partially_paid etc.)
+
                 var salesOrderId = db.QuerySingle<int>(@"
-                    INSERT INTO SalesOrders (ShopifyOrderID, OrderNumber, CustomerID, StoreID, OrderDate, TotalPrice, Currency, Status, InventoryAffected, OrderType, IsPaid, PaidAt, PaymentGateway)
-                    VALUES (@ShopifyOrderID, @OrderNumber, @CustomerID, @StoreID, @OrderDate, @TotalPrice, @Currency, 'Live', 0, 'Shopify', @IsPaid, @PaidAt, @PaymentGateway);
+                    INSERT INTO SalesOrders (ShopifyOrderID, OrderNumber, CustomerID, StoreID, OrderDate, TotalPrice, Currency, Status, InventoryAffected, OrderType, IsPaid, PaidAt, PaymentGateway, PaymentStatus, CancelledAt)
+                    VALUES (@ShopifyOrderID, @OrderNumber, @CustomerID, @StoreID, @OrderDate, @TotalPrice, @Currency, @Status, 0, 'Shopify', @IsPaid, @PaidAt, @PaymentGateway, @PaymentStatus, @CancelledAt);
                     SELECT CAST(SCOPE_IDENTITY() AS INT);",
                     new
                     {
@@ -638,9 +737,12 @@ namespace JaneERP.Services
                         OrderDate      = order.CreatedAt,
                         TotalPrice     = order.TotalPrice,
                         Currency       = order.Currency,
+                        Status         = erpStatus,
                         IsPaid         = isPaid,
                         PaidAt         = isPaid ? (DateTime?)order.CreatedAt : null,
-                        PaymentGateway = order.PaymentGateway
+                        PaymentGateway = order.PaymentGateway,
+                        PaymentStatus  = paymentStatus,
+                        CancelledAt    = cancelledAt
                     }, tx);
 
                 // ── Line items ───────────────────────────────────────────────────────
@@ -843,17 +945,32 @@ namespace JaneERP.Services
         }
 
         /// <summary>
-        /// Records shipment details, stamps ShippedAt/ShippedBy, moves the order to
-        /// Shipped, and releases any remaining stock reservations.
+        /// Records shipment details, stamps ShippedAt/ShippedBy, moves the order to Shipped,
+        /// releases stock reservations, and deducts inventory in a single transaction.
+        /// Throws if the order is already Complete or Cancelled, or if stock is insufficient.
         /// </summary>
         public void RecordShipment(int salesOrderId, string? trackingNumber, string? carrier)
         {
+            string shippedBy = Security.AppSession.CurrentUser?.Username ?? "system";
+
             using var db = new SqlConnection(_connectionString);
             db.Open();
             using var tx = db.BeginTransaction();
             try
             {
-                string shippedBy = Security.AppSession.CurrentUser?.Username ?? "system";
+                var order = db.QueryFirstOrDefault(
+                    "SELECT SalesOrderID, OrderNumber, Status, InventoryAffected FROM SalesOrders WHERE SalesOrderID = @id",
+                    new { id = salesOrderId }, tx)
+                    ?? throw new InvalidOperationException("Order not found.");
+
+                string currentStatus = (string)order.Status;
+                bool   wasAffected   = (bool)order.InventoryAffected;
+
+                if (currentStatus is "Complete" or "Cancelled")
+                    throw new InvalidOperationException(
+                        $"Order #{order.OrderNumber} is {currentStatus} and cannot be changed.");
+
+                // Update status + shipping metadata atomically
                 db.Execute(@"
                     UPDATE SalesOrders
                     SET    Status         = 'Shipped',
@@ -864,8 +981,55 @@ namespace JaneERP.Services
                     WHERE  SalesOrderID = @id",
                     new { trackingNumber, carrier, shippedBy, id = salesOrderId }, tx);
 
+                // Release stock reservations
                 db.Execute("DELETE FROM StockReservations WHERE SalesOrderID = @id",
                     new { id = salesOrderId }, tx);
+
+                // Deduct inventory once if not already done
+                if (!wasAffected)
+                {
+                    var items = db.Query(
+                        "SELECT ProductID, Quantity FROM SalesOrderItems WHERE SalesOrderID = @id",
+                        new { id = salesOrderId }, tx).ToList();
+
+                    // Hard block on stock shortage
+                    var shortages = new List<string>();
+                    foreach (var li in items)
+                    {
+                        int stock = db.ExecuteScalar<int>(
+                            "SELECT ISNULL(SUM(QuantityChange), 0) FROM InventoryTransactions WHERE ProductID = @pid",
+                            new { pid = (int)li.ProductID }, tx);
+                        if (stock < (int)li.Quantity)
+                            shortages.Add($"ProductID {li.ProductID}: need {li.Quantity}, have {stock}");
+                    }
+
+                    if (shortages.Any())
+                        throw new InvalidOperationException(
+                            $"Cannot ship order #{order.OrderNumber}: insufficient stock.\n" +
+                            string.Join("\n", shortages));
+
+                    int orderNum = (int)order.OrderNumber;
+                    foreach (var li in items)
+                    {
+                        db.Execute(@"
+                            INSERT INTO InventoryTransactions (ProductID, QuantityChange, TransactionType, Notes, TransactionDate)
+                            VALUES (@ProductID, @QuantityChange, 'Sale', @Notes, @TransactionDate);",
+                            new
+                            {
+                                ProductID       = (int)li.ProductID,
+                                QuantityChange  = -(int)li.Quantity,
+                                Notes           = $"Order #{orderNum} → Shipped",
+                                TransactionDate = DateTime.Now
+                            }, tx);
+                    }
+
+                    db.Execute(
+                        "UPDATE SalesOrders SET InventoryAffected = 1 WHERE SalesOrderID = @id",
+                        new { id = salesOrderId }, tx);
+
+                    AppLogger.Audit(shippedBy, "InventoryDeducted",
+                        $"OrderID={salesOrderId} OrderNumber={order.OrderNumber} items={items.Count}");
+                }
 
                 tx.Commit();
                 AppLogger.Audit(shippedBy, "OrderShipped",

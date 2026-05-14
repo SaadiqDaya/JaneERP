@@ -6,7 +6,7 @@ namespace JaneERP.Interfaces
     {
         List<Order>              GetErpOrders(string? orderType = null, bool nonShopifyOnly = false);
         bool                     UpdateOrderStatus(int salesOrderId, string newStatus);
-        void                     MarkAsPaid(int salesOrderId, string? paymentMethod = null, string? notes = null);
+        void                     MarkAsPaid(int salesOrderId, string? paymentMethod = null, string? notes = null, decimal? amount = null);
         List<SalesOrderItem>     GetOrderItems(int salesOrderId);
         List<ReservationLine>    GetSOReservationItems(int salesOrderId);
         void                     SaveSOReservations(int salesOrderId, IEnumerable<ReservationLine> lines);

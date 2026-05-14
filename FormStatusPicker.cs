@@ -8,7 +8,7 @@ namespace JaneERP
         public FormStatusPicker(string currentStatus)
         {
             Text          = "Change Order Status";
-            ClientSize    = new Size(300, 290);
+            ClientSize    = new Size(300, 324);
             StartPosition = FormStartPosition.CenterParent;
             FormBorderStyle = FormBorderStyle.FixedDialog;
             MaximizeBox   = false;
@@ -27,7 +27,7 @@ namespace JaneERP
             Controls.Add(new Label { Text = "New status:", Location = new Point(16, y), AutoSize = true });
             y += 20;
 
-            foreach (var status in new[] { "Draft", "Live", "Picking", "Packing", "Shipped", "Complete" })
+            foreach (var status in new[] { "Draft", "Live", "Picking", "Packing", "Shipped", "Complete", "Cancelled" })
             {
                 var btn = new Button
                 {

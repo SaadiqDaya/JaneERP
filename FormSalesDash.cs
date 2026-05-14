@@ -1216,6 +1216,7 @@ namespace JaneERP
 
             var svc   = AppServices.Get<IShopifySyncService>();
             int done  = 0, failed = 0;
+            string? firstError = null;
             foreach (var o in targets)
             {
                 try
@@ -1223,10 +1224,17 @@ namespace JaneERP
                     if (svc.UpdateOrderStatus(o.ErpSalesOrderID!.Value, newStatus)) done++;
                     else failed++;
                 }
-                catch { failed++; }
+                catch (Exception ex)
+                {
+                    failed++;
+                    firstError ??= ex.Message;
+                }
             }
 
             lblStatus.Text = $"Status → {newStatus}: {done} updated{(failed > 0 ? $", {failed} failed" : "")}";
+            if (firstError != null)
+                MessageBox.Show(this, firstError, "Status update failed",
+                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
 
             if (IsErpView) LoadErpOrders(null, cboStoreFilter.SelectedIndex == 1);
             else LoadCachedOrders();
@@ -1472,10 +1480,12 @@ namespace JaneERP
 
         private static Color StatusColor(string? status) => status switch
         {
-            "Complete" => Color.FromArgb(100, 210, 100),
-            "Live"     => Color.FromArgb(0, 180, 180),
-            "WIP"      => Color.FromArgb(210, 160, 50),
-            _          => Color.FromArgb(160, 160, 170)  // Draft / unknown
+            "Complete"  => Color.FromArgb(100, 210, 100),
+            "Live"      => Color.FromArgb(0, 180, 180),
+            "WIP"       => Color.FromArgb(210, 160, 50),
+            "Shipped"   => Color.FromArgb(80, 160, 230),
+            "Cancelled" => Color.FromArgb(220, 80, 80),
+            _           => Color.FromArgb(160, 160, 170)  // Draft / Picking / Packing / unknown
         };
 
         private void LoadItems()
@@ -1560,16 +1570,18 @@ namespace JaneERP
             try
             {
                 AppServices.Get<IShopifySyncService>().MarkAsPaid(
-                    _order.ErpSalesOrderID.Value, dlg.PaymentMethod, dlg.Notes);
-                _order.IsPaid  = true;
-                _order.PaidAt  = DateTime.Now;
+                    _order.ErpSalesOrderID.Value, dlg.PaymentMethod, dlg.Notes, dlg.Amount);
+
+                bool isFullyPaid = dlg.Amount >= _order.TotalPrice;
+                _order.IsPaid  = isFullyPaid;
+                _order.PaidAt  = isFullyPaid ? DateTime.Now : _order.PaidAt;
                 RefreshPaidLabel();
-                btnMarkPaid.Enabled = false;
+                btnMarkPaid.Enabled = !isFullyPaid; // keep enabled if partial payment
                 StatusWasChanged    = true;
             }
             catch (Exception ex)
             {
-                MessageBox.Show(this, ex.Message, "Mark as Paid failed",
+                MessageBox.Show(this, ex.Message, "Payment failed",
                     MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
@@ -1581,52 +1593,64 @@ namespace JaneERP
 
     internal sealed class FormMarkPaid : Form
     {
-        public string? PaymentMethod { get; private set; }
-        public string? Notes         { get; private set; }
+        public string?  PaymentMethod { get; private set; }
+        public string?  Notes         { get; private set; }
+        public decimal  Amount        { get; private set; }
 
-        private ComboBox cboMethod = new();
-        private TextBox  txtNotes  = new();
+        private ComboBox       cboMethod  = new();
+        private TextBox        txtNotes   = new();
+        private NumericUpDown  nudAmount  = new();
 
-        public FormMarkPaid(decimal amount, string? currency)
+        public FormMarkPaid(decimal orderTotal, string? currency)
         {
-            BuildUI(amount, currency);
+            BuildUI(orderTotal, currency);
             Theme.Apply(this);
             Theme.MakeBorderless(this);
             Theme.AddCloseButton(this);
         }
 
-        private void BuildUI(decimal amount, string? currency)
+        private void BuildUI(decimal orderTotal, string? currency)
         {
-            Text          = "Mark as Paid";
-            ClientSize    = new Size(360, 210);
+            Text            = "Record Payment";
+            ClientSize      = new Size(360, 250);
             FormBorderStyle = FormBorderStyle.FixedDialog;
-            StartPosition = FormStartPosition.CenterParent;
+            StartPosition   = FormStartPosition.CenterParent;
 
             Controls.Add(new Label
             {
-                Text      = $"Mark order as paid — {amount:N2} {currency ?? "CAD"}",
+                Text      = $"Order total: {orderTotal:N2} {currency ?? "CAD"}",
                 Font      = new Font("Segoe UI", 10F, FontStyle.Bold),
                 ForeColor = Theme.Gold,
                 Location  = new Point(14, 14),
                 Size      = new Size(330, 22)
             });
 
-            Controls.Add(new Label { Text = "Payment Method:", Location = new Point(14, 50), AutoSize = true, ForeColor = Theme.TextSecondary });
-            cboMethod.Location      = new Point(14, 70);
+            Controls.Add(new Label { Text = "Amount:", Location = new Point(14, 46), AutoSize = true, ForeColor = Theme.TextSecondary });
+            nudAmount.Location      = new Point(14, 64);
+            nudAmount.Size          = new Size(160, 24);
+            nudAmount.DecimalPlaces = 2;
+            nudAmount.Minimum       = 0.01m;
+            nudAmount.Maximum       = orderTotal * 10;  // allow overpayment if needed
+            nudAmount.Value         = orderTotal;
+            Controls.Add(nudAmount);
+
+            Controls.Add(new Label { Text = "Payment Method:", Location = new Point(14, 98), AutoSize = true, ForeColor = Theme.TextSecondary });
+            cboMethod.Location      = new Point(14, 116);
             cboMethod.Size          = new Size(160, 24);
             cboMethod.DropDownStyle = ComboBoxStyle.DropDownList;
             cboMethod.Items.AddRange(new object[] { "Cash", "Credit/Debit Card", "EFT / Bank Transfer", "Cheque", "Other" });
             cboMethod.SelectedIndex = 0;
             Controls.Add(cboMethod);
 
-            Controls.Add(new Label { Text = "Notes (optional):", Location = new Point(14, 104), AutoSize = true, ForeColor = Theme.TextSecondary });
-            txtNotes.Location   = new Point(14, 124);
-            txtNotes.Size       = new Size(330, 23);
+            Controls.Add(new Label { Text = "Notes (optional):", Location = new Point(14, 150), AutoSize = true, ForeColor = Theme.TextSecondary });
+            txtNotes.Location = new Point(14, 168);
+            txtNotes.Size     = new Size(330, 23);
             Controls.Add(txtNotes);
 
-            var btnOk = new Button { Text = "Confirm", Size = new Size(90, 28), Location = new Point(166, 166), UseVisualStyleBackColor = true };
+            var btnOk = new Button { Text = "Confirm", Size = new Size(90, 28), Location = new Point(166, 206), UseVisualStyleBackColor = true };
             btnOk.Click += (_, _) =>
             {
+                Amount        = nudAmount.Value;
                 PaymentMethod = cboMethod.SelectedItem?.ToString();
                 Notes         = string.IsNullOrWhiteSpace(txtNotes.Text) ? null : txtNotes.Text.Trim();
                 DialogResult  = DialogResult.OK;
@@ -1634,7 +1658,7 @@ namespace JaneERP
             };
             Controls.Add(btnOk);
 
-            var btnCancel = new Button { Text = "Cancel", Size = new Size(80, 28), Location = new Point(264, 166), UseVisualStyleBackColor = true };
+            var btnCancel = new Button { Text = "Cancel", Size = new Size(80, 28), Location = new Point(264, 206), UseVisualStyleBackColor = true };
             btnCancel.Click += (_, _) => { DialogResult = DialogResult.Cancel; Close(); };
             Controls.Add(btnCancel);
         }
