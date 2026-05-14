@@ -55,33 +55,41 @@ namespace JaneERP
             Theme.AddCloseButton(this);
             Theme.MakeResizable(this);
 
-            // Default date range: remembered from last session (or Apr 1 2026 on first open)
-            dtpFrom.Value = _lastFromDate;
-            dtpTo.Value   = _lastToDate;
+            try
+            {
+                // Default date range: remembered from last session (or Apr 1 2026 on first open)
+                dtpFrom.Value = _lastFromDate;
+                dtpTo.Value   = _lastToDate;
 
-            // Save date range whenever it changes
-            dtpFrom.ValueChanged += (_, _) => _lastFromDate = dtpFrom.Value;
-            dtpTo.ValueChanged   += (_, _) => _lastToDate   = dtpTo.Value;
+                // Save date range whenever it changes
+                dtpFrom.ValueChanged += (_, _) => _lastFromDate = dtpFrom.Value;
+                dtpTo.ValueChanged   += (_, _) => _lastToDate   = dtpTo.Value;
 
-            InitializeGridColumns();
-            dgvOrders.SelectionChanged += DgvOrders_SelectionChanged;
+                InitializeGridColumns();
+                dgvOrders.SelectionChanged += DgvOrders_SelectionChanged;
 
-            // Disable Sync if the user lacks permission — PopulateStoreFilter may further restrict it
-            // based on whether a store is selected, so evaluate permission first.
-            if (!Security.PermissionHelper.CanEdit("SalesOrders"))
-                btnSyncToERP.Enabled = false;
+                // Disable Sync if the user lacks permission — PopulateStoreFilter may further restrict it
+                // based on whether a store is selected, so evaluate permission first.
+                if (!Security.PermissionHelper.CanEdit("SalesOrders"))
+                    btnSyncToERP.Enabled = false;
 
-            BuildSetupNotice();
-            PopulateStoreFilter();   // sets initial store state and may disable Sync/Fetch buttons
-            LoadCachedOrders();
+                BuildSetupNotice();
+                PopulateStoreFilter();   // sets initial store state and may disable Sync/Fetch buttons
+                LoadCachedOrders();
 
-            // Wire real-time filter events
-            dtpFrom.ValueChanged    += (_, _) => ApplyFilters();
-            dtpTo.ValueChanged      += (_, _) => ApplyFilters();
-            txtMinAmount.TextChanged += (_, _) => ApplyFilters();
-            txtMaxAmount.TextChanged += (_, _) => ApplyFilters();
+                // Wire real-time filter events
+                dtpFrom.ValueChanged    += (_, _) => ApplyFilters();
+                dtpTo.ValueChanged      += (_, _) => ApplyFilters();
+                txtMinAmount.TextChanged += (_, _) => ApplyFilters();
+                txtMaxAmount.TextChanged += (_, _) => ApplyFilters();
 
-            Shown += FormSalesDash_Shown;
+                Shown += FormSalesDash_Shown;
+            }
+            catch (Exception ex)
+            {
+                AppLogger.Error($"[FormSalesDash.Load] {ex}");
+                MessageBox.Show($"Error loading Sales: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
         }
 
         private void FormSalesDash_Shown(object? sender, EventArgs e)
@@ -259,14 +267,14 @@ namespace JaneERP
                 AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill
             });
 
-            // Payment status
+            // Payment status — bound to PaymentGateway but formatted to show Paid/Unpaid/etc via CellFormatting
             dgvOrders.Columns.Add(new DataGridViewTextBoxColumn
             {
                 Name             = "colPayment",
                 HeaderText       = "Payment",
-                DataPropertyName = "PaymentGateway",
+                DataPropertyName = "IsPaid",
                 ReadOnly         = true,
-                Width            = 110
+                Width            = 100
             });
 
             // Created at
@@ -298,6 +306,31 @@ namespace JaneERP
             // Wire double-click for single-row action
             dgvOrders.CellDoubleClick -= DgvOrders_CellDoubleClick;
             dgvOrders.CellDoubleClick += DgvOrders_CellDoubleClick;
+
+            // Format payment column: show "Paid" / "Unpaid" with color
+            dgvOrders.CellFormatting -= DgvOrders_CellFormatting;
+            dgvOrders.CellFormatting += DgvOrders_CellFormatting;
+        }
+
+        private void DgvOrders_CellFormatting(object? sender, DataGridViewCellFormattingEventArgs e)
+        {
+            if (e.RowIndex < 0 || e.RowIndex >= _currentOrders.Count) return;
+            var col = dgvOrders.Columns[e.ColumnIndex];
+            if (col.Name != "colPayment") return;
+
+            var order = _currentOrders[e.RowIndex];
+            if (order.IsPaid)
+            {
+                e.Value             = "Paid";
+                e.CellStyle.ForeColor = Color.FromArgb(80, 210, 100);
+            }
+            else
+            {
+                // Show gateway name if available, otherwise "Unpaid"
+                e.Value             = string.IsNullOrEmpty(order.PaymentGateway) ? "Unpaid" : $"Pending — {FormatPaymentGateway(order.PaymentGateway)}";
+                e.CellStyle.ForeColor = Color.FromArgb(200, 160, 60);
+            }
+            e.FormattingApplied = true;
         }
 
         private void LoadCachedOrders()
@@ -474,8 +507,8 @@ namespace JaneERP
             if (IsDisposed || !IsHandleCreated) return;
             if (_syncService == null || !_syncService.IsRunning)
             {
-                lblLastSync.Text  = "";
-                btnSyncNow.Enabled = false;
+                lblLastSync.Text   = "";
+                btnSyncNow.Enabled = true;   // always allow manual reload from DB
                 return;
             }
 
@@ -515,10 +548,21 @@ namespace JaneERP
 
         private void BtnSyncNow_Click(object? sender, EventArgs e)
         {
-            if (_syncService == null || !_syncService.IsRunning) return;
-            _syncService.TriggerNow();
-            lblStatus.Text = "Manual refresh triggered\u2026";
-            UpdateSyncLabel();
+            if (_syncService != null && _syncService.IsRunning)
+            {
+                // Store is selected — trigger background sync then reload from DB when done
+                _syncService.TriggerNow();
+                lblStatus.Text = "Manual refresh triggered\u2026";
+                UpdateSyncLabel();
+            }
+            else
+            {
+                // No active sync service (All Stores or ERP view) — reload from local DB immediately
+                if (IsErpView)
+                    LoadErpOrders(null, cboStoreFilter.SelectedIndex == 1);
+                else
+                    LoadCachedOrders();
+            }
         }
 
         private void SyncService_SyncCompleted(object? sender, SyncCompletedEventArgs e)
@@ -548,46 +592,101 @@ namespace JaneERP
 
         private void DgvOrders_SelectionChanged(object? sender, EventArgs e)
         {
-            if (dgvOrders.SelectedRows.Count == 0 ||
-                dgvOrders.SelectedRows[0].DataBoundItem is not Order o)
+            try
             {
-                rtbOrderDetail.Text = "Select an order to view details.";
-                return;
+                if (dgvOrders.SelectedRows.Count == 0 ||
+                    dgvOrders.SelectedRows[0].DataBoundItem is not Order o)
+                {
+                    rtbOrderDetail.Text = "Select an order to view details.";
+                    return;
+                }
+                PopulateOrderDetail(o);
             }
-            PopulateOrderDetail(o);
+            catch (Exception ex)
+            {
+                AppLogger.Info($"[FormSalesDash.DgvOrders_SelectionChanged] {ex.Message}");
+                rtbOrderDetail.Text = "Could not load order details.";
+            }
         }
 
         private void PopulateOrderDetail(Order o)
         {
-            var local = o.CreatedAt.Kind == DateTimeKind.Utc ? o.CreatedAt.ToLocalTime() : o.CreatedAt;
-            var sb = new System.Text.StringBuilder();
-            sb.AppendLine($"Order {o.Name ?? $"#{o.OrderNumber}"}");
-            sb.AppendLine(new string('─', 26));
-            sb.AppendLine();
-            sb.AppendLine($"Date:        {local:yyyy-MM-dd HH:mm}");
-            if (!string.IsNullOrEmpty(o.ContactEmail))
-                sb.AppendLine($"Email:       {o.ContactEmail}");
-            sb.AppendLine($"Store:       {o.StoreName ?? o.StoreDomain ?? "—"}");
-            sb.AppendLine();
-            sb.AppendLine($"Total:       {o.TotalPrice:C2}{(!string.IsNullOrEmpty(o.Currency) ? $" {o.Currency}" : "")}");
-            if (o.ShippingCost > 0)
-                sb.AppendLine($"Shipping:    {o.ShippingCost:C2}");
-            if (!string.IsNullOrEmpty(o.ShippingMethod))
-                sb.AppendLine($"Method:      {o.ShippingMethod}");
-            sb.AppendLine();
-            sb.AppendLine($"Payment:     {(o.IsPaid ? "✓ Paid" : "Unpaid")}");
-            if (!string.IsNullOrEmpty(o.PaymentGateway))
-                sb.AppendLine($"Pay Method:  {o.PaymentGateway}");
-            if (o.PaidAt.HasValue)
-                sb.AppendLine($"Paid At:     {o.PaidAt.Value:yyyy-MM-dd HH:mm}");
-            sb.AppendLine();
-            sb.AppendLine($"ERP Sync:    {o.SyncStatus ?? "Not Synced"}");
-            if (!string.IsNullOrEmpty(o.ErpStatus))
-                sb.AppendLine($"ERP Status:  {o.ErpStatus}");
-            if (o.ErpSalesOrderID.HasValue)
-                sb.AppendLine($"ERP ID:      #{o.ErpSalesOrderID}");
+            try
+            {
+                var local = o.CreatedAt.Kind == DateTimeKind.Utc ? o.CreatedAt.ToLocalTime() : o.CreatedAt;
+                var sb = new System.Text.StringBuilder();
+                sb.AppendLine($"Order {o.Name ?? $"#{o.OrderNumber}"}");
+                sb.AppendLine(new string('─', 26));
+                sb.AppendLine();
+                sb.AppendLine($"Date:        {local:yyyy-MM-dd HH:mm}");
+                if (!string.IsNullOrEmpty(o.ContactEmail))
+                    sb.AppendLine($"Email:       {o.ContactEmail}");
+                sb.AppendLine($"Store:       {o.StoreName ?? o.StoreDomain ?? "—"}");
+                sb.AppendLine();
+                sb.AppendLine($"Total:       {o.TotalPrice:C2}{(!string.IsNullOrEmpty(o.Currency) ? $" {o.Currency}" : "")}");
+                if (o.ShippingCost > 0)
+                    sb.AppendLine($"Shipping:    {o.ShippingCost:C2}");
+                if (!string.IsNullOrEmpty(o.ShippingMethod))
+                    sb.AppendLine($"Method:      {o.ShippingMethod}");
+                if (o.DiscountAmount > 0)
+                    sb.AppendLine($"Discount:    -{o.DiscountAmount:C2}{(o.DiscountType != null ? $" ({o.DiscountType})" : "")}");
+                sb.AppendLine();
 
-            rtbOrderDetail.Text = sb.ToString();
+                // Payment status — show friendly status rather than raw gateway name
+                var payStatus = GetPaymentStatusDisplay(o);
+                sb.AppendLine($"Payment:     {payStatus}");
+                if (!string.IsNullOrEmpty(o.PaymentGateway))
+                    sb.AppendLine($"Pay Via:     {FormatPaymentGateway(o.PaymentGateway)}");
+                if (o.PaidAt.HasValue)
+                    sb.AppendLine($"Paid At:     {o.PaidAt.Value.ToLocalTime():yyyy-MM-dd HH:mm}");
+                sb.AppendLine();
+                sb.AppendLine($"ERP Sync:    {o.SyncStatus ?? "Not Synced"}");
+                if (!string.IsNullOrEmpty(o.ErpStatus))
+                    sb.AppendLine($"ERP Status:  {o.ErpStatus}");
+                if (o.ErpSalesOrderID.HasValue)
+                    sb.AppendLine($"ERP ID:      #{o.ErpSalesOrderID}");
+                sb.AppendLine();
+                sb.AppendLine("(Double-click for line items)");
+
+                rtbOrderDetail.Text = sb.ToString();
+            }
+            catch (Exception ex)
+            {
+                AppLogger.Info($"[FormSalesDash.PopulateOrderDetail] {ex.Message}");
+                rtbOrderDetail.Text = $"Order #{o.OrderNumber}\n\n(Details unavailable)";
+            }
+        }
+
+        /// <summary>Returns a friendly payment status string for an order.</summary>
+        private static string GetPaymentStatusDisplay(Order o)
+        {
+            if (o.IsPaid)   return "✓ Paid";
+            // Use gateway heuristics for non-ERP (Shopify-cached) orders
+            if (!string.IsNullOrEmpty(o.PaymentGateway))
+            {
+                var gw = o.PaymentGateway.ToLowerInvariant();
+                if (gw.Contains("refund"))  return "Refunded";
+                if (gw.Contains("void"))    return "Voided";
+                if (gw.Contains("partial")) return "Partially Paid";
+            }
+            return "Unpaid / Pending";
+        }
+
+        /// <summary>Converts raw Shopify gateway identifiers to human-readable names.</summary>
+        private static string FormatPaymentGateway(string gateway)
+        {
+            return gateway.ToLowerInvariant() switch
+            {
+                "shopify_payments"  => "Shopify Payments",
+                "manual"            => "Manual",
+                "paypal"            => "PayPal",
+                "stripe"            => "Stripe",
+                "bogus"             => "Test Gateway",
+                "gift_card"         => "Gift Card",
+                "cash"              => "Cash",
+                "bank_transfer"     => "Bank Transfer",
+                _                   => gateway
+            };
         }
 
         // Ensure checkbox edits are committed to the data source immediately
@@ -1137,14 +1236,21 @@ namespace JaneERP
         {
             // Cancel any in-flight sync before disposing — prevents continuation callbacks
             // from trying to update disposed controls after the form closes.
-            _syncCts?.Cancel();
-            _syncRefreshTimer?.Stop();
-            _syncRefreshTimer?.Dispose();
-            if (_syncService != null)
+            try
             {
-                _syncService.SyncCompleted -= SyncService_SyncCompleted;
-                _syncService.Dispose();
-                _syncService = null;
+                _syncCts?.Cancel();
+                _syncRefreshTimer?.Stop();
+                _syncRefreshTimer?.Dispose();
+                if (_syncService != null)
+                {
+                    _syncService.SyncCompleted -= SyncService_SyncCompleted;
+                    _syncService.Dispose();
+                    _syncService = null;
+                }
+            }
+            catch (Exception ex)
+            {
+                AppLogger.Info($"[FormSalesDash.OnFormClosed] {ex.Message}");
             }
             base.OnFormClosed(e);
         }
@@ -1181,6 +1287,18 @@ namespace JaneERP
             }
         }
 
+        /// <summary>
+        /// Returns true if transitioning from <paramref name="current"/> to <paramref name="next"/> is allowed.
+        /// Cancelled can always be set. Forward-skipping more than one step requires confirmation.
+        /// </summary>
+        private static bool IsValidStatusTransition(string current, string next)
+        {
+            var order = new[] { "Draft", "Live", "Picking", "Packing", "Shipped", "Complete" };
+            int ci = Array.IndexOf(order, current);
+            int ni = Array.IndexOf(order, next);
+            return next == "Cancelled" || (ni >= 0 && ni == ci + 1);
+        }
+
         private void btnMarkStatus_Click(object? sender, EventArgs e)
         {
             // Collect checked orders that have an ERP SalesOrderID
@@ -1209,10 +1327,41 @@ namespace JaneERP
                 return;
             }
 
-            // Show status picker
+            // Show status picker (uses the first selected order's current status as reference)
             using var picker = new FormStatusPicker(targets[0].ErpStatus ?? "Draft");
             if (picker.ShowDialog(this) != DialogResult.OK) return;
             var newStatus = picker.ChosenStatus;
+
+            // Validate status transition — warn if skipping a step, block backwards transitions
+            var invalidTransitions = targets
+                .Where(o => !IsValidStatusTransition(o.ErpStatus ?? "Draft", newStatus))
+                .ToList();
+
+            if (invalidTransitions.Count > 0)
+            {
+                var examples = string.Join(", ",
+                    invalidTransitions.Take(3).Select(o => $"#{o.OrderNumber} ({o.ErpStatus ?? "Draft"})"));
+                var msg = $"Some orders cannot be moved to '{newStatus}' directly:\n{examples}\n\n" +
+                          $"Orders must move through statuses one step at a time.\n" +
+                          $"(Draft → Live → Picking → Packing → Shipped → Complete)\n\n" +
+                          $"Proceed for the {targets.Count - invalidTransitions.Count} valid order(s) only?";
+
+                if (targets.Count == invalidTransitions.Count)
+                {
+                    MessageBox.Show(this, $"Cannot move to '{newStatus}' from the current status.\n\n" +
+                        "Orders must advance one step at a time:\n" +
+                        "Draft → Live → Picking → Packing → Shipped → Complete",
+                        "Invalid Status Transition", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
+
+                var answer = MessageBox.Show(this, msg, "Step Warning",
+                    MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
+                if (answer != DialogResult.Yes) return;
+
+                // Filter to only valid ones
+                targets = targets.Except(invalidTransitions).ToList();
+            }
 
             var svc   = AppServices.Get<IShopifySyncService>();
             int done  = 0, failed = 0;
@@ -1525,19 +1674,40 @@ namespace JaneERP
             catch { /* non-fatal — form still useful for status changes */ }
         }
 
+        private static bool IsValidStatusTransition(string current, string next)
+        {
+            var order = new[] { "Draft", "Live", "Picking", "Packing", "Shipped", "Complete" };
+            int ci = Array.IndexOf(order, current);
+            int ni = Array.IndexOf(order, next);
+            return next == "Cancelled" || (ni >= 0 && ni == ci + 1);
+        }
+
         private void BtnChangeStatus_Click(object? sender, EventArgs e)
         {
             if (!_order.ErpSalesOrderID.HasValue) return;
-            using var picker = new FormStatusPicker(_order.ErpStatus ?? "Draft");
+            var currentStatus = _order.ErpStatus ?? "Draft";
+            using var picker = new FormStatusPicker(currentStatus);
             if (picker.ShowDialog(this) != DialogResult.OK) return;
+            var newStatus = picker.ChosenStatus;
+
+            // Validate status transition
+            if (!IsValidStatusTransition(currentStatus, newStatus))
+            {
+                var answer = MessageBox.Show(this,
+                    $"Skipping from '{currentStatus}' directly to '{newStatus}' is not the standard workflow.\n\n" +
+                    "Expected order: Draft → Live → Picking → Packing → Shipped → Complete\n\n" +
+                    "Proceed anyway?",
+                    "Status Step Warning", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
+                if (answer != DialogResult.Yes) return;
+            }
 
             var svc = AppServices.Get<IShopifySyncService>();
             try
             {
-                svc.UpdateOrderStatus(_order.ErpSalesOrderID.Value, picker.ChosenStatus);
-                _order.ErpStatus        = picker.ChosenStatus;
-                lblStatusValue.Text      = picker.ChosenStatus;
-                lblStatusValue.ForeColor = StatusColor(picker.ChosenStatus);
+                svc.UpdateOrderStatus(_order.ErpSalesOrderID.Value, newStatus);
+                _order.ErpStatus         = newStatus;
+                lblStatusValue.Text      = newStatus;
+                lblStatusValue.ForeColor = StatusColor(newStatus);
                 StatusWasChanged         = true;
             }
             catch (Exception ex)
