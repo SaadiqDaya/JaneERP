@@ -406,7 +406,7 @@ namespace JaneERP
             if (_current.Status != "Shipped") return;
 
             var ans = MessageBox.Show(this,
-                $"Mark Order #{_current.OrderNumber} as Complete?\n\nThis will deduct inventory for all line items.",
+                $"Mark Order #{_current.OrderNumber} as Complete?\n\nInventory was already deducted when the order was shipped.",
                 "Confirm Complete", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
             if (ans != DialogResult.Yes) return;
 

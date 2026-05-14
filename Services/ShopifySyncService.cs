@@ -287,12 +287,14 @@ namespace JaneERP.Services
                         "SELECT ProductID, Quantity FROM SalesOrderItems WHERE SalesOrderID = @id",
                         new { id = salesOrderId }, tx).ToList();
 
-                    // Hard block: refuse the transition if any item is short on stock
+                    // Hard block: refuse the transition if any item is short on stock.
+                    // UPDLOCK + HOLDLOCK serialises concurrent deductions for the same product so
+                    // two shipments cannot both read the same stock total and both "pass".
                     var shortages = new List<string>();
                     foreach (var li in deductItems)
                     {
                         int stock = db.ExecuteScalar<int>(
-                            "SELECT ISNULL(SUM(QuantityChange), 0) FROM InventoryTransactions WHERE ProductID = @pid",
+                            "SELECT ISNULL(SUM(QuantityChange), 0) FROM InventoryTransactions WITH (UPDLOCK, HOLDLOCK) WHERE ProductID = @pid",
                             new { pid = (int)li.ProductID }, tx);
                         if (stock < (int)li.Quantity)
                             shortages.Add($"ProductID {li.ProductID}: need {li.Quantity}, have {stock}");
@@ -505,6 +507,7 @@ namespace JaneERP.Services
         /// <summary>
         /// Persists the reservation choices made in the stock-lock dialog for a Sales Order.
         /// Replaces any prior reservations for this order.
+        /// Throws if the order is Complete or Cancelled (reservations on closed orders are meaningless).
         /// </summary>
         public void SaveSOReservations(int salesOrderId, IEnumerable<Models.ReservationLine> lines)
         {
@@ -513,6 +516,14 @@ namespace JaneERP.Services
             using var tx = db.BeginTransaction();
             try
             {
+                // Guard: reservations only make sense for orders that are still in-flight
+                var status = db.ExecuteScalar<string?>(
+                    "SELECT Status FROM SalesOrders WHERE SalesOrderID = @id",
+                    new { id = salesOrderId }, tx);
+                if (status is "Complete" or "Cancelled")
+                    throw new InvalidOperationException(
+                        $"Cannot update reservations: order is {status}.");
+
                 db.Execute("DELETE FROM StockReservations WHERE SalesOrderID = @id",
                     new { id = salesOrderId }, tx);
 
@@ -647,7 +658,7 @@ namespace JaneERP.Services
                     foreach (var (pid, qty, sku) in inventoryItems)
                     {
                         int stock = db.ExecuteScalar<int>(
-                            "SELECT ISNULL(SUM(QuantityChange), 0) FROM InventoryTransactions WHERE ProductID = @pid",
+                            "SELECT ISNULL(SUM(QuantityChange), 0) FROM InventoryTransactions WITH (UPDLOCK, HOLDLOCK) WHERE ProductID = @pid",
                             new { pid }, tx);
                         if (stock < qty)
                             shortages.Add($"SKU {sku}: need {qty}, have {stock}");
@@ -796,6 +807,9 @@ namespace JaneERP.Services
                 }
 
                 // Auto-create manufacturing work orders for BOM-linked products
+                // (skipped for cancelled/refunded/voided orders — nothing to manufacture)
+                if (isCancelled) { tx.Commit(); return true; }
+
                 var moId = (int?)null;
                 foreach (var li in order.LineItems)
                 {
@@ -1039,8 +1053,9 @@ namespace JaneERP.Services
         }
 
         /// <summary>
-        /// Deducts inventory and moves the order to Complete.
-        /// Delegates to UpdateOrderStatus so the existing deduction + audit logic runs once.
+        /// Moves the order to Complete. Inventory was already deducted when the order was
+        /// shipped via RecordShipment or UpdateOrderStatus("Shipped"). Delegates to
+        /// UpdateOrderStatus so the InventoryAffected guard prevents any double-deduction.
         /// </summary>
         public bool MarkComplete(int salesOrderId) => UpdateOrderStatus(salesOrderId, "Complete");
     }
