@@ -8,7 +8,7 @@ namespace JaneERP.Api.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
-[Authorize]
+[Authorize(Roles = "Admin,Manager,Warehouse")]
 public class InventoryController : ControllerBase
 {
     private readonly ApiProductRepository _repo;
@@ -34,6 +34,13 @@ public class InventoryController : ControllerBase
         return Ok(new { items, total, page });
     }
 
+    [HttpGet("in-stock")]
+    public IActionResult InStock([FromQuery] int page = 1)
+    {
+        var (items, total) = _repo.GetInStock(page);
+        return Ok(new { items, total, page });
+    }
+
     [HttpGet("{productId:int}/stock")]
     public IActionResult StockByLocation(int productId)
         => Ok(_repo.GetStockByLocation(productId));
@@ -48,6 +55,7 @@ public class InventoryController : ControllerBase
     [HttpPost("{productId:int}/adjust")]
     public IActionResult Adjust(int productId, [FromBody] StockAdjustRequest req)
     {
+        if (req == null) return BadRequest(new { error = "Request body required." });
         if (req.Qty == 0)
             return BadRequest(new { error = "Quantity cannot be zero." });
         if (string.IsNullOrWhiteSpace(req.Reason))

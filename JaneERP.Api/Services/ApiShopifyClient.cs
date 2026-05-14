@@ -32,7 +32,7 @@ public class ApiShopifyClient
             req.Headers.Add("X-Shopify-Access-Token", accessToken);
             req.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 
-            using var res = await _http.SendAsync(req);
+            var res = await SendWithRetryAsync(req);
             res.EnsureSuccessStatusCode();
 
             var json = await res.Content.ReadAsStringAsync();
@@ -47,6 +47,44 @@ public class ApiShopifyClient
         }
 
         return results;
+    }
+
+    // Retries the request on 429 Rate Limited responses with exponential backoff.
+    // HttpRequestMessage can only be sent once, so requests are cloned on retry.
+    private async Task<HttpResponseMessage> SendWithRetryAsync(HttpRequestMessage request, int maxRetries = 3)
+    {
+        for (int attempt = 0; attempt <= maxRetries; attempt++)
+        {
+            var req = attempt == 0 ? request : await CloneRequestAsync(request);
+            var response = await _http.SendAsync(req);
+
+            if ((int)response.StatusCode == 429)
+            {
+                if (attempt == maxRetries) return response; // give up, caller will EnsureSuccessStatusCode
+                int waitSeconds = 2;
+                if (response.Headers.TryGetValues("Retry-After", out var vals) &&
+                    int.TryParse(vals.FirstOrDefault(), out var ra))
+                    waitSeconds = ra;
+                await Task.Delay(TimeSpan.FromSeconds(Math.Min(waitSeconds, 30)));
+                continue;
+            }
+            return response;
+        }
+        throw new InvalidOperationException("Retry loop exited unexpectedly");
+    }
+
+    private static async Task<HttpRequestMessage> CloneRequestAsync(HttpRequestMessage req)
+    {
+        var clone = new HttpRequestMessage(req.Method, req.RequestUri);
+        foreach (var header in req.Headers)
+            clone.Headers.TryAddWithoutValidation(header.Key, header.Value);
+        if (req.Content != null)
+        {
+            var body = await req.Content.ReadAsStringAsync();
+            clone.Content = new StringContent(body, System.Text.Encoding.UTF8,
+                req.Content.Headers.ContentType?.MediaType ?? "application/json");
+        }
+        return clone;
     }
 
     // Parses: <https://...>; rel="next", <https://...>; rel="previous"

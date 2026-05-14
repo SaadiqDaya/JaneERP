@@ -7,7 +7,7 @@ namespace JaneERP.Api.Controllers;
 
 [ApiController]
 [Route("api/sync")]
-[Authorize]
+[Authorize(Roles = "Admin,Manager")]
 [SupportedOSPlatform("windows")]
 public class SyncController : ControllerBase
 {

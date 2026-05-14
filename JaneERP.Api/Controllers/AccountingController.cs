@@ -2,14 +2,12 @@ using JaneERP.Api.Data;
 using JaneERP.Api.Middleware;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.RateLimiting;
 
 namespace JaneERP.Api.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
-[Authorize]
-[EnableRateLimiting("general")]
+[Authorize(Roles = "Admin,Finance,Manager")]
 public class AccountingController : ControllerBase
 {
     private readonly ApiAccountingRepository _repo;
@@ -68,6 +66,7 @@ public class AccountingController : ControllerBase
     [HttpPost("expenses")]
     public IActionResult AddExpense([FromBody] AddExpenseRequest req)
     {
+        if (req == null) return BadRequest(new { error = "Request body required." });
         if (req.Amount <= 0)
             return BadRequest(new { error = "Amount must be greater than 0." });
         if (req.CategoryId <= 0)

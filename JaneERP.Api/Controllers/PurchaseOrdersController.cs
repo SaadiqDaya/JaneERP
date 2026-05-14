@@ -8,7 +8,7 @@ namespace JaneERP.Api.Controllers;
 
 [ApiController]
 [Route("api/purchase-orders")]
-[Authorize]
+[Authorize(Roles = "Admin,Manager,Warehouse")]
 public class PurchaseOrdersController : ControllerBase
 {
     private readonly ApiPurchaseOrderRepository _repo;
@@ -34,6 +34,7 @@ public class PurchaseOrdersController : ControllerBase
     [HttpPost("{id:int}/receive")]
     public IActionResult ReceiveItems(int id, [FromBody] ReceiveItemsRequest req)
     {
+        if (req == null) return BadRequest(new { error = "Request body required." });
         if (!req.Items.Any())
             return BadRequest(new { error = "No items provided." });
 

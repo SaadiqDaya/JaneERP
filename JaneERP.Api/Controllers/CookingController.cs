@@ -8,7 +8,7 @@ namespace JaneERP.Api.Controllers;
 
 [ApiController]
 [Route("api/cooking")]
-[Authorize]
+[Authorize(Roles = "Admin,Manager,Warehouse")]
 public class CookingController : ControllerBase
 {
     private readonly ApiCookingRepository _repo;
@@ -30,7 +30,11 @@ public class CookingController : ControllerBase
         return Ok(session);
     }
 
-    /// <summary>Pending/in-progress work orders available for a new cook session.</summary>
+    /// <summary>Flask configs and batch-loss presets for the cook session create panel.</summary>
+    [HttpGet("manufacturing-settings")]
+    public IActionResult GetManufacturingSettings() => Ok(_repo.GetManufacturingSettings());
+
+    /// <summary>In-progress work orders available for a new cook session.</summary>
     [HttpGet("work-orders")]
     public IActionResult GetWorkOrders() => Ok(_repo.GetPendingWorkOrders());
 
@@ -38,11 +42,13 @@ public class CookingController : ControllerBase
     [HttpPost("sessions")]
     public IActionResult CreateSession([FromBody] CreateCookSessionRequest req)
     {
+        if (req == null) return BadRequest(new { error = "Request body required." });
         if (string.IsNullOrWhiteSpace(req.SessionName) || req.WorkOrderIds.Count == 0)
             return BadRequest(new { error = "SessionName and at least one WorkOrderId are required." });
         try
         {
-            int id = _repo.CreateSession(req.SessionName, req.WorkOrderIds, CurrentUser);
+            int id = _repo.CreateSession(req.SessionName, req.WorkOrderIds,
+                req.BatchLossPercent, CurrentUser);
             return Ok(new { cookSessionId = id });
         }
         catch (Exception ex)
@@ -71,6 +77,7 @@ public class CookingController : ControllerBase
     [HttpPost("sessions/{id:int}/complete")]
     public IActionResult CompleteSession(int id, [FromBody] CompleteCookSessionRequest req)
     {
+        if (req == null) return BadRequest(new { error = "Request body required." });
         try
         {
             _repo.CompleteSession(id, req.ForceComplete, CurrentUser);

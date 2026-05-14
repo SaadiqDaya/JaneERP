@@ -6,7 +6,7 @@ namespace JaneERP.Api.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
-[Authorize]
+[Authorize(Roles = "Admin,Finance,Manager,Sales,Warehouse")]
 public class LocationsController : ControllerBase
 {
     private readonly ApiLocationRepository _repo;

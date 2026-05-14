@@ -7,7 +7,7 @@ namespace JaneERP.Api.Controllers;
 
 [ApiController]
 [Route("api/work-orders")]
-[Authorize]
+[Authorize(Roles = "Admin,Manager,Warehouse")]
 public class WorkOrdersController : ControllerBase
 {
     private readonly ApiWorkOrderRepository _repo;
@@ -30,10 +30,10 @@ public class WorkOrdersController : ControllerBase
         return wo == null ? NotFound() : Ok(wo);
     }
 
-    // Roles: admin, warehouse
     [HttpPatch("{id:int}/status")]
     public IActionResult UpdateStatus(int id, [FromBody] UpdateWOStatusRequest req)
     {
+        if (req == null) return BadRequest(new { error = "Request body required." });
         var valid = new[] { "Pending", "InProgress", "Complete", "Cancelled" };
         if (!valid.Contains(req.Status))
             return BadRequest(new { error = $"Status must be one of: {string.Join(", ", valid)}" });

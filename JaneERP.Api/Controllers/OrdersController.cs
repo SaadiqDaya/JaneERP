@@ -8,7 +8,7 @@ namespace JaneERP.Api.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
-[Authorize]
+[Authorize(Roles = "Admin,Finance,Manager,Sales")]
 public class OrdersController : ControllerBase
 {
     private readonly ApiOrderRepository _repo;
@@ -42,6 +42,7 @@ public class OrdersController : ControllerBase
     [HttpPost]
     public IActionResult CreateOrder([FromBody] CreateOrderRequest req)
     {
+        if (req == null) return BadRequest(new { error = "Request body required." });
         if (string.IsNullOrWhiteSpace(req.CustomerEmail))
             return BadRequest(new { error = "Customer email is required." });
         if (!req.Items.Any())
@@ -54,12 +55,24 @@ public class OrdersController : ControllerBase
     [HttpPatch("{id:int}/status")]
     public IActionResult UpdateStatus(int id, [FromBody] UpdateStatusRequest req)
     {
+        if (req == null) return BadRequest(new { error = "Request body required." });
         var validStatuses = new[] { "Draft", "Live", "WIP", "Packed", "Shipped", "Complete" };
         if (!validStatuses.Contains(req.Status))
             return BadRequest(new { error = $"Status must be one of: {string.Join(", ", validStatuses)}" });
 
-        var updated = _repo.UpdateOrderStatus(id, req.Status, _ctx.Username);
-        return updated ? Ok(new { success = true }) : NotFound();
+        try
+        {
+            // Stock check for "Packed" is enforced inside UpdateOrderStatus:
+            // it queries InventoryTransactions and throws InvalidOperationException if any line
+            // item has insufficient stock. StockReservations are also released on Complete/Shipped.
+            // The catch below surfaces those failures as 422 Unprocessable Entity.
+            var updated = _repo.UpdateOrderStatus(id, req.Status, _ctx.Username);
+            return updated ? Ok(new { success = true }) : NotFound();
+        }
+        catch (InvalidOperationException ex)
+        {
+            return UnprocessableEntity(new { error = ex.Message });
+        }
     }
 
     [HttpGet("{id:int}/pick-list")]
@@ -68,6 +81,7 @@ public class OrdersController : ControllerBase
     [HttpPatch("{id:int}/notes")]
     public IActionResult UpdateNotes(int id, [FromBody] UpdateNotesRequest req)
     {
+        if (req == null) return BadRequest(new { error = "Request body required." });
         var updated = _repo.UpdateNotes(id, req.Notes);
         return updated ? Ok(new { success = true }) : NotFound();
     }

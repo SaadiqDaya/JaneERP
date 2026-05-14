@@ -1,14 +1,12 @@
 using JaneERP.Api.Data;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.RateLimiting;
 
 namespace JaneERP.Api.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
-[Authorize]
-[EnableRateLimiting("general")]
+[Authorize(Roles = "Admin,Finance,Manager")]
 public class ReportingController : ControllerBase
 {
     private readonly ApiReportingRepository _repo;

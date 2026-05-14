@@ -6,7 +6,7 @@ namespace JaneERP.Api.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
-[Authorize]
+[Authorize(Roles = "Admin,Finance,Manager,Sales")]
 public class CustomersController : ControllerBase
 {
     private readonly ApiCustomerRepository _repo;

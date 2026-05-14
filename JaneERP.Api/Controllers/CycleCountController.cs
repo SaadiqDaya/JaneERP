@@ -8,7 +8,7 @@ namespace JaneERP.Api.Controllers;
 
 [ApiController]
 [Route("api/cycle-count")]
-[Authorize]
+[Authorize(Roles = "Admin,Manager,Warehouse")]
 public class CycleCountController : ControllerBase
 {
     private readonly ApiCycleCountRepository _repo;
@@ -27,6 +27,7 @@ public class CycleCountController : ControllerBase
     [HttpPost("verify")]
     public IActionResult Verify([FromBody] VerifyRequest req)
     {
+        if (req == null) return BadRequest(new { error = "Request body required." });
         if (req.ActualQty < 0)
             return BadRequest(new { error = "Actual quantity cannot be negative." });
 
