@@ -5,6 +5,8 @@ using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
 using JaneERP.Models;
+using Dapper;
+using Microsoft.Data.SqlClient;
 
 namespace JaneERP.Data
 {
@@ -155,6 +157,53 @@ namespace JaneERP.Data
             }
 
             await SaveChangesAsync();
+        }
+
+        /// <summary>
+        /// Adds UpdatedBy / UpdatedAt audit columns to key SQL Server tables if they do not exist yet.
+        /// Safe to call on every startup — all statements are IF NOT EXISTS guarded.
+        /// Pass the SQL Server connection string (MyERP), not the SQLite path.
+        /// </summary>
+        public static void MigrateAuditColumns(string sqlServerConnectionString)
+        {
+            try
+            {
+                using var db = new SqlConnection(sqlServerConnectionString);
+                db.Execute(@"
+                    -- SalesOrders
+                    IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('SalesOrders') AND name = 'UpdatedBy')
+                        ALTER TABLE SalesOrders ADD UpdatedBy NVARCHAR(100) NULL;
+                    IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('SalesOrders') AND name = 'UpdatedAt')
+                        ALTER TABLE SalesOrders ADD UpdatedAt DATETIME NULL;
+
+                    -- Products
+                    IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('Products') AND name = 'UpdatedBy')
+                        ALTER TABLE Products ADD UpdatedBy NVARCHAR(100) NULL;
+                    IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('Products') AND name = 'UpdatedAt')
+                        ALTER TABLE Products ADD UpdatedAt DATETIME NULL;
+
+                    -- Parts
+                    IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('Parts') AND name = 'UpdatedBy')
+                        ALTER TABLE Parts ADD UpdatedBy NVARCHAR(100) NULL;
+                    IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('Parts') AND name = 'UpdatedAt')
+                        ALTER TABLE Parts ADD UpdatedAt DATETIME NULL;
+
+                    -- PurchaseOrders
+                    IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('PurchaseOrders') AND name = 'UpdatedBy')
+                        ALTER TABLE PurchaseOrders ADD UpdatedBy NVARCHAR(100) NULL;
+                    IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('PurchaseOrders') AND name = 'UpdatedAt')
+                        ALTER TABLE PurchaseOrders ADD UpdatedAt DATETIME NULL;
+
+                    -- Expenses
+                    IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('Expenses') AND name = 'UpdatedBy')
+                        ALTER TABLE Expenses ADD UpdatedBy NVARCHAR(100) NULL;
+                    IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('Expenses') AND name = 'UpdatedAt')
+                        ALTER TABLE Expenses ADD UpdatedAt DATETIME NULL;");
+            }
+            catch (Exception ex)
+            {
+                Logging.AppLogger.Error($"[AppDbContext.MigrateAuditColumns] {ex}");
+            }
         }
 
         public List<Order> GetCachedOrders(string? storeDomain = null)

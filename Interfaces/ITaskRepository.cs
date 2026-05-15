@@ -67,5 +67,11 @@ namespace JaneERP.Interfaces
         bool                SetRecurrence(int taskId, string pattern, int interval);
         bool                ClearRecurrence(int taskId);
         ErpTask?            GenerateNextRecurrence(int taskId, string createdBy);  // creates next occurrence task
+
+        // ── Paged queries ─────────────────────────────────────────────────────────
+        (List<ErpTask> tasks, int total) GetPagedTasks(
+            int page, int pageSize,
+            string? assignedTo = null, string? stage = null,
+            string? search = null, string? tag = null, bool showAll = false);
     }
 }

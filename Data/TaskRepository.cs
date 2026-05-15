@@ -249,7 +249,11 @@ namespace JaneERP
                 IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('Tasks') AND name = 'ParentTaskId')
                     ALTER TABLE Tasks ADD ParentTaskId INT NULL;
                 IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('Tasks') AND name = 'Tags')
-                    ALTER TABLE Tasks ADD Tags NVARCHAR(500) NULL;");
+                    ALTER TABLE Tasks ADD Tags NVARCHAR(500) NULL;
+                IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('Tasks') AND name = 'UpdatedAt')
+                    ALTER TABLE Tasks ADD UpdatedAt DATETIME NULL;
+                IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('Tasks') AND name = 'UpdatedBy')
+                    ALTER TABLE Tasks ADD UpdatedBy NVARCHAR(100) NULL;");
         }
 
         public List<ErpTask> GetAll(string? assignedTo = null, string? status = null)
@@ -306,75 +310,90 @@ namespace JaneERP
         public void UpdateStatus(int taskId, string status, string changedBy = "")
         {
             using IDbConnection db = new SqlConnection(_cs);
+            var now = DateTime.UtcNow;
             if (!string.IsNullOrEmpty(changedBy))
             {
                 var old = db.ExecuteScalar<string>("SELECT Status FROM Tasks WHERE TaskID = @taskId", new { taskId });
-                db.Execute("UPDATE Tasks SET Status = @status WHERE TaskID = @taskId", new { taskId, status });
+                db.Execute("UPDATE Tasks SET Status = @status, UpdatedAt = @now, UpdatedBy = @changedBy WHERE TaskID = @taskId",
+                    new { taskId, status, now, changedBy });
                 LogHistoryInternal(db, taskId, "Status", old, status, changedBy);
             }
             else
             {
-                db.Execute("UPDATE Tasks SET Status = @status WHERE TaskID = @taskId", new { taskId, status });
+                db.Execute("UPDATE Tasks SET Status = @status, UpdatedAt = @now WHERE TaskID = @taskId",
+                    new { taskId, status, now });
             }
         }
 
         public void UpdateDueDate(int taskId, DateTime dueDate, string changedBy = "")
         {
             using IDbConnection db = new SqlConnection(_cs);
+            var now = DateTime.UtcNow;
             if (!string.IsNullOrEmpty(changedBy))
             {
                 var old = db.ExecuteScalar<DateTime?>("SELECT DueDate FROM Tasks WHERE TaskID = @taskId", new { taskId });
-                db.Execute("UPDATE Tasks SET DueDate = @dueDate WHERE TaskID = @taskId", new { taskId, dueDate });
+                db.Execute("UPDATE Tasks SET DueDate = @dueDate, UpdatedAt = @now, UpdatedBy = @changedBy WHERE TaskID = @taskId",
+                    new { taskId, dueDate, now, changedBy });
                 LogHistoryInternal(db, taskId, "DueDate", old?.ToString("yyyy-MM-dd HH:mm"), dueDate.ToString("yyyy-MM-dd HH:mm"), changedBy);
             }
             else
             {
-                db.Execute("UPDATE Tasks SET DueDate = @dueDate WHERE TaskID = @taskId", new { taskId, dueDate });
+                db.Execute("UPDATE Tasks SET DueDate = @dueDate, UpdatedAt = @now WHERE TaskID = @taskId",
+                    new { taskId, dueDate, now });
             }
         }
 
         public void UpdateDescription(int taskId, string description, string changedBy = "")
         {
             using IDbConnection db = new SqlConnection(_cs);
+            var now = DateTime.UtcNow;
             if (!string.IsNullOrEmpty(changedBy))
             {
                 var old = db.ExecuteScalar<string>("SELECT Description FROM Tasks WHERE TaskID = @taskId", new { taskId });
-                db.Execute("UPDATE Tasks SET Description = @description WHERE TaskID = @taskId", new { taskId, description });
+                db.Execute("UPDATE Tasks SET Description = @description, UpdatedAt = @now, UpdatedBy = @changedBy WHERE TaskID = @taskId",
+                    new { taskId, description, now, changedBy });
                 LogHistoryInternal(db, taskId, "Description", old, description, changedBy);
             }
             else
             {
-                db.Execute("UPDATE Tasks SET Description = @description WHERE TaskID = @taskId", new { taskId, description });
+                db.Execute("UPDATE Tasks SET Description = @description, UpdatedAt = @now WHERE TaskID = @taskId",
+                    new { taskId, description, now });
             }
         }
 
         public void UpdateAssignedTo(int taskId, string assignedTo, string changedBy = "")
         {
             using IDbConnection db = new SqlConnection(_cs);
+            var now = DateTime.UtcNow;
             if (!string.IsNullOrEmpty(changedBy))
             {
                 var old = db.ExecuteScalar<string>("SELECT AssignedTo FROM Tasks WHERE TaskID = @taskId", new { taskId });
-                db.Execute("UPDATE Tasks SET AssignedTo = @assignedTo WHERE TaskID = @taskId", new { taskId, assignedTo });
+                db.Execute("UPDATE Tasks SET AssignedTo = @assignedTo, UpdatedAt = @now, UpdatedBy = @changedBy WHERE TaskID = @taskId",
+                    new { taskId, assignedTo, now, changedBy });
                 LogHistoryInternal(db, taskId, "AssignedTo", old, assignedTo, changedBy);
             }
             else
             {
-                db.Execute("UPDATE Tasks SET AssignedTo = @assignedTo WHERE TaskID = @taskId", new { taskId, assignedTo });
+                db.Execute("UPDATE Tasks SET AssignedTo = @assignedTo, UpdatedAt = @now WHERE TaskID = @taskId",
+                    new { taskId, assignedTo, now });
             }
         }
 
         public void UpdatePriority(int taskId, string priority, string changedBy = "")
         {
             using IDbConnection db = new SqlConnection(_cs);
+            var now = DateTime.UtcNow;
             if (!string.IsNullOrEmpty(changedBy))
             {
                 var old = db.ExecuteScalar<string>("SELECT Priority FROM Tasks WHERE TaskID = @taskId", new { taskId });
-                db.Execute("UPDATE Tasks SET Priority = @priority WHERE TaskID = @taskId", new { taskId, priority });
+                db.Execute("UPDATE Tasks SET Priority = @priority, UpdatedAt = @now, UpdatedBy = @changedBy WHERE TaskID = @taskId",
+                    new { taskId, priority, now, changedBy });
                 LogHistoryInternal(db, taskId, "Priority", old, priority, changedBy);
             }
             else
             {
-                db.Execute("UPDATE Tasks SET Priority = @priority WHERE TaskID = @taskId", new { taskId, priority });
+                db.Execute("UPDATE Tasks SET Priority = @priority, UpdatedAt = @now WHERE TaskID = @taskId",
+                    new { taskId, priority, now });
             }
         }
 
@@ -861,6 +880,45 @@ namespace JaneERP
                 WHERE TaskID = @taskId",
                 new { taskId });
             return rows > 0;
+        }
+
+        // ── Paged queries ─────────────────────────────────────────────────────────
+
+        public (List<ErpTask> tasks, int total) GetPagedTasks(
+            int page, int pageSize,
+            string? assignedTo = null, string? stage = null,
+            string? search = null, string? tag = null, bool showAll = false)
+        {
+            using IDbConnection db = new SqlConnection(_cs);
+
+            var conditions = new List<string>();
+            if (!showAll)       conditions.Add("t.Status <> 'Done'");
+            if (assignedTo != null) conditions.Add("t.AssignedTo = @assignedTo");
+            if (stage != null)  conditions.Add("(t.Status = @stage OR t.WorkflowCurrentStatus = @stage)");
+            if (!string.IsNullOrWhiteSpace(search))
+                conditions.Add("(t.Title LIKE @search OR t.Description LIKE @search)");
+            if (!string.IsNullOrWhiteSpace(tag))
+                conditions.Add("t.Tags LIKE @tagSearch");
+
+            string where = conditions.Count > 0 ? "WHERE " + string.Join(" AND ", conditions) : "";
+            string searchParam  = $"%{search}%";
+            string tagParam     = $"%{tag}%";
+
+            int total = db.ExecuteScalar<int>(
+                $"SELECT COUNT(*) FROM Tasks t {where}",
+                new { assignedTo, stage, search = searchParam, tagSearch = tagParam });
+
+            var tasks = db.Query<ErpTask>($@"
+                SELECT t.*, wf.Name AS WorkflowName
+                FROM   Tasks t
+                LEFT JOIN TaskWorkflows wf ON wf.WorkflowID = t.WorkflowID
+                {where}
+                ORDER BY t.DueDate
+                OFFSET @offset ROWS FETCH NEXT @pageSize ROWS ONLY",
+                new { assignedTo, stage, search = searchParam, tagSearch = tagParam,
+                      offset = (page - 1) * pageSize, pageSize }).ToList();
+
+            return (tasks, total);
         }
 
         public ErpTask? GenerateNextRecurrence(int taskId, string createdBy)

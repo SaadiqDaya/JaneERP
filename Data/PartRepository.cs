@@ -111,8 +111,6 @@ namespace JaneERP.Data
             }
             catch (Exception ex) { Logging.AppLogger.Info($"Parts CHECK constraint migration: {ex.Message}"); }
 
-            // UnitOfMeasures lookup table is part of the parts data model
-            new UomRepository().EnsureSchema();
         }
 
         public List<Part> GetAll(bool includeInactive = false)
@@ -146,7 +144,7 @@ namespace JaneERP.Data
                 SELECT CAST(SCOPE_IDENTITY() AS INT);", part);
         }
 
-        public void Update(Part part)
+        public void Update(Part part, string updatedBy = "")
         {
             using IDbConnection db = new SqlConnection(_connectionString);
             db.Execute(@"
@@ -158,8 +156,18 @@ namespace JaneERP.Data
                     IsActive        = @IsActive,
                     DefaultVendorID = @DefaultVendorID,
                     UnitOfMeasure   = @UnitOfMeasure,
-                    Density         = @Density
-                WHERE PartID = @PartID", part);
+                    Density         = @Density,
+                    UpdatedBy       = @updatedBy,
+                    UpdatedAt       = @now
+                WHERE PartID = @PartID",
+                new
+                {
+                    part.PartNumber, part.PartName, part.Description, part.UnitCost,
+                    part.IsActive, part.DefaultVendorID, part.UnitOfMeasure, part.Density,
+                    part.PartID,
+                    updatedBy = string.IsNullOrEmpty(updatedBy) ? null : updatedBy,
+                    now = DateTime.UtcNow
+                });
         }
 
         public void AdjustStock(int partId, int delta, string notes = "")
@@ -264,7 +272,7 @@ namespace JaneERP.Data
                     GROUP  BY pp.ProductID")
                     .ToDictionary(r => (int)r.ProductID, r => (string)r.PartNumber);
             }
-            catch { return new Dictionary<int, string>(); }
+            catch (Exception ex) { Logging.AppLogger.Error($"[PartRepository.GetLinkedPartNumberByProduct] {ex}"); return new Dictionary<int, string>(); }
         }
 
         public List<Models.PartReorderRow> GetPartsAtReorderPoint()
@@ -288,9 +296,10 @@ namespace JaneERP.Data
                       AND   p.CurrentStock <= p.ReorderPoint
                     ORDER   BY p.PartNumber").ToList();
             }
-            catch
+            catch (Exception ex)
             {
                 // Fallback: ReorderPoint column may not exist yet — return empty list
+                Logging.AppLogger.Error($"[PartRepository.GetPartsAtReorderPoint] {ex}");
                 rows = new List<Models.PartReorderRow>();
             }
             foreach (var r in rows) r.Compute();
@@ -315,6 +324,37 @@ namespace JaneERP.Data
             if (ids.Count == 0) return;
             using IDbConnection db = new SqlConnection(_connectionString);
             db.Execute("UPDATE Parts SET IsVerified = 1 WHERE PartID IN @ids", new { ids });
+        }
+
+        // ── Paged queries ─────────────────────────────────────────────────────────
+
+        public (List<Part> parts, int total) GetPagedParts(
+            int page, int pageSize, string? search = null, bool activeOnly = true)
+        {
+            using IDbConnection db = new SqlConnection(_connectionString);
+
+            var conditions = new List<string>();
+            if (activeOnly)  conditions.Add("p.IsActive = 1");
+            if (!string.IsNullOrWhiteSpace(search))
+                conditions.Add("(p.PartNumber LIKE @search OR p.PartName LIKE @search)");
+
+            string where = conditions.Count > 0 ? "WHERE " + string.Join(" AND ", conditions) : "";
+            string searchParam = $"%{search}%";
+
+            int total = db.ExecuteScalar<int>(
+                $"SELECT COUNT(*) FROM Parts p {where}",
+                new { search = searchParam });
+
+            var parts = db.Query<Part>($@"
+                SELECT p.*, v.VendorName AS DefaultVendorName
+                FROM   Parts p
+                LEFT JOIN Vendors v ON v.VendorID = p.DefaultVendorID
+                {where}
+                ORDER BY p.PartNumber
+                OFFSET @offset ROWS FETCH NEXT @pageSize ROWS ONLY",
+                new { search = searchParam, offset = (page - 1) * pageSize, pageSize }).ToList();
+
+            return (parts, total);
         }
     }
 }

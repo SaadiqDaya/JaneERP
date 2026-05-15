@@ -18,7 +18,8 @@ namespace JaneERP.Interfaces
         void                          AddTransaction(InventoryTransaction transaction);
         void                          AddProduct(Product product);
         (int inserted, int updated)   UpsertProducts(IEnumerable<Product> products);
-        void                          UpdateProduct(Product product);
+        void                          UpdateProduct(Product product, string updatedBy = "");
+        (List<Product> products, int total) GetPagedProducts(int page, int pageSize, string? search = null);
         void                          DeactivateProduct(int productId);
         void                          RestoreProduct(int productId);
         int                           GetBomCount(int productId);

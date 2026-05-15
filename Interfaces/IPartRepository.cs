@@ -7,8 +7,9 @@ namespace JaneERP.Interfaces
         List<Part>    GetAll(bool includeInactive = false);
         Part?         GetById(int id);
         int           Add(Part part);
-        void          Update(Part part);
+        void          Update(Part part, string updatedBy = "");
         void          AdjustStock(int partId, int delta, string notes = "");
+        (List<Part> parts, int total) GetPagedParts(int page, int pageSize, string? search = null, bool activeOnly = true);
         List<BomEntry>       GetBom(int productId);
         void                 SetBom(int productId, IEnumerable<(int partId, decimal qty, bool createsBatchLoss, decimal batchLossRate)> entries);
         List<BomLabourCost>  GetLabourCosts(int productId);

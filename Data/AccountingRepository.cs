@@ -138,7 +138,7 @@ namespace JaneERP.Data
                     WHERE  object_id = OBJECT_ID('WorkOrders')
                       AND  name IN ('MaterialsCost','LaborCost','BatchLossCost')") == 3;
             }
-            catch { /* schema check failed — treat as missing */ }
+            catch (Exception ex) { Logging.AppLogger.Info($"[AccountingRepository.GetCOGSBreakdown] Schema check for sub-cost columns failed (treating as missing): {ex.Message}"); }
 
             if (hasSubColumns)
             {
@@ -204,6 +204,22 @@ namespace JaneERP.Data
                 INSERT INTO Expenses (CategoryID, Amount, Description, ExpenseDate, CreatedBy)
                 VALUES (@categoryId, @amount, @description, @date, @createdBy)",
                 new { categoryId, amount, description, date, createdBy });
+        }
+
+        public void UpdateExpense(int expenseId, int categoryId, decimal amount, string? description,
+            DateTime date, string? updatedBy)
+        {
+            using var db = new SqlConnection(_cs);
+            db.Execute(@"
+                UPDATE Expenses
+                SET CategoryID  = @categoryId,
+                    Amount      = @amount,
+                    Description = @description,
+                    ExpenseDate = @date,
+                    UpdatedBy   = @updatedBy,
+                    UpdatedAt   = @now
+                WHERE ExpenseID = @expenseId",
+                new { categoryId, amount, description, date, updatedBy, now = DateTime.UtcNow, expenseId });
         }
 
         public void DeleteExpense(int expenseId)
@@ -272,7 +288,7 @@ namespace JaneERP.Data
                     "SELECT TaxRateID, Name, Rate, IsActive FROM TaxRates WHERE IsActive = 1 ORDER BY Name")
                     .ToList();
             }
-            catch { return new List<TaxRate>(); }
+            catch (Exception ex) { Logging.AppLogger.Error($"[AccountingRepository.GetActiveTaxRates] {ex}"); return new List<TaxRate>(); }
         }
 
         public List<TaxRate> GetAllTaxRates()
@@ -284,7 +300,7 @@ namespace JaneERP.Data
                     "SELECT TaxRateID, Name, Rate, IsActive FROM TaxRates ORDER BY Name")
                     .ToList();
             }
-            catch { return new List<TaxRate>(); }
+            catch (Exception ex) { Logging.AppLogger.Error($"[AccountingRepository.GetAllTaxRates] {ex}"); return new List<TaxRate>(); }
         }
 
         public void AddTaxRate(string name, decimal rate)
@@ -319,6 +335,39 @@ namespace JaneERP.Data
                     new { from, to }).ToList();
             }
             catch (Exception ex) { Logging.AppLogger.Error($"[AccountingRepository.GetCreditNoteRows] {ex}"); return []; }
+        }
+
+        // ── Paged queries ─────────────────────────────────────────────────────────
+
+        public (List<RevenueRow> rows, int total) GetPagedRevenue(
+            int page, int pageSize, DateTime from, DateTime to, bool showPaidOnly = false)
+        {
+            using var db = new SqlConnection(_cs);
+            string paidFilter = showPaidOnly ? "AND ISNULL(IsPaid, 0) = 1" : "";
+            string where = $@"
+                WHERE  so.OrderDate >= @from AND so.OrderDate <= @to
+                  AND  so.Status NOT IN ('Draft', 'Cancelled')
+                  AND  so.TotalPrice > 0
+                  {paidFilter}";
+
+            int total = db.ExecuteScalar<int>($"SELECT COUNT(*) FROM SalesOrders so {where}", new { from, to });
+
+            var rows = db.Query<RevenueRow>($@"
+                SELECT so.SalesOrderID,
+                       so.OrderNumber,
+                       so.OrderDate,
+                       ISNULL(c.FullName, c.Email) AS CustomerName,
+                       so.TotalPrice,
+                       so.Status,
+                       so.IsPaid
+                FROM   SalesOrders so
+                LEFT JOIN Customers c ON c.CustomerID = so.CustomerID
+                {where}
+                ORDER BY so.OrderDate DESC
+                OFFSET @offset ROWS FETCH NEXT @pageSize ROWS ONLY",
+                new { from, to, offset = (page - 1) * pageSize, pageSize }).ToList();
+
+            return (rows, total);
         }
     }
 }

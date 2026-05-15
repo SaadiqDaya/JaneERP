@@ -425,7 +425,7 @@ namespace JaneERP.Data
             catch { tx.Rollback(); throw; }
         }
 
-        public void UpdateProduct(Product product)
+        public void UpdateProduct(Product product, string updatedBy = "")
         {
             using var db = new SqlConnection(_connectionString);
             db.Open();
@@ -453,7 +453,9 @@ namespace JaneERP.Data
                         ReorderPoint      = @ReorderPoint,
                         OrderUpTo         = @OrderUpTo,
                         DefaultVendorID   = @DefaultVendorID,
-                        UnitOfMeasure     = @UnitOfMeasure
+                        UnitOfMeasure     = @UnitOfMeasure,
+                        UpdatedBy         = @updatedBy,
+                        UpdatedAt         = @now
                     WHERE ProductID   = @ProductID
                       AND (@RowVersion IS NULL OR RowVersion = @RowVersion)",
                     new
@@ -461,7 +463,9 @@ namespace JaneERP.Data
                         product.SKU, product.ProductName, product.RetailPrice,
                         product.WholesalePrice, product.DefaultLocationID, product.ProductTypeID,
                         product.ReorderPoint, product.OrderUpTo, product.DefaultVendorID,
-                        product.ProductID, product.RowVersion
+                        product.ProductID, product.RowVersion,
+                        updatedBy = string.IsNullOrEmpty(updatedBy) ? null : updatedBy,
+                        now = DateTime.UtcNow
                     }, tx);
 
                 if (affected == 0)
@@ -689,6 +693,56 @@ namespace JaneERP.Data
                 tx.Commit();
             }
             catch { tx.Rollback(); throw; }
+        }
+
+        // ── Paged queries ─────────────────────────────────────────────────────────
+
+        public (List<Product> products, int total) GetPagedProducts(
+            int page, int pageSize, string? search = null)
+        {
+            using IDbConnection db = new SqlConnection(_connectionString);
+
+            string searchCondition = string.IsNullOrWhiteSpace(search)
+                ? ""
+                : "AND (p.SKU LIKE @search OR p.ProductName LIKE @search)";
+            string searchParam = $"%{search}%";
+
+            int total = db.ExecuteScalar<int>(
+                $"SELECT COUNT(*) FROM Products p WHERE p.IsActive = 1 {searchCondition}",
+                new { search = searchParam });
+
+            var products = db.Query<Product>($@"
+                SELECT  p.ProductID, p.SKU, p.ProductName, p.UnitOfMeasure,
+                        p.RetailPrice, p.WholesalePrice,
+                        p.ReorderPoint, ISNULL(p.OrderUpTo, 0) AS OrderUpTo,
+                        p.IsActive, p.DefaultLocationID, p.ProductTypeID,
+                        pt.TypeName    AS ProductTypeName,
+                        l.LocationName AS DefaultLocationName,
+                        p.DefaultVendorID,
+                        v.VendorName   AS DefaultVendorName,
+                        p.BomNumber,
+                        ISNULL(inv.CurrentStock, 0) AS CurrentStock,
+                        ISNULL(res.ReservedQty,  0) AS ReservedQty
+                FROM    Products p
+                LEFT JOIN ProductTypes pt ON pt.ProductTypeID = p.ProductTypeID
+                LEFT JOIN Locations    l  ON l.LocationID     = p.DefaultLocationID
+                LEFT JOIN Vendors      v  ON v.VendorID       = p.DefaultVendorID
+                LEFT JOIN (
+                    SELECT ProductID, SUM(QuantityChange) AS CurrentStock
+                    FROM   InventoryTransactions
+                    GROUP  BY ProductID
+                ) inv ON inv.ProductID = p.ProductID
+                LEFT JOIN (
+                    SELECT ProductID, SUM(Quantity) AS ReservedQty
+                    FROM   StockReservations
+                    GROUP  BY ProductID
+                ) res ON res.ProductID = p.ProductID
+                WHERE   p.IsActive = 1 {searchCondition}
+                ORDER BY p.SKU
+                OFFSET @offset ROWS FETCH NEXT @pageSize ROWS ONLY",
+                new { search = searchParam, offset = (page - 1) * pageSize, pageSize }).ToList();
+
+            return (products, total);
         }
     }
 }

@@ -18,7 +18,11 @@ namespace JaneERP.Interfaces
         // ── Expense transactions ─────────────────────────────────────────────────
         List<ExpenseRow> GetExpenseRows(DateTime from, DateTime to);
         void             AddExpense(int categoryId, decimal amount, string? description, DateTime date, string? createdBy);
+        void             UpdateExpense(int expenseId, int categoryId, decimal amount, string? description, DateTime date, string? updatedBy);
         void             DeleteExpense(int expenseId);
+
+        // ── Paged queries ─────────────────────────────────────────────────────────
+        (List<RevenueRow> rows, int total) GetPagedRevenue(int page, int pageSize, DateTime from, DateTime to, bool showPaidOnly = false);
 
         // ── Expense categories ───────────────────────────────────────────────────
         List<ExpenseCategory> GetActiveCategories();
