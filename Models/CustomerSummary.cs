@@ -34,4 +34,15 @@ namespace JaneERP.Models
         public decimal  UnitPrice   { get; set; }
         public decimal  LineTotal   { get; set; }
     }
+
+    /// <summary>A unified transaction row (invoice or payment) for the paged transactions grid.</summary>
+    public class CustomerTransactionRow
+    {
+        public string   Type        { get; set; } = "";   // "Invoice" | "Payment"
+        public int      RefId       { get; set; }
+        public string?  Reference   { get; set; }
+        public decimal  Amount      { get; set; }
+        public DateTime TransDate   { get; set; }
+        public string?  Status      { get; set; }
+    }
 }

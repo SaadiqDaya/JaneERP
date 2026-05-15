@@ -21,12 +21,20 @@ namespace JaneERP
         private Button       _btnAddNote        = new();
         private Button       _btnDelNote        = new();
         private Button       _btnReceivePayment = new();
+        private Button       _btnTxnPrev        = new();
+        private Button       _btnTxnNext        = new();
+        private Label        _lblTxnPage        = new();
 
         /// <summary>Tag placed on each row of the transactions grid to identify its type and ID.</summary>
         private sealed record TxnTag(string TxnType, int ID, bool IsPaid, decimal Amount);
 
         private int _selectedCustomerId = -1;
         private List<CustomerSummary> _allCustomers = [];
+
+        // ── Transaction pagination state ─────────────────────────────────────
+        private const int TxnPageSize = 25;
+        private int _txnCurrentPage   = 1;
+        private int _txnTotalCount    = 0;
 
         public FormCustomers()
         {
@@ -35,7 +43,6 @@ namespace JaneERP
             Theme.MakeBorderless(this);
             Theme.AddCloseButton(this);
             Theme.MakeResizable(this);
-            try { _custRepo.EnsurePaymentsSchema(); } catch { }
             LoadCustomers();
         }
 
@@ -46,14 +53,8 @@ namespace JaneERP
             MinimumSize   = new Size(840, 520);
             StartPosition = FormStartPosition.CenterParent;
 
-            Controls.Add(new Label
-            {
-                Text      = "Customers",
-                Font      = new Font("Segoe UI", 14F, FontStyle.Bold),
-                ForeColor = Theme.Gold,
-                Location  = new Point(12, 12),
-                AutoSize  = true
-            });
+            // ── Header bar ───────────────────────────────────────────────────────
+            Theme.AddFormHeader(this, "👥  Customers");
 
             // Search
             Controls.Add(new Label { Text = "Search:", Location = new Point(12, 48), AutoSize = true });
@@ -120,7 +121,7 @@ namespace JaneERP
 
             // Transactions grid — shows sales orders and returns
             _dgvOrders.Location        = new Point(x, 166);
-            _dgvOrders.Size            = new Size(554, 240);
+            _dgvOrders.Size            = new Size(554, 210);
             _dgvOrders.Anchor          = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
             _dgvOrders.ReadOnly        = true;
             _dgvOrders.AllowUserToAddRows    = false;
@@ -143,7 +144,31 @@ namespace JaneERP
             };
             Controls.Add(_dgvOrders);
 
-            // Buttons below the transactions grid
+            // Pagination controls — below the transactions grid
+            _btnTxnPrev.Text     = "← Prev";
+            _btnTxnPrev.Location = new Point(x, 382);
+            _btnTxnPrev.Size     = new Size(72, 24);
+            _btnTxnPrev.Enabled  = false;
+            _btnTxnPrev.Click   += (_, _) => { _txnCurrentPage--; LoadTransactionPage(); };
+            Theme.StyleButton(_btnTxnPrev);
+            Controls.Add(_btnTxnPrev);
+
+            _lblTxnPage.Location  = new Point(x + 80, 386);
+            _lblTxnPage.AutoSize  = true;
+            _lblTxnPage.Font      = new Font("Segoe UI", 8.5F);
+            _lblTxnPage.ForeColor = Theme.TextSecondary;
+            _lblTxnPage.Text      = "";
+            Controls.Add(_lblTxnPage);
+
+            _btnTxnNext.Text     = "Next →";
+            _btnTxnNext.Location = new Point(x + 300, 382);
+            _btnTxnNext.Size     = new Size(72, 24);
+            _btnTxnNext.Enabled  = false;
+            _btnTxnNext.Click   += (_, _) => { _txnCurrentPage++; LoadTransactionPage(); };
+            Theme.StyleButton(_btnTxnNext);
+            Controls.Add(_btnTxnNext);
+
+            // Buttons below the pagination row
             var btnReturn = new Button
             {
                 Text     = "Create Return",
@@ -274,83 +299,88 @@ namespace JaneERP
                 decimal balance = _returnRepo.GetActiveCreditBalance(customerId);
                 _lblCredit.Text = balance > 0 ? $"Credit: {balance:C}" : "";
             }
-            catch { _lblCredit.Text = ""; }
+            catch (Exception ex) { Logging.AppLogger.Error($"[FormCustomers.GetActiveCreditBalance] customerId={customerId}: {ex}"); _lblCredit.Text = ""; }
 
             LoadNotes(customerId);
-            _dgvOrders.Rows.Clear();
 
+            // Reset to page 1 and load the paged transaction view
+            _txnCurrentPage = 1;
+            LoadTransactionPage();
+
+            // Load summary stats from full order list (lightweight aggregate query)
             try
             {
                 var orders = _custRepo.GetOrders(customerId);
                 decimal total = 0m, totalPaid = 0m;
-
                 foreach (var o in orders)
                 {
-                    string payStatus;
-                    if (o.IsPaid)
-                        payStatus = o.PaidAt.HasValue ? $"Paid {o.PaidAt.Value:yyyy-MM-dd}" : "Paid";
-                    else if (o.PaidAmount > 0 && o.PaidAmount < o.TotalPrice)
-                        payStatus = $"Partial (${o.PaidAmount:N2})";
-                    else
-                        payStatus = "Unpaid";
-
-                    int idx = _dgvOrders.Rows.Add();
-                    var r   = _dgvOrders.Rows[idx];
-                    r.Cells["colTxnType"].Value = "Invoice";
-                    r.Cells["colRef"].Value     = o.OrderNumber;
-                    r.Cells["colDate"].Value    = o.OrderDate.ToString("yyyy-MM-dd");
-                    r.Cells["colAmount"].Value  = $"${o.TotalPrice:N2}";
-                    r.Cells["colStatus"].Value  = $"{o.Status} · {payStatus}";
-                    r.Tag = new TxnTag("Sale", o.SalesOrderID, o.IsPaid, o.TotalPrice);
-                    if (!o.IsPaid && o.PaidAmount == 0)
-                        r.DefaultCellStyle.ForeColor = Color.FromArgb(220, 80, 80);
-                    else if (o.IsPaid)
-                        r.DefaultCellStyle.ForeColor = Color.FromArgb(80, 210, 100);
                     total += o.TotalPrice;
                     if (o.IsPaid) totalPaid += o.TotalPrice;
                 }
 
-                // Append returns
-                List<ReturnOrder> returns = [];
-                try { returns = _returnRepo.GetReturns(customerId); } catch { }
-                foreach (var ret in returns)
-                {
-                    int idx = _dgvOrders.Rows.Add();
-                    var r   = _dgvOrders.Rows[idx];
-                    r.Cells["colTxnType"].Value = "Return";
-                    r.Cells["colRef"].Value     = $"RT-{ret.ReturnID}";
-                    r.Cells["colDate"].Value    = ret.ReturnDate.ToString("yyyy-MM-dd");
-                    r.Cells["colAmount"].Value  = "\u2014";
-                    r.Cells["colStatus"].Value  = ret.Status;
-                    r.Tag = new TxnTag("Return", ret.ReturnID, false, 0m);
-                    r.DefaultCellStyle.ForeColor = Color.FromArgb(255, 180, 80);
-                }
-
-                // Append payment records
-                List<CustomerPaymentRecord> payments = [];
-                try { payments = _custRepo.GetPayments(customerId); } catch { }
-                foreach (var pmt in payments)
-                {
-                    int idx = _dgvOrders.Rows.Add();
-                    var r   = _dgvOrders.Rows[idx];
-                    r.Cells["colTxnType"].Value = "Payment";
-                    r.Cells["colRef"].Value     = pmt.OrderReference ?? $"SO-{pmt.SalesOrderID}";
-                    r.Cells["colDate"].Value    = pmt.PaidAt.ToString("yyyy-MM-dd");
-                    r.Cells["colAmount"].Value  = $"${pmt.Amount:N2}";
-                    string pmtStatus = pmt.PaymentMethod;
-                    if (!string.IsNullOrWhiteSpace(pmt.Notes)) pmtStatus += $" · {pmt.Notes}";
-                    r.Cells["colStatus"].Value  = pmtStatus;
-                    r.Tag = new TxnTag("Payment", pmt.PaymentID, true, pmt.Amount);
-                    r.DefaultCellStyle.ForeColor = Color.FromArgb(80, 210, 100);
-                }
+                int returnCount = 0;
+                try { returnCount = _returnRepo.GetReturns(customerId).Count; }
+                catch (Exception ex) { Logging.AppLogger.Error($"[FormCustomers.GetReturns] customerId={customerId}: {ex}"); }
 
                 string paidSummary = totalPaid > 0 ? $"  |  Paid: ${totalPaid:N2}" : "";
-                string pmtCountStr = payments.Count > 0 ? $"  |  {payments.Count} payment(s)" : "";
-                _lblStats.Text = $"{orders.Count} sale(s)  |  {returns.Count} return(s)  |  Total: ${total:N2}{paidSummary}{pmtCountStr}";
+                _lblStats.Text = $"{orders.Count} sale(s)  |  {returnCount} return(s)  |  Total: ${total:N2}{paidSummary}";
             }
-            catch
+            catch (Exception ex)
             {
+                Logging.AppLogger.Error($"[FormCustomers.DgvCustomers_SelectionChanged] stats for customerId={customerId}: {ex}");
                 _lblStats.Text = "";
+            }
+        }
+
+        /// <summary>Loads the current page of unified transactions into the grid.</summary>
+        private void LoadTransactionPage()
+        {
+            if (_selectedCustomerId < 0) return;
+            _dgvOrders.Rows.Clear();
+            _btnReceivePayment.Enabled = false;
+
+            try
+            {
+                var (rows, total) = _custRepo.GetPagedTransactions(_selectedCustomerId, _txnCurrentPage, TxnPageSize);
+                _txnTotalCount = total;
+
+                int totalPages = Math.Max(1, (int)Math.Ceiling(total / (double)TxnPageSize));
+
+                foreach (var row in rows)
+                {
+                    int idx = _dgvOrders.Rows.Add();
+                    var r   = _dgvOrders.Rows[idx];
+                    r.Cells["colTxnType"].Value = row.Type;
+                    r.Cells["colRef"].Value     = row.Reference;
+                    r.Cells["colDate"].Value    = row.TransDate.ToString("yyyy-MM-dd");
+                    r.Cells["colAmount"].Value  = row.Amount > 0 ? $"${row.Amount:N2}" : "\u2014";
+                    r.Cells["colStatus"].Value  = row.Status;
+
+                    bool isInvoice = row.Type == "Invoice";
+                    bool isPaid    = row.Status == "Paid";
+                    r.Tag = new TxnTag(isInvoice ? "Sale" : "Payment", row.RefId, isPaid, row.Amount);
+
+                    r.DefaultCellStyle.ForeColor = row.Type switch
+                    {
+                        "Payment" => Color.FromArgb(80, 210, 100),
+                        "Invoice" when isPaid => Color.FromArgb(80, 210, 100),
+                        "Invoice" => Color.FromArgb(220, 80, 80),
+                        _ => Color.FromArgb(255, 180, 80)
+                    };
+                }
+
+                _lblTxnPage.Text  = total > 0
+                    ? $"Page {_txnCurrentPage} of {totalPages} ({total} transactions)"
+                    : "No transactions";
+                _btnTxnPrev.Enabled = _txnCurrentPage > 1;
+                _btnTxnNext.Enabled = _txnCurrentPage < totalPages;
+            }
+            catch (Exception ex)
+            {
+                Logging.AppLogger.Error($"[FormCustomers.LoadTransactionPage] customerId={_selectedCustomerId} page={_txnCurrentPage}: {ex}");
+                _lblTxnPage.Text = "Error loading transactions";
+                _btnTxnPrev.Enabled = false;
+                _btnTxnNext.Enabled = false;
             }
         }
 
@@ -380,7 +410,7 @@ namespace JaneERP
                     r.Tag = n.NoteID;
                 }
             }
-            catch { /* non-fatal */ }
+            catch (Exception ex) { Logging.AppLogger.Error($"[FormCustomers.LoadNotes] customerId={customerId}: {ex}"); }
         }
 
         private void BtnAddNote_Click(object? sender, EventArgs e)

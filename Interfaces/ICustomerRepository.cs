@@ -22,6 +22,12 @@ namespace JaneERP.Interfaces
         void RecordPayment(int salesOrderId, int customerId, decimal amount, string paymentMethod, DateTime paidAt, string? notes = null);
         List<CustomerPaymentRecord> GetPayments(int customerId);
 
+        /// <summary>
+        /// Returns a page of unified invoice+payment rows for the customer, newest first,
+        /// plus the total row count across all pages.
+        /// </summary>
+        (List<CustomerTransactionRow> rows, int totalCount) GetPagedTransactions(int customerId, int page, int pageSize);
+
         // ── CRM Notes ────────────────────────────────────────────────────────
         void EnsureNotesSchema();
         List<CustomerNote> GetNotes(int customerId);

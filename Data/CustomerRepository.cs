@@ -107,14 +107,33 @@ namespace JaneERP.Data
             using var tx = db.BeginTransaction();
             try
             {
+                // ── Duplicate / overpayment guard ────────────────────────────
+                var existingPayments = db.ExecuteScalar<decimal>(
+                    "SELECT ISNULL(SUM(Amount), 0) FROM CustomerPayments WHERE SalesOrderID = @orderId",
+                    new { orderId = salesOrderId }, tx);
+
+                var orderTotal = db.ExecuteScalar<decimal>(
+                    "SELECT TotalPrice FROM SalesOrders WHERE SalesOrderID = @orderId",
+                    new { orderId = salesOrderId }, tx);
+
+                if (existingPayments + amount > orderTotal * 1.01m)
+                    throw new Exception(
+                        $"Payment of {amount:C} would exceed order total of {orderTotal:C}. " +
+                        $"Already paid: {existingPayments:C}.");
+
+                // ── Insert payment record ────────────────────────────────────
                 db.Execute(
                     @"INSERT INTO CustomerPayments (SalesOrderID, CustomerID, Amount, PaymentMethod, PaidAt, Notes, RecordedBy)
                       VALUES (@salesOrderId, @customerId, @amount, @paymentMethod, @paidAt, @notes, @recordedBy)",
                     new { salesOrderId, customerId, amount, paymentMethod, paidAt, notes,
                           recordedBy = JaneERP.Security.AppSession.CurrentUser?.Username ?? "system" }, tx);
-                db.Execute(
-                    "UPDATE SalesOrders SET IsPaid = 1, PaidAt = @paidAt WHERE SalesOrderID = @salesOrderId",
-                    new { salesOrderId, paidAt }, tx);
+
+                // ── Auto-mark paid when total collected covers 99%+ of order ─
+                if (existingPayments + amount >= orderTotal * 0.99m)
+                    db.Execute(
+                        "UPDATE SalesOrders SET IsPaid = 1, PaidDate = @now WHERE SalesOrderID = @orderId",
+                        new { now = DateTime.UtcNow, orderId = salesOrderId }, tx);
+
                 tx.Commit();
             }
             catch (Exception ex)
@@ -140,6 +159,58 @@ namespace JaneERP.Data
                     new { customerId }).ToList();
             }
             catch (Exception ex) { Logging.AppLogger.Error($"[CustomerRepository.GetPayments] customerId={customerId}: {ex}"); return new List<CustomerPaymentRecord>(); }
+        }
+
+        public (List<CustomerTransactionRow> rows, int totalCount) GetPagedTransactions(
+            int customerId, int page, int pageSize)
+        {
+            using IDbConnection db = new SqlConnection(_cs);
+            try
+            {
+                int offset = (page - 1) * pageSize;
+
+                // Count total rows across both invoices and payments
+                int totalCount = db.ExecuteScalar<int>(@"
+                    SELECT COUNT(*) FROM (
+                        SELECT SalesOrderId AS RefId
+                        FROM SalesOrders WHERE CustomerID = @customerId
+                        UNION ALL
+                        SELECT PaymentID AS RefId
+                        FROM CustomerPayments WHERE CustomerID = @customerId
+                    ) t",
+                    new { customerId });
+
+                var rows = db.Query<CustomerTransactionRow>(@"
+                    SELECT * FROM (
+                        SELECT 'Invoice'                                                      AS Type,
+                               SalesOrderID                                                  AS RefId,
+                               CAST(OrderNumber AS NVARCHAR(50))                             AS Reference,
+                               TotalPrice                                                    AS Amount,
+                               OrderDate                                                     AS TransDate,
+                               CASE WHEN IsPaid = 1 THEN 'Paid' ELSE 'Outstanding' END      AS Status
+                        FROM   SalesOrders
+                        WHERE  CustomerID = @customerId
+                        UNION ALL
+                        SELECT 'Payment'                                                     AS Type,
+                               PaymentID                                                     AS RefId,
+                               ISNULL(PaymentMethod, 'Cash')                                AS Reference,
+                               Amount                                                        AS Amount,
+                               PaidAt                                                        AS TransDate,
+                               'Received'                                                    AS Status
+                        FROM   CustomerPayments
+                        WHERE  CustomerID = @customerId
+                    ) t
+                    ORDER BY TransDate DESC
+                    OFFSET @offset ROWS FETCH NEXT @pageSize ROWS ONLY",
+                    new { customerId, offset, pageSize }).ToList();
+
+                return (rows, totalCount);
+            }
+            catch (Exception ex)
+            {
+                Logging.AppLogger.Error($"[CustomerRepository.GetPagedTransactions] customerId={customerId} page={page}: {ex}");
+                return (new List<CustomerTransactionRow>(), 0);
+            }
         }
 
         // ── CRM Notes ─────────────────────────────────────────────────────────
