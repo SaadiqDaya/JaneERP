@@ -31,5 +31,12 @@ namespace JaneERP.Interfaces
         void                                  CompleteCookSession(int cookSessionId, bool forceComplete = false);
         List<Models.BatchTravellerRow>        GetBatchTravellerData(int cookSessionId);
         List<Models.LabelExportRow>           GetLabelExportData(int cookSessionId);
+
+        /// <summary>
+        /// Deducts ingredient stock (Parts.CurrentStock) for all ingredients used in a completed cook session.
+        /// Quantities come from the pre-computed CookSessionSteps.RequiredQtyML values aggregated per part.
+        /// Returns true on success, false if the transaction fails.
+        /// </summary>
+        bool DeductSessionIngredients(int sessionId);
     }
 }

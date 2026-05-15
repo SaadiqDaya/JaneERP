@@ -1,6 +1,8 @@
 using System.Configuration;
 using System.Data;
 using Dapper;
+using JaneERP.Core.Models;
+using JaneERP.Core.Services;
 using JaneERP.Interfaces;
 using JaneERP.Models;
 using Microsoft.Data.SqlClient;
@@ -70,6 +72,10 @@ namespace JaneERP.Manufacturing
                     )");
             }
             catch (Exception ex) { Logging.AppLogger.Info($"PartsReservations migration: {ex.Message}"); }
+
+            // Lot tracking and new WO lifecycle columns (WorkOrderService owns the DDL)
+            try { WorkOrderService.EnsureSchema(_connectionString); }
+            catch (Exception ex) { Logging.AppLogger.Info($"WorkOrderService schema: {ex.Message}"); }
 
             // Cook session tables: ingredient-first batch cooking workflow
             try
@@ -225,150 +231,27 @@ namespace JaneERP.Manufacturing
         }
 
         /// <summary>
-        /// Marks a work order Complete and atomically adds the finished-goods inventory transaction.
-        /// Also deducts BOM parts from inventory if the WorkOrder has BOM line items.
+        /// Marks a work order Complete. Delegates to WorkOrderService for lot deduction,
+        /// inventory transactions, COGS, and cascade logic.
         /// </summary>
         public void CompleteWorkOrder(int workOrderId, string? notes = null)
         {
-            using var db = new SqlConnection(_connectionString);
-            db.Open();
-            using var tx = db.BeginTransaction();
-            try
+            var wo = GetWorkOrderBasic(workOrderId);
+            var svc = new WorkOrderService(_connectionString);
+            svc.Complete(workOrderId, new CompleteWorkOrderRequest
             {
-                // Get the work order so we know ProductID + Quantity
-                var wo = db.QueryFirstOrDefault(
-                    "SELECT WorkOrderID, ProductID, Quantity FROM WorkOrders WHERE WorkOrderID = @workOrderId",
-                    new { workOrderId }, tx)
-                    ?? throw new InvalidOperationException($"Work order {workOrderId} not found.");
+                CompletedQty = wo?.Quantity ?? 0,
+                ScrapQty     = 0,
+                Notes        = notes,
+            }, Security.AppSession.CurrentUser?.Username ?? "system");
+        }
 
-                int productId = (int)wo.ProductID;
-                int quantity  = (int)wo.Quantity;
-                var now       = DateTime.Now;
-
-                // 1. Mark complete
-                db.Execute(@"
-                    UPDATE WorkOrders
-                    SET Status = 'Complete', CompletedAt = @now, Notes = ISNULL(@notes, Notes)
-                    WHERE WorkOrderID = @workOrderId",
-                    new { workOrderId, now, notes }, tx);
-
-                // 2. Add finished-goods stock
-                db.Execute(@"
-                    INSERT INTO InventoryTransactions (ProductID, QuantityChange, TransactionType, Notes, TransactionDate)
-                    VALUES (@ProductID, @Qty, 'ManufacturingIn', @Notes, @Date);",
-                    new
-                    {
-                        ProductID = productId,
-                        Qty       = quantity,
-                        Notes     = $"Completed Work Order #{workOrderId}" + (string.IsNullOrWhiteSpace(notes) ? "" : $" — {notes}"),
-                        Date      = now
-                    }, tx);
-
-                // 2b. Release any parts reservations for this WO, then deduct BOM parts
-                db.Execute("DELETE FROM PartsReservations WHERE WorkOrderID = @workOrderId",
-                    new { workOrderId }, tx);
-
-                // Fetch BOM with per-row batch loss fields so deduction matches actual consumption
-                var deductItems = db.Query(
-                    "SELECT pp.PartID, pp.Quantity, pp.CreatesBatchLoss, pp.BatchLossRate FROM ProductParts pp WHERE pp.ProductID = @productId",
-                    new { productId }, tx).ToList();
-
-                // Pre-compute each effective deduction quantity
-                var deductQtys = deductItems.ToDictionary(
-                    bom => (int)bom.PartID,
-                    bom => {
-                        decimal effRate = (bool)bom.CreatesBatchLoss
-                            ? ((decimal)bom.BatchLossRate > 0m ? (decimal)bom.BatchLossRate : 0m)
-                            : 0m;
-                        return (int)Math.Ceiling((double)((decimal)bom.Quantity * quantity * (1m + effRate / 100m)));
-                    });
-
-                // Pre-check: verify sufficient stock for every BOM part BEFORE any deduction.
-                foreach (var bom in deductItems)
-                {
-                    int deduct = deductQtys[(int)bom.PartID];
-                    if (deduct <= 0) continue;
-                    int currentStock = db.QuerySingle<int>(
-                        "SELECT CurrentStock FROM Parts WHERE PartID = @partId",
-                        new { partId = (int)bom.PartID }, tx);
-                    if (currentStock < deduct)
-                    {
-                        string partName = db.QueryFirstOrDefault<string>(
-                            "SELECT PartName FROM Parts WHERE PartID = @partId",
-                            new { partId = (int)bom.PartID }, tx) ?? $"PartID {bom.PartID}";
-                        throw new InvalidOperationException(
-                            $"Insufficient stock for part '{partName}': need {deduct}, have {currentStock}.");
-                    }
-                }
-
-                foreach (var bom in deductItems)
-                {
-                    int deduct = deductQtys[(int)bom.PartID];
-                    if (deduct > 0)
-                        db.Execute(
-                            "UPDATE Parts SET CurrentStock = CurrentStock - @deduct WHERE PartID = @partId",
-                            new { deduct, partId = (int)bom.PartID }, tx);
-                }
-
-                // 3. Calculate COGS from BOM parts + labour
-                var bomItems = db.Query(
-                    "SELECT pp.PartID, pp.Quantity, ISNULL(p.UnitCost, 0) AS UnitCost " +
-                    "FROM ProductParts pp JOIN Parts p ON p.PartID = pp.PartID " +
-                    "WHERE pp.ProductID = @productId",
-                    new { productId }, tx).ToList();
-
-                var labourItems = db.Query(
-                    "SELECT HourlyRate, Hours FROM BomLabourCosts WHERE ProductID = @productId",
-                    new { productId }, tx).ToList();
-
-                decimal partsCogs  = bomItems.Sum(bom => (decimal)bom.UnitCost * (decimal)bom.Quantity * quantity);
-                decimal labourCogs = labourItems.Sum(lc => (decimal)lc.HourlyRate * (decimal)lc.Hours * quantity);
-                decimal totalCogs  = partsCogs + labourCogs;
-
-                // 4. Record COGS on the work order
-                db.Execute(
-                    "UPDATE WorkOrders SET CostOfGoods = @cogs WHERE WorkOrderID = @workOrderId",
-                    new { cogs = totalCogs, workOrderId }, tx);
-
-                // 5. Get the parent MO and check if all its work orders are now complete
-                int moid = db.QuerySingle<int>(
-                    "SELECT MOID FROM WorkOrders WHERE WorkOrderID = @workOrderId",
-                    new { workOrderId }, tx);
-
-                int remaining = db.QuerySingle<int>(
-                    "SELECT COUNT(*) FROM WorkOrders WHERE MOID = @moid AND Status <> 'Complete'",
-                    new { moid }, tx);
-
-                if (remaining == 0)
-                {
-                    // All work orders done — close the Manufacturing Order
-                    db.Execute(
-                        "UPDATE ManufacturingOrders SET Status = 'Complete' WHERE MOID = @moid",
-                        new { moid }, tx);
-
-                    // 6. For each SalesOrder linked to this MO via ShopifyOrderID, mark it Complete
-                    //    only if ALL work orders for that order (across every MO) are now complete.
-                    //    This prevents prematurely completing an order that has other WOs still in progress.
-                    db.Execute(@"
-                        UPDATE SalesOrders
-                        SET    Status = 'Complete'
-                        WHERE  Status <> 'Complete'
-                          AND  ShopifyOrderID IN (
-                                SELECT wo1.ShopifyOrderID
-                                FROM   WorkOrders wo1
-                                WHERE  wo1.MOID = @moid AND wo1.ShopifyOrderID IS NOT NULL
-                                  AND  NOT EXISTS (
-                                        SELECT 1 FROM WorkOrders wo2
-                                        WHERE  wo2.ShopifyOrderID = wo1.ShopifyOrderID
-                                          AND  wo2.Status <> 'Complete'
-                                       )
-                               )",
-                        new { moid }, tx);
-                }
-
-                tx.Commit();
-            }
-            catch { tx.Rollback(); throw; }
+        private dynamic? GetWorkOrderBasic(int workOrderId)
+        {
+            using IDbConnection db = new SqlConnection(_connectionString);
+            return db.QueryFirstOrDefault(
+                "SELECT Quantity, ProductID FROM WorkOrders WHERE WorkOrderID = @workOrderId",
+                new { workOrderId });
         }
 
         public void UpdateWorkOrderStatus(int workOrderId, string status)
@@ -400,84 +283,69 @@ namespace JaneERP.Manufacturing
         }
 
         /// <summary>
-        /// Builds the list of reservation lines for the parts-lock dialog when a WO goes InProgress.
-        /// Returns one row per BOM part, showing current stock and reservations held by other WOs.
+        /// Builds the reservation-line list for the Go Live dialog.
+        /// Returns one row per available lot (FEFO sorted); parts with no lots get a single unlotted row.
         /// </summary>
         public List<Models.ReservationLine> GetWOReservationItems(int workOrderId)
         {
-            using IDbConnection db = new SqlConnection(_connectionString);
-            var rows = db.Query(@"
-                SELECT
-                    pp.PartID,
-                    pt.PartNumber,
-                    pt.PartName,
-                    CAST(CEILING(pp.Quantity * wo.Quantity) AS INT) AS Required,
-                    pt.CurrentStock AS OnHand,
-                    ISNULL((
-                        SELECT SUM(pr.Quantity)
-                        FROM   PartsReservations pr
-                        WHERE  pr.PartID      = pp.PartID
-                          AND  pr.WorkOrderID <> @workOrderId
-                    ), 0) AS AlreadyReserved
-                FROM  WorkOrders   wo
-                JOIN  ProductParts pp ON pp.ProductID = wo.ProductID
-                JOIN  Parts        pt ON pt.PartID    = pp.PartID
-                WHERE wo.WorkOrderID = @workOrderId
-                ORDER BY pt.PartName",
-                new { workOrderId }).ToList();
+            var svc   = new WorkOrderService(_connectionString);
+            var parts = svc.GetLotAvailability(workOrderId);
+            var lines = new List<Models.ReservationLine>();
 
-            return rows.Select(row =>
+            foreach (var part in parts)
             {
-                int req   = (int)row.Required;
-                int avail = Math.Max(0, (int)row.OnHand - (int)row.AlreadyReserved);
-                return new Models.ReservationLine
+                int remaining = part.Required;
+                foreach (var lot in part.Lots)
                 {
-                    ItemId          = (int)row.PartID,
-                    LocationId      = null,
-                    DisplayLabel    = $"{row.PartNumber} — {row.PartName}",
-                    LocationName    = "—",
-                    Required        = req,
-                    OnHand          = (int)row.OnHand,
-                    AlreadyReserved = (int)row.AlreadyReserved,
-                    ToLock          = Math.Min(req, avail)
-                };
-            }).ToList();
+                    int toLock = Math.Min(Math.Max(0, remaining), lot.Available);
+                    string expiry = lot.ExpirationDate.HasValue
+                        ? $" | Exp: {lot.ExpirationDate.Value:yyyy-MM-dd}" : "";
+                    string lotLabel = lot.LotID > 0
+                        ? $" [{lot.LotNumber ?? "No#"}{expiry}]" : " [Unlotted]";
+
+                    lines.Add(new Models.ReservationLine
+                    {
+                        ItemId          = part.PartID,
+                        LotID           = lot.LotID,
+                        LotNumber       = lot.LotNumber,
+                        ExpirationDate  = lot.ExpirationDate,
+                        LocationId      = lot.LocationID,
+                        DisplayLabel    = $"{part.PartNumber} — {part.PartName}{lotLabel}",
+                        LocationName    = lot.LocationName,
+                        Required        = part.Required,
+                        OnHand          = lot.TotalQty,
+                        AlreadyReserved = lot.AlreadyReserved,
+                        ToLock          = toLock,
+                    });
+                    remaining -= toLock;
+                }
+            }
+
+            return lines;
         }
 
         /// <summary>
-        /// Persists the parts-reservation choices made in the lock dialog for a Work Order.
-        /// Replaces any prior reservations for this WO.
+        /// Persists reservation choices and transitions the WO Pending → Live.
+        /// Delegates to WorkOrderService.GoLive() so lot deductions are recorded.
         /// </summary>
         public void SaveWOReservations(int workOrderId, IEnumerable<Models.ReservationLine> lines)
         {
-            using var db = new SqlConnection(_connectionString);
-            db.Open();
-            using var tx = db.BeginTransaction();
-            try
-            {
-                db.Execute("DELETE FROM PartsReservations WHERE WorkOrderID = @workOrderId",
-                    new { workOrderId }, tx);
-
-                foreach (var line in lines.Where(l => l.ToLock > 0))
+            var reservations = lines
+                .Where(l => l.ToLock > 0)
+                .Select(l => new LotReservation
                 {
-                    db.Execute(@"
-                        INSERT INTO PartsReservations (WorkOrderID, PartID, Quantity)
-                        VALUES (@WorkOrderID, @PartID, @Quantity)",
-                        new
-                        {
-                            WorkOrderID = workOrderId,
-                            PartID      = line.ItemId,
-                            Quantity    = line.ToLock
-                        }, tx);
-                }
+                    LotID    = l.LotID,
+                    PartID   = l.ItemId,
+                    Quantity = l.ToLock,
+                });
 
-                tx.Commit();
+            var svc = new WorkOrderService(_connectionString);
+            svc.GoLive(workOrderId, reservations,
+                Security.AppSession.CurrentUser?.Username ?? "system");
 
-                Logging.AppLogger.Audit(Security.AppSession.CurrentUser?.Username ?? "system",
-                    "PartsReserved",
-                    $"WorkOrderID={workOrderId} parts={lines.Count(l => l.ToLock > 0)}");
-            }
-            catch { tx.Rollback(); throw; }
+            Logging.AppLogger.Audit(Security.AppSession.CurrentUser?.Username ?? "system",
+                "WOGoLive",
+                $"WorkOrderID={workOrderId} lots={lines.Count(l => l.ToLock > 0)}");
         }
 
         /// <summary>
@@ -526,95 +394,24 @@ namespace JaneERP.Manufacturing
         }
 
         /// <summary>
-        /// Partially completes a work order: records completed and scrap quantities,
-        /// deducts parts proportionally, and marks the WO Completed if fully done.
+        /// Completes a work order with explicit completed/scrap quantities.
+        /// Delegates to WorkOrderService.Complete() for lot deduction, COGS, and cascade logic.
         /// </summary>
         public void PartialCompleteWorkOrder(int workOrderId, int completedQty, int scrapQty = 0,
             string? scrapReason = null, string? notes = null)
         {
-            using var db = new SqlConnection(_connectionString);
-            db.Open();
-            using var tx = db.BeginTransaction();
-            try
+            var svc = new WorkOrderService(_connectionString);
+            svc.Complete(workOrderId, new CompleteWorkOrderRequest
             {
-                var wo = db.QueryFirstOrDefault<WorkOrder>(
-                    "SELECT * FROM WorkOrders WHERE WorkOrderID = @workOrderId",
-                    new { workOrderId }, tx)
-                    ?? throw new InvalidOperationException($"Work order {workOrderId} not found.");
+                CompletedQty = completedQty,
+                ScrapQty     = scrapQty,
+                ScrapReason  = scrapReason,
+                Notes        = notes,
+            }, Security.AppSession.CurrentUser?.Username ?? "system");
 
-                int totalDone = completedQty + scrapQty;
-
-                // Deduct parts from stock proportionally to units completed+scrapped,
-                // applying per-row batch loss so actual consumed quantity is accurate
-                var bom = db.Query(@"
-                    SELECT pp.PartID, pp.Quantity, pp.CreatesBatchLoss, pp.BatchLossRate
-                    FROM   ProductParts pp
-                    WHERE  pp.ProductID = @productId",
-                    new { productId = wo.ProductID }, tx).ToList();
-
-                var bomQtys = bom.ToDictionary(
-                    p => (int)p.PartID,
-                    p => {
-                        decimal effRate = (bool)p.CreatesBatchLoss
-                            ? ((decimal)p.BatchLossRate > 0m ? (decimal)p.BatchLossRate : 0m)
-                            : 0m;
-                        return (int)Math.Ceiling((double)((decimal)p.Quantity * totalDone * (1m + effRate / 100m)));
-                    });
-
-                // Pre-check: verify sufficient stock for every BOM part BEFORE any deduction.
-                foreach (var part in bom)
-                {
-                    int qty = bomQtys[(int)part.PartID];
-                    if (qty <= 0) continue;
-                    int currentStock = db.QuerySingle<int>(
-                        "SELECT CurrentStock FROM Parts WHERE PartID = @partId",
-                        new { partId = (int)part.PartID }, tx);
-                    if (currentStock < qty)
-                    {
-                        string partName = db.QueryFirstOrDefault<string>(
-                            "SELECT PartName FROM Parts WHERE PartID = @partId",
-                            new { partId = (int)part.PartID }, tx) ?? $"PartID {part.PartID}";
-                        throw new InvalidOperationException(
-                            $"Insufficient stock for part '{partName}': need {qty}, have {currentStock}.");
-                    }
-                }
-
-                foreach (var part in bom)
-                {
-                    int qty = bomQtys[(int)part.PartID];
-                    if (qty > 0)
-                        db.Execute("UPDATE Parts SET CurrentStock = CurrentStock - @qty WHERE PartID = @partId",
-                            new { qty, partId = (int)part.PartID }, tx);
-                }
-
-                // Add inventory transaction for finished goods
-                if (completedQty > 0)
-                    db.Execute(@"
-                        INSERT INTO InventoryTransactions (ProductID, QuantityChange, TransactionType, Notes, TransactionDate)
-                        VALUES (@ProductID, @completedQty, 'WorkOrderComplete', @notes, GETDATE())",
-                        new { wo.ProductID, completedQty, notes }, tx);
-
-                // Release reservations for this WO
-                db.Execute("DELETE FROM PartsReservations WHERE WorkOrderID = @workOrderId",
-                    new { workOrderId }, tx);
-
-                // Mark completed
-                db.Execute(@"
-                    UPDATE WorkOrders
-                    SET Status = 'Completed', CompletedAt = GETDATE(),
-                        CompletedQty = ISNULL(CompletedQty,0) + @completedQty,
-                        ScrapQty = ISNULL(ScrapQty,0) + @scrapQty,
-                        Notes = ISNULL(@notes, Notes)
-                    WHERE WorkOrderID = @workOrderId",
-                    new { completedQty, scrapQty, notes, workOrderId }, tx);
-
-                tx.Commit();
-
-                Logging.AppLogger.Audit(Security.AppSession.CurrentUser?.Username ?? "system",
-                    "PartialCompleteWO",
-                    $"WorkOrderID={workOrderId} completed={completedQty} scrap={scrapQty}");
-            }
-            catch { tx.Rollback(); throw; }
+            Logging.AppLogger.Audit(Security.AppSession.CurrentUser?.Username ?? "system",
+                "PartialCompleteWO",
+                $"WorkOrderID={workOrderId} completed={completedQty} scrap={scrapQty}");
         }
 
         // ── BOM Preview ───────────────────────────────────────────────────────────
@@ -902,6 +699,55 @@ namespace JaneERP.Manufacturing
                     Notes      = (string?)r.Notes
                 };
             }).ToList();
+        }
+
+        /// <summary>
+        /// Deducts ingredient stock (Parts.CurrentStock) for every ingredient used in the completed cook session.
+        /// Aggregates RequiredQtyML from CookSessionSteps per PartID, rounds up to the nearest integer
+        /// (matching the same CEILING convention used elsewhere in the app), then subtracts from Parts.CurrentStock
+        /// inside a single transaction so the deduction is atomic.
+        /// Returns true on success; logs and returns false on failure so the caller can show a warning.
+        /// </summary>
+        public bool DeductSessionIngredients(int sessionId)
+        {
+            using var db = new SqlConnection(_connectionString);
+            db.Open();
+            using var tx = db.BeginTransaction();
+            try
+            {
+                // Aggregate total required qty per part across all steps in the session
+                var ingredients = db.Query<(int PartId, decimal TotalQty)>(@"
+                    SELECT PartID, SUM(COALESCE(RequiredQtyML, 0)) AS TotalQty
+                    FROM   CookSessionSteps
+                    WHERE  CookSessionID = @sessionId
+                    GROUP BY PartID",
+                    new { sessionId }, tx).ToList();
+
+                foreach (var (partId, totalQty) in ingredients)
+                {
+                    if (totalQty <= 0) continue;
+
+                    // Parts.CurrentStock is INT; round up to avoid under-deducting fractional ml amounts
+                    int deductQty = (int)Math.Ceiling((double)totalQty);
+
+                    db.Execute(
+                        "UPDATE Parts SET CurrentStock = CurrentStock - @deductQty WHERE PartID = @partId",
+                        new { deductQty, partId }, tx);
+                }
+
+                tx.Commit();
+
+                Logging.AppLogger.Audit(Security.AppSession.CurrentUser?.Username ?? "system",
+                    "CookDeductIngredients",
+                    $"SessionID={sessionId} parts={ingredients.Count} deducted");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                tx.Rollback();
+                Logging.AppLogger.Error($"[DeductSessionIngredients] SessionID={sessionId} {ex}");
+                return false;
+            }
         }
 
         /// <summary>Data for the label-printing CSV export — one row per work order in a session.</summary>

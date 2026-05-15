@@ -311,6 +311,13 @@ namespace JaneERP
                 _repo.CompleteCookSession(_sessionId);
             }
 
+            // Deduct ingredient stock now that the session is marked complete
+            bool deducted = _repo.DeductSessionIngredients(_sessionId);
+            if (!deducted)
+                MessageBox.Show(this,
+                    "Warning: Session completed but ingredient stock could not be updated.\nPlease adjust stock manually.",
+                    "Stock Warning", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+
             MessageBox.Show(this, "Cook session completed!", "Complete", MessageBoxButtons.OK, MessageBoxIcon.Information);
             _btnComplete.Enabled = false;
             Reload();
