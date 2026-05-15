@@ -335,7 +335,12 @@ namespace JaneERP.Services
                 tx.Commit();
                 return true;
             }
-            catch { tx.Rollback(); throw; }
+            catch (Exception ex)
+            {
+                tx.Rollback();
+                AppLogger.Error($"[UpdateOrderStatus] Transaction rolled back for OrderID={salesOrderId} newStatus={newStatus}: {ex}");
+                throw;
+            }
         }
 
         /// <summary>
@@ -393,7 +398,12 @@ namespace JaneERP.Services
                     "PaymentRecorded",
                     $"OrderID={salesOrderId} OrderNumber={order.OrderNumber} Amount={paymentAmount:N2} FullyPaid={isNowFullyPaid}");
             }
-            catch { tx.Rollback(); throw; }
+            catch (Exception ex)
+            {
+                tx.Rollback();
+                AppLogger.Error($"[MarkAsPaid] Transaction rolled back for OrderID={salesOrderId}: {ex}");
+                throw;
+            }
         }
 
         /// <summary>Returns the line items for a given SalesOrderID.</summary>
@@ -547,7 +557,12 @@ namespace JaneERP.Services
                     "StockReserved",
                     $"OrderID={salesOrderId} lines={lines.Count(l => l.ToLock > 0)}");
             }
-            catch { tx.Rollback(); throw; }
+            catch (Exception ex)
+            {
+                tx.Rollback();
+                AppLogger.Error($"[SaveSOReservations] Transaction rolled back for OrderID={salesOrderId}: {ex}");
+                throw;
+            }
         }
 
         /// <summary>Returns all customers from the ERP database, ordered by FullName then Email.</summary>
@@ -681,7 +696,12 @@ namespace JaneERP.Services
                 tx.Commit();
                 return salesOrderId;
             }
-            catch { tx.Rollback(); throw; }
+            catch (Exception ex)
+            {
+                tx.Rollback();
+                AppLogger.Error($"[CreateManualOrder] Transaction rolled back for customer={customerEmail}: {ex}");
+                throw;
+            }
         }
 
         /// <summary>
@@ -857,9 +877,10 @@ namespace JaneERP.Services
                 tx.Commit();
                 return true;
             }
-            catch
+            catch (Exception ex)
             {
                 tx.Rollback();
+                AppLogger.Error($"[ProcessShopifyOrder] Transaction rolled back for ShopifyOrderID={order.Id}: {ex}");
                 throw;
             }
         }
@@ -872,7 +893,11 @@ namespace JaneERP.Services
                 return db.ExecuteScalar<int>(
                     "SELECT COUNT(1) FROM Products WHERE IsAutoCreated = 1 AND IsVerified = 0 AND IsActive = 1");
             }
-            catch { return 0; }
+            catch (Exception ex)
+            {
+                AppLogger.Error($"[GetUnverifiedProductCount] {ex.Message}");
+                return 0;
+            }
         }
 
         // ── Fulfillment: Picking / Packing / Shipping ─────────────────────────────
@@ -1006,12 +1031,12 @@ namespace JaneERP.Services
                         "SELECT ProductID, Quantity FROM SalesOrderItems WHERE SalesOrderID = @id",
                         new { id = salesOrderId }, tx).ToList();
 
-                    // Hard block on stock shortage
+                    // Hard block on stock shortage — UPDLOCK + HOLDLOCK serialise concurrent deductions
                     var shortages = new List<string>();
                     foreach (var li in items)
                     {
                         int stock = db.ExecuteScalar<int>(
-                            "SELECT ISNULL(SUM(QuantityChange), 0) FROM InventoryTransactions WHERE ProductID = @pid",
+                            "SELECT ISNULL(SUM(QuantityChange), 0) FROM InventoryTransactions WITH (UPDLOCK, HOLDLOCK) WHERE ProductID = @pid",
                             new { pid = (int)li.ProductID }, tx);
                         if (stock < (int)li.Quantity)
                             shortages.Add($"ProductID {li.ProductID}: need {li.Quantity}, have {stock}");
@@ -1049,7 +1074,12 @@ namespace JaneERP.Services
                 AppLogger.Audit(shippedBy, "OrderShipped",
                     $"OrderID={salesOrderId} Tracking={trackingNumber} Carrier={carrier}");
             }
-            catch { tx.Rollback(); throw; }
+            catch (Exception ex)
+            {
+                tx.Rollback();
+                AppLogger.Error($"[RecordShipment] Transaction rolled back for OrderID={salesOrderId}: {ex}");
+                throw;
+            }
         }
 
         /// <summary>

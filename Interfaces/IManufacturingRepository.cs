@@ -38,5 +38,13 @@ namespace JaneERP.Interfaces
         /// Returns true on success, false if the transaction fails.
         /// </summary>
         bool DeductSessionIngredients(int sessionId);
+
+        /// <summary>
+        /// Atomically marks a cook session Complete AND deducts all ingredient stock in a single transaction.
+        /// Prefer this over calling CompleteCookSession + DeductSessionIngredients separately.
+        /// Throws InvalidOperationException if steps are still pending and forceComplete is false.
+        /// Returns true on success; returns false (and logs) if a DB error occurs.
+        /// </summary>
+        bool CompleteCookSessionAndDeductStock(int cookSessionId, bool forceComplete = false, string? completedBy = null);
     }
 }

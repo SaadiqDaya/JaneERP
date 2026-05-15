@@ -122,7 +122,16 @@ namespace JaneERP.Manufacturing
                         ALTER TABLE CookSessionBatches ADD BatchSizeML DECIMAL(12,3) NULL;
 
                     IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('CookSessionSteps') AND name = 'RequiredQtyML')
-                        ALTER TABLE CookSessionSteps ADD RequiredQtyML DECIMAL(12,3) NULL;");
+                        ALTER TABLE CookSessionSteps ADD RequiredQtyML DECIMAL(12,3) NULL;
+
+                    IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('CookSessions') AND name = 'UpdatedBy')
+                        ALTER TABLE CookSessions ADD UpdatedBy NVARCHAR(100) NULL;
+
+                    IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('CookSessions') AND name = 'UpdatedAt')
+                        ALTER TABLE CookSessions ADD UpdatedAt DATETIME NULL;
+
+                    IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('CookSessions') AND name = 'CompletedBy')
+                        ALTER TABLE CookSessions ADD CompletedBy NVARCHAR(100) NULL;");
             }
             catch (Exception ex) { Logging.AppLogger.Info($"CookSession migration: {ex.Message}"); }
         }
@@ -202,7 +211,12 @@ namespace JaneERP.Manufacturing
                 tx.Commit();
                 return moid;
             }
-            catch { tx.Rollback(); throw; }
+            catch (Exception ex)
+            {
+                tx.Rollback();
+                Logging.AppLogger.Error($"[CreateOrder] Transaction rolled back for MO={mo.MONumber}: {ex}");
+                throw;
+            }
         }
 
         public void UpdateOrderStatus(int moid, string status)
@@ -279,7 +293,12 @@ namespace JaneERP.Manufacturing
                     new { status, workOrderId }, tx);
                 tx.Commit();
             }
-            catch { tx.Rollback(); throw; }
+            catch (Exception ex)
+            {
+                tx.Rollback();
+                Logging.AppLogger.Error($"[UpdateWorkOrderStatus] Transaction rolled back for WorkOrderID={workOrderId}: {ex}");
+                throw;
+            }
         }
 
         /// <summary>
@@ -522,7 +541,12 @@ namespace JaneERP.Manufacturing
                     $"SessionID={sessionId} Name={sessionName} Loss={batchLossPercent}% WOs={string.Join(",", woIds)}");
                 return sessionId;
             }
-            catch { tx.Rollback(); throw; }
+            catch (Exception ex)
+            {
+                tx.Rollback();
+                Logging.AppLogger.Error($"[CreateCookSession] Transaction rolled back for Name={sessionName}: {ex}");
+                throw;
+            }
         }
 
         public Models.CookSession? GetCookSession(int cookSessionId)
@@ -621,29 +645,125 @@ namespace JaneERP.Manufacturing
 
         /// <summary>
         /// Completes a cook session — marks it Complete in the database.
-        /// Throws if any steps are still pending.
+        /// Throws if any steps are still pending and forceComplete is false.
+        /// Sets UpdatedBy, UpdatedAt, and CompletedBy for audit trail.
         /// </summary>
         public void CompleteCookSession(int cookSessionId, bool forceComplete = false)
         {
-            using IDbConnection db = new SqlConnection(_connectionString);
-
-            if (!forceComplete)
+            string user = Security.AppSession.CurrentUser?.Username ?? "system";
+            using var db = new SqlConnection(_connectionString);
+            db.Open();
+            using var tx = db.BeginTransaction();
+            try
             {
-                int pending = db.QuerySingle<int>(
-                    "SELECT COUNT(*) FROM CookSessionSteps WHERE CookSessionID = @cookSessionId AND IsDone = 0",
-                    new { cookSessionId });
-                if (pending > 0)
-                    throw new InvalidOperationException($"{pending} ingredient step(s) are still pending.");
+                if (!forceComplete)
+                {
+                    int pending = db.ExecuteScalar<int>(
+                        "SELECT COUNT(*) FROM CookSessionSteps WHERE CookSessionID = @cookSessionId AND IsDone = 0",
+                        new { cookSessionId }, tx);
+                    if (pending > 0)
+                        throw new InvalidOperationException($"{pending} ingredient step(s) are still pending.");
+                }
+
+                db.Execute(@"
+                    UPDATE CookSessions
+                    SET    Status      = 'Complete',
+                           CompletedAt = GETDATE(),
+                           CompletedBy = @user,
+                           UpdatedBy   = @user,
+                           UpdatedAt   = GETDATE()
+                    WHERE  CookSessionID = @cookSessionId",
+                    new { cookSessionId, user }, tx);
+
+                tx.Commit();
+
+                Logging.AppLogger.Audit(user, "CompleteCookSession", $"SessionID={cookSessionId}");
             }
+            catch (Exception ex)
+            {
+                tx.Rollback();
+                Logging.AppLogger.Error($"[CompleteCookSession] Transaction rolled back for SessionID={cookSessionId}: {ex}");
+                throw;
+            }
+        }
 
-            db.Execute(@"
-                UPDATE CookSessions
-                SET Status = 'Complete', CompletedAt = GETDATE()
-                WHERE CookSessionID = @cookSessionId",
-                new { cookSessionId });
+        /// <summary>
+        /// Atomically marks a cook session Complete AND deducts all ingredient stock in one transaction.
+        /// This is the preferred method over calling CompleteCookSession + DeductSessionIngredients separately.
+        /// Returns true on success; false if the transaction fails (caller should warn the user).
+        /// Throws InvalidOperationException if steps are pending and forceComplete is false.
+        /// </summary>
+        public bool CompleteCookSessionAndDeductStock(int cookSessionId, bool forceComplete = false, string? completedBy = null)
+        {
+            string user = completedBy ?? Security.AppSession.CurrentUser?.Username ?? "system";
+            using var db = new SqlConnection(_connectionString);
+            db.Open();
+            using var tx = db.BeginTransaction();
+            try
+            {
+                // Guard: refuse if steps are still pending (unless forced)
+                if (!forceComplete)
+                {
+                    int pending = db.ExecuteScalar<int>(
+                        "SELECT COUNT(*) FROM CookSessionSteps WHERE CookSessionID = @cookSessionId AND IsDone = 0",
+                        new { cookSessionId }, tx);
+                    if (pending > 0)
+                        throw new InvalidOperationException($"{pending} ingredient step(s) are still pending.");
+                }
 
-            Logging.AppLogger.Audit(Security.AppSession.CurrentUser?.Username ?? "system",
-                "CompleteCookSession", $"SessionID={cookSessionId}");
+                // Guard: refuse if session is already Complete or Cancelled
+                string? currentStatus = db.ExecuteScalar<string?>(
+                    "SELECT Status FROM CookSessions WHERE CookSessionID = @cookSessionId",
+                    new { cookSessionId }, tx);
+                if (currentStatus is "Complete" or "Cancelled")
+                    throw new InvalidOperationException(
+                        $"Cook session {cookSessionId} is already {currentStatus}.");
+
+                // 1. Mark session complete with full audit trail
+                db.Execute(@"
+                    UPDATE CookSessions
+                    SET    Status      = 'Complete',
+                           CompletedAt = GETDATE(),
+                           CompletedBy = @user,
+                           UpdatedBy   = @user,
+                           UpdatedAt   = GETDATE()
+                    WHERE  CookSessionID = @cookSessionId",
+                    new { cookSessionId, user }, tx);
+
+                // 2. Aggregate required qty per part across all steps and deduct from Parts.CurrentStock
+                var ingredients = db.Query<(int PartId, decimal TotalQty)>(@"
+                    SELECT PartID, SUM(COALESCE(RequiredQtyML, 0)) AS TotalQty
+                    FROM   CookSessionSteps
+                    WHERE  CookSessionID = @cookSessionId
+                    GROUP  BY PartID",
+                    new { cookSessionId }, tx).ToList();
+
+                foreach (var (partId, totalQty) in ingredients)
+                {
+                    if (totalQty <= 0) continue;
+                    int deductQty = (int)Math.Ceiling((double)totalQty);
+                    db.Execute(
+                        "UPDATE Parts SET CurrentStock = CurrentStock - @deductQty WHERE PartID = @partId",
+                        new { deductQty, partId }, tx);
+                }
+
+                tx.Commit();
+
+                Logging.AppLogger.Audit(user, "CompleteCookSessionAndDeductStock",
+                    $"SessionID={cookSessionId} parts={ingredients.Count} forced={forceComplete}");
+                return true;
+            }
+            catch (InvalidOperationException)
+            {
+                tx.Rollback();
+                throw;   // re-throw validation errors without swallowing them
+            }
+            catch (Exception ex)
+            {
+                tx.Rollback();
+                Logging.AppLogger.Error($"[CompleteCookSessionAndDeductStock] Transaction rolled back for SessionID={cookSessionId}: {ex}");
+                return false;
+            }
         }
 
         // ── Batch Traveller & Label Export ────────────────────────────────────────
