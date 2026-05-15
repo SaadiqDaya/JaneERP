@@ -53,11 +53,11 @@ namespace JaneERP.Data
         {
             using var db = new SqlConnection(_cs);
 
-            // showPaid=false  → only unpaid/outstanding invoices count toward revenue
-            // showPaid=true   → all invoices (paid + unpaid) count toward revenue
+            // showPaid=false  → no filter: show all invoices (paid + unpaid)
+            // showPaid=true   → filter to paid invoices only
             string revenueFilter = showPaid
-                ? ""
-                : "AND ISNULL(IsPaid, 0) = 0";
+                ? "AND ISNULL(IsPaid, 0) = 1"
+                : "";
 
             decimal revenue = db.ExecuteScalar<decimal>($@"
                 SELECT ISNULL(SUM(TotalPrice), 0)
@@ -105,7 +105,8 @@ namespace JaneERP.Data
         public List<RevenueRow> GetRevenueRows(DateTime from, DateTime to, bool showPaid = false)
         {
             using var db = new SqlConnection(_cs);
-            string filter = showPaid ? "" : "AND ISNULL(IsPaid, 0) = 0";
+            // showPaid=false → no filter (all invoices); showPaid=true → paid only
+            string filter = showPaid ? "AND ISNULL(IsPaid, 0) = 1" : "";
             return db.Query<RevenueRow>($@"
                 SELECT so.SalesOrderID,
                        so.OrderNumber,

@@ -38,6 +38,12 @@ namespace JaneERP
         // Invoice filter toggle
         private CheckBox      _chkPaidOnly = new();
 
+        // Revenue panel toggle button + wrapper panel
+        private Button _btnViewRevenue  = new();
+        private Button _btnViewExpenses = new();
+        private Panel  _pnlRevenue      = new();
+        private Panel  _pnlExpenses     = new();
+
         // Revenue grid (order-level drill-through)
         private DataGridView        _dgvRevenue  = new();
         private List<RevenueRow>    _revenueRows = new();
@@ -289,7 +295,7 @@ namespace JaneERP
             };
             Controls.Add(_btnAddExpBulk);
 
-            _chkPaidOnly.Text     = "Show Paid";
+            _chkPaidOnly.Text     = "Show Paid Only";
             _chkPaidOnly.Location = new Point(340, y + 6);
             _chkPaidOnly.AutoSize = true;
             _chkPaidOnly.Checked  = false;
@@ -298,20 +304,63 @@ namespace JaneERP
 
             y += 50;
 
-            // ── Revenue grid ───────────────────────────────────────────────────────
-            Controls.Add(new Label
+            // ── Dashboard action buttons ───────────────────────────────────────────
+            _btnViewRevenue.Text      = "▼ View Revenue";
+            _btnViewRevenue.Location  = new Point(14, y);
+            _btnViewRevenue.Size      = new Size(160, 36);
+            _btnViewRevenue.Font      = new Font("Segoe UI", 10F, FontStyle.Bold);
+            _btnViewRevenue.FlatStyle = FlatStyle.Flat;
+            _btnViewRevenue.Cursor    = Cursors.Hand;
+            _btnViewRevenue.BackColor = Theme.Surface;
+            _btnViewRevenue.ForeColor = Theme.Teal;
+            _btnViewRevenue.FlatAppearance.BorderColor = Theme.Teal;
+            _btnViewRevenue.Click += (_, _) =>
+            {
+                _pnlRevenue.Visible  = !_pnlRevenue.Visible;
+                _pnlExpenses.Visible = false;
+                _btnViewRevenue.Text  = _pnlRevenue.Visible  ? "▲ Revenue"      : "▼ View Revenue";
+                _btnViewExpenses.Text = "▼ View Expenses";
+            };
+            Controls.Add(_btnViewRevenue);
+
+            _btnViewExpenses.Text      = "▼ View Expenses";
+            _btnViewExpenses.Location  = new Point(186, y);
+            _btnViewExpenses.Size      = new Size(160, 36);
+            _btnViewExpenses.Font      = new Font("Segoe UI", 10F, FontStyle.Bold);
+            _btnViewExpenses.FlatStyle = FlatStyle.Flat;
+            _btnViewExpenses.Cursor    = Cursors.Hand;
+            _btnViewExpenses.BackColor = Theme.Surface;
+            _btnViewExpenses.ForeColor = Theme.Danger;
+            _btnViewExpenses.FlatAppearance.BorderColor = Theme.Danger;
+            _btnViewExpenses.Click += (_, _) =>
+            {
+                _pnlExpenses.Visible = !_pnlExpenses.Visible;
+                _pnlRevenue.Visible  = false;
+                _btnViewExpenses.Text = _pnlExpenses.Visible ? "▲ Expenses"      : "▼ View Expenses";
+                _btnViewRevenue.Text  = "▼ View Revenue";
+            };
+            Controls.Add(_btnViewExpenses);
+
+            y += 48;
+
+            // ── Revenue panel (hidden by default) ──────────────────────────────────
+            _pnlRevenue.Location  = new Point(14, y);
+            _pnlRevenue.Anchor    = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
+            _pnlRevenue.Size      = new Size(ClientSize.Width - 28, ClientSize.Height - y - 30);
+            _pnlRevenue.Visible   = false;
+
+            _pnlRevenue.Controls.Add(new Label
             {
                 Text      = "Revenue Orders  (double-click to view detail)",
                 Font      = new Font("Segoe UI", 10F, FontStyle.Bold),
                 ForeColor = Theme.TextSecondary,
-                Location  = new Point(14, y),
+                Location  = new Point(0, 0),
                 AutoSize  = true
             });
-            y += 22;
 
-            _dgvRevenue.Location             = new Point(14, y);
-            _dgvRevenue.Anchor               = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left;
-            _dgvRevenue.Size                 = new Size(460, 220);
+            _dgvRevenue.Location             = new Point(0, 24);
+            _dgvRevenue.Anchor               = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
+            _dgvRevenue.Size                 = new Size(_pnlRevenue.Width, _pnlRevenue.Height - 86);
             _dgvRevenue.ReadOnly             = true;
             _dgvRevenue.AllowUserToAddRows   = false;
             _dgvRevenue.AllowUserToDeleteRows= false;
@@ -319,53 +368,59 @@ namespace JaneERP
             _dgvRevenue.MultiSelect          = false;
             _dgvRevenue.AutoGenerateColumns  = false;
             _dgvRevenue.RowHeadersVisible    = false;
-            _dgvRevenue.Columns.Add(new DataGridViewTextBoxColumn { Name = "rDate",     HeaderText = "Date",     Width = 90  });
-            _dgvRevenue.Columns.Add(new DataGridViewTextBoxColumn { Name = "rOrder",    HeaderText = "Order #",  Width = 72  });
+            _dgvRevenue.Columns.Add(new DataGridViewTextBoxColumn { Name = "rDate",     HeaderText = "Date",     Width = 100 });
+            _dgvRevenue.Columns.Add(new DataGridViewTextBoxColumn { Name = "rOrder",    HeaderText = "Order #",  Width = 80  });
             _dgvRevenue.Columns.Add(new DataGridViewTextBoxColumn { Name = "rCustomer", HeaderText = "Customer", AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill });
-            _dgvRevenue.Columns.Add(new DataGridViewTextBoxColumn { Name = "rAmount",   HeaderText = "Amount",   Width = 88  });
-            _dgvRevenue.Columns.Add(new DataGridViewTextBoxColumn { Name = "rStatus",   HeaderText = "Status",   Width = 70  });
+            _dgvRevenue.Columns.Add(new DataGridViewTextBoxColumn { Name = "rAmount",   HeaderText = "Amount",   Width = 100 });
+            _dgvRevenue.Columns.Add(new DataGridViewTextBoxColumn { Name = "rStatus",   HeaderText = "Status",   Width = 80  });
             _dgvRevenue.CellDoubleClick  += DgvRevenue_CellDoubleClick;
             _dgvRevenue.CellMouseEnter   += DgvRevenue_CellMouseEnter;
             _dgvRevenue.CellMouseLeave   += DgvRevenue_CellMouseLeave;
             _dgvRevenue.SelectionChanged += DgvRevenue_SelectionChanged;
-            Controls.Add(_dgvRevenue);
+            _pnlRevenue.Controls.Add(_dgvRevenue);
 
             // Order detail inline panel (shown below the revenue grid on row select)
-            _pnlOrderDetail.Location  = new Point(14, y + 226);
-            _pnlOrderDetail.Size      = new Size(460, 52);
-            _pnlOrderDetail.Anchor    = AnchorStyles.Top | AnchorStyles.Left;
+            _pnlOrderDetail.Location  = new Point(0, _dgvRevenue.Bottom + 6);
+            _pnlOrderDetail.Anchor    = AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
+            _pnlOrderDetail.Size      = new Size(_pnlRevenue.Width, 52);
             _pnlOrderDetail.BackColor = Theme.Surface;
             _pnlOrderDetail.Visible   = false;
 
             _lblOrderDetail.Location  = new Point(8, 6);
-            _lblOrderDetail.Size      = new Size(444, 40);
+            _lblOrderDetail.Size      = new Size(_pnlRevenue.Width - 16, 40);
             _lblOrderDetail.Font      = new Font("Segoe UI", 8.5F);
             _lblOrderDetail.ForeColor = Theme.TextSecondary;
             _pnlOrderDetail.Controls.Add(_lblOrderDetail);
-            Controls.Add(_pnlOrderDetail);
+            _pnlRevenue.Controls.Add(_pnlOrderDetail);
 
-            // ── Expenses grid ──────────────────────────────────────────────────────
-            int expX = 490;
-            Controls.Add(new Label
+            Controls.Add(_pnlRevenue);
+
+            // ── Expenses panel (hidden by default) ────────────────────────────────
+            _pnlExpenses.Location  = new Point(14, y);
+            _pnlExpenses.Anchor    = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
+            _pnlExpenses.Size      = new Size(ClientSize.Width - 28, ClientSize.Height - y - 30);
+            _pnlExpenses.Visible   = false;
+
+            _pnlExpenses.Controls.Add(new Label
             {
                 Text      = "Expense Transactions",
                 Font      = new Font("Segoe UI", 10F, FontStyle.Bold),
                 ForeColor = Theme.TextSecondary,
-                Location  = new Point(expX, y - 22),
+                Location  = new Point(0, 0),
                 AutoSize  = true
             });
 
             _btnDeleteExp.Text     = "Delete Selected";
-            _btnDeleteExp.Location = new Point(expX + 270, y - 24);
+            _btnDeleteExp.Location = new Point(_pnlExpenses.Width - 134, 0);
             _btnDeleteExp.Size     = new Size(120, 24);
-            _btnDeleteExp.UseVisualStyleBackColor = true;
             _btnDeleteExp.Anchor   = AnchorStyles.Top | AnchorStyles.Right;
+            _btnDeleteExp.UseVisualStyleBackColor = true;
             _btnDeleteExp.Click   += BtnDeleteExp_Click;
-            Controls.Add(_btnDeleteExp);
+            _pnlExpenses.Controls.Add(_btnDeleteExp);
 
-            _dgvExpenses.Location        = new Point(expX, y);
+            _dgvExpenses.Location        = new Point(0, 28);
             _dgvExpenses.Anchor          = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
-            _dgvExpenses.Size            = new Size(648, 300);
+            _dgvExpenses.Size            = new Size(_pnlExpenses.Width, _pnlExpenses.Height - 28);
             _dgvExpenses.ReadOnly        = true;
             _dgvExpenses.AllowUserToAddRows    = false;
             _dgvExpenses.AllowUserToDeleteRows = false;
@@ -377,7 +432,9 @@ namespace JaneERP
             _dgvExpenses.Columns.Add(new DataGridViewTextBoxColumn { Name = "cCat",    HeaderText = "Category", Width = 150 });
             _dgvExpenses.Columns.Add(new DataGridViewTextBoxColumn { Name = "cAmount", HeaderText = "Amount",   Width = 100 });
             _dgvExpenses.Columns.Add(new DataGridViewTextBoxColumn { Name = "cDesc",   HeaderText = "Notes",    AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill });
-            Controls.Add(_dgvExpenses);
+            _pnlExpenses.Controls.Add(_dgvExpenses);
+
+            Controls.Add(_pnlExpenses);
 
             // ── Status bar ─────────────────────────────────────────────────────────
             _lblStatus.Anchor   = AnchorStyles.Bottom | AnchorStyles.Left;
@@ -388,8 +445,10 @@ namespace JaneERP
             SizeChanged += (_, _) =>
             {
                 _lblStatus.Location = new Point(14, ClientSize.Height - 22);
-                // Keep order detail panel pinned below revenue grid
-                _pnlOrderDetail.Location = new Point(14, _dgvRevenue.Bottom + 6);
+                // Keep order detail panel anchored below revenue grid (inside _pnlRevenue)
+                _pnlOrderDetail.Location = new Point(0, _dgvRevenue.Bottom + 6);
+                _pnlOrderDetail.Width    = _pnlRevenue.Width;
+                _lblOrderDetail.Width    = _pnlRevenue.Width - 16;
             };
         }
 
@@ -473,8 +532,19 @@ namespace JaneERP
         {
             if (e.RowIndex < 0 || e.RowIndex >= _revenueRows.Count) return;
             var rev = _revenueRows[e.RowIndex];
-            // Show detail in the inline panel (prominent) and as a tooltip-style dialog
             ShowOrderDetailPanel(rev);
+
+            // Show full detail in a dialog for easy reading
+            string payTag   = rev.IsPaid ? "PAID" : "UNPAID";
+            string msg =
+                $"Order #:      {rev.OrderNumber}\n" +
+                $"Customer:     {rev.CustomerName}\n" +
+                $"Date:         {rev.OrderDate:yyyy-MM-dd}\n" +
+                $"Amount:       ${rev.TotalPrice:N2}\n" +
+                $"Status:       {rev.Status}\n" +
+                $"Payment:      {payTag}";
+            MessageBox.Show(this, msg, $"Order Detail — #{rev.OrderNumber}",
+                MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
 
         private void DgvRevenue_SelectionChanged(object? sender, EventArgs e)
