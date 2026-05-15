@@ -9,6 +9,12 @@ namespace JaneERP.Interfaces
         // ── P&L summary ──────────────────────────────────────────────────────────
         AccountingSummary GetSummary(DateTime from, DateTime to, bool showPaid = false);
 
+        // ── Revenue rows (order-level drill-through) ─────────────────────────────
+        List<RevenueRow> GetRevenueRows(DateTime from, DateTime to, bool showPaid = false);
+
+        // ── COGS breakdown ───────────────────────────────────────────────────────
+        COGSBreakdown GetCOGSBreakdown(DateTime from, DateTime to);
+
         // ── Expense transactions ─────────────────────────────────────────────────
         List<ExpenseRow> GetExpenseRows(DateTime from, DateTime to);
         void             AddExpense(int categoryId, decimal amount, string? description, DateTime date, string? createdBy);

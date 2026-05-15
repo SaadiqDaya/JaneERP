@@ -12,6 +12,51 @@ namespace JaneERP.Models
         public decimal NetProfit    => GrossProfit - Expenses;
     }
 
+    /// <summary>One revenue row in the accounting grid — one row per sales order.</summary>
+    public class RevenueRow
+    {
+        public int      SalesOrderID  { get; set; }
+        public int      OrderNumber   { get; set; }
+        public DateTime OrderDate     { get; set; }
+        public string   CustomerName  { get; set; } = "";
+        public decimal  TotalPrice    { get; set; }
+        public string   Status        { get; set; } = "";
+        public bool     IsPaid        { get; set; }
+    }
+
+    /// <summary>Breakdown of COGS into sub-components for a date range.</summary>
+    public class COGSBreakdown
+    {
+        /// <summary>
+        /// Raw materials cost derived from BOM × completed batch quantities.
+        /// Populated from WorkOrders.MaterialsCost when available; zero if not tracked.
+        /// </summary>
+        public decimal MaterialsCost  { get; set; }
+
+        /// <summary>
+        /// Labour cost derived from labour rate × hours logged.
+        /// Populated from WorkOrders.LaborCost when available; zero if not tracked.
+        /// </summary>
+        public decimal LaborCost      { get; set; }
+
+        /// <summary>
+        /// Batch loss cost (concentrate / e-juice loss recorded on cook sessions).
+        /// Populated from WorkOrders.BatchLossCost when available; zero if not tracked.
+        /// </summary>
+        public decimal BatchLossCost  { get; set; }
+
+        /// <summary>
+        /// Remaining COGS that is tracked as a single lump (CostOfGoods column on WorkOrders)
+        /// and cannot be further decomposed yet.
+        /// </summary>
+        public decimal OtherCost      { get; set; }
+
+        public decimal Total          => MaterialsCost + LaborCost + BatchLossCost + OtherCost;
+
+        /// <summary>True when sub-component columns are not yet populated in WorkOrders.</summary>
+        public bool    IsPlaceholder  { get; set; }
+    }
+
     /// <summary>One row in the expense transaction grid.</summary>
     public class ExpenseRow
     {

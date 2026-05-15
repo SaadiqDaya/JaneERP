@@ -8,7 +8,7 @@ namespace JaneERP
 {
     /// <summary>
     /// Accounting module: P&amp;L summary (Revenue, COGS, Gross Profit, Expenses, Net Profit)
-    /// with expense entry and user-defined expense categories.
+    /// with expense entry, user-defined expense categories, revenue drill-through, and COGS breakdown.
     /// </summary>
     public class FormAccounting : Form
     {
@@ -20,11 +20,16 @@ namespace JaneERP
         private Button         _btnLoad   = new();
 
         // Summary KPI labels
-        private Label _lblRevenue     = new();
-        private Label _lblCOGS        = new();
-        private Label _lblGrossProfit = new();
-        private Label _lblExpenses    = new();
-        private Label _lblNetProfit   = new();
+        private Label _lblRevenue        = new();   // shows Net Revenue
+        private Label _lblRevenueGross   = new();   // sub-line: Gross Revenue
+        private Label _lblRevenueReturns = new();   // sub-line: Returns/Credits
+        private Label _lblCOGS           = new();
+        private Label _lblGrossProfit    = new();
+        private Label _lblExpenses       = new();
+        private Label _lblNetProfit      = new();
+
+        // COGS detail button
+        private Button _btnCogsDetail = new();
 
         // Expense entry buttons
         private Button        _btnAddExp      = new();
@@ -32,6 +37,12 @@ namespace JaneERP
 
         // Invoice filter toggle
         private CheckBox      _chkPaidOnly = new();
+
+        // Revenue grid (order-level drill-through)
+        private DataGridView        _dgvRevenue  = new();
+        private List<RevenueRow>    _revenueRows = new();
+        private Panel               _pnlOrderDetail = new();
+        private Label               _lblOrderDetail  = new();
 
         // Expenses grid
         private DataGridView _dgvExpenses = new();
@@ -54,8 +65,8 @@ namespace JaneERP
         private void BuildUI()
         {
             Text          = "Accounting";
-            ClientSize    = new Size(1060, 720);
-            MinimumSize   = new Size(900, 600);
+            ClientSize    = new Size(1160, 780);
+            MinimumSize   = new Size(960, 640);
             StartPosition = FormStartPosition.CenterParent;
 
             int y = 12;
@@ -142,7 +153,88 @@ namespace JaneERP
             y += 36;
 
             // ── KPI tiles ──────────────────────────────────────────────────────────
-            int kx = 14, kw = 190, kh = 70;
+            // Revenue tile is wider to accommodate three sub-lines (Gross / Returns / Net)
+            int kx = 14, kh = 80;
+            const int kw      = 190;   // standard tile width
+            const int kRevW   = 250;   // revenue tile is a bit wider
+
+            // Revenue tile — custom layout with three sub-labels
+            {
+                var pnl = new Panel { Location = new Point(kx, y), Size = new Size(kRevW, kh), BackColor = Theme.Surface };
+                pnl.Controls.Add(new Label
+                {
+                    Text      = "Revenue",
+                    Font      = new Font("Segoe UI", 8F),
+                    ForeColor = Theme.TextSecondary,
+                    Location  = new Point(8, 5),
+                    AutoSize  = true
+                });
+
+                // Net Revenue (large, primary)
+                _lblRevenue.Text      = "—";
+                _lblRevenue.Font      = new Font("Segoe UI", 13F, FontStyle.Bold);
+                _lblRevenue.ForeColor = Theme.Teal;
+                _lblRevenue.Location  = new Point(8, 20);
+                _lblRevenue.Size      = new Size(kRevW - 16, 24);
+                _lblRevenue.TextAlign = ContentAlignment.MiddleLeft;
+                pnl.Controls.Add(_lblRevenue);
+
+                // Gross Revenue sub-line
+                _lblRevenueGross.Text      = "";
+                _lblRevenueGross.Font      = new Font("Segoe UI", 7.5F);
+                _lblRevenueGross.ForeColor = Theme.TextSecondary;
+                _lblRevenueGross.Location  = new Point(8, 46);
+                _lblRevenueGross.Size      = new Size(kRevW - 16, 14);
+                pnl.Controls.Add(_lblRevenueGross);
+
+                // Returns sub-line
+                _lblRevenueReturns.Text      = "";
+                _lblRevenueReturns.Font      = new Font("Segoe UI", 7.5F);
+                _lblRevenueReturns.ForeColor = Color.FromArgb(210, 100, 100);
+                _lblRevenueReturns.Location  = new Point(8, 62);
+                _lblRevenueReturns.Size      = new Size(kRevW - 16, 14);
+                pnl.Controls.Add(_lblRevenueReturns);
+
+                Controls.Add(pnl);
+                kx += kRevW + 8;
+            }
+
+            // COGS tile — with a "Detail" button
+            {
+                var pnl = new Panel { Location = new Point(kx, y), Size = new Size(kw, kh), BackColor = Theme.Surface };
+                pnl.Controls.Add(new Label
+                {
+                    Text      = "COGS",
+                    Font      = new Font("Segoe UI", 8F),
+                    ForeColor = Theme.TextSecondary,
+                    Location  = new Point(8, 5),
+                    AutoSize  = true
+                });
+                _lblCOGS.Text      = "—";
+                _lblCOGS.Font      = new Font("Segoe UI", 13F, FontStyle.Bold);
+                _lblCOGS.ForeColor = Theme.Danger;
+                _lblCOGS.Location  = new Point(8, 20);
+                _lblCOGS.Size      = new Size(kw - 16, 24);
+                _lblCOGS.TextAlign = ContentAlignment.MiddleLeft;
+                pnl.Controls.Add(_lblCOGS);
+
+                _btnCogsDetail.Text      = "Detail";
+                _btnCogsDetail.Font      = new Font("Segoe UI", 7.5F);
+                _btnCogsDetail.FlatStyle = FlatStyle.Flat;
+                _btnCogsDetail.Size      = new Size(50, 18);
+                _btnCogsDetail.Location  = new Point(8, 55);
+                _btnCogsDetail.Cursor    = Cursors.Hand;
+                _btnCogsDetail.FlatAppearance.BorderColor = Theme.Border;
+                _btnCogsDetail.BackColor = Theme.Surface;
+                _btnCogsDetail.ForeColor = Theme.TextSecondary;
+                _btnCogsDetail.Click    += BtnCogsDetail_Click;
+                pnl.Controls.Add(_btnCogsDetail);
+
+                Controls.Add(pnl);
+                kx += kw + 8;
+            }
+
+            // Standard tiles: Gross Profit, Expenses, Net Profit
             void AddKpiTile(string title, Color color, Label valueLabel)
             {
                 var pnl = new Panel { Location = new Point(kx, y), Size = new Size(kw, kh), BackColor = Theme.Surface };
@@ -151,26 +243,24 @@ namespace JaneERP
                     Text      = title,
                     Font      = new Font("Segoe UI", 8F),
                     ForeColor = Theme.TextSecondary,
-                    Location  = new Point(8, 6),
+                    Location  = new Point(8, 5),
                     AutoSize  = true
                 });
                 valueLabel.Text      = "—";
-                valueLabel.Font      = new Font("Segoe UI", 14F, FontStyle.Bold);
+                valueLabel.Font      = new Font("Segoe UI", 13F, FontStyle.Bold);
                 valueLabel.ForeColor = color;
-                valueLabel.Location  = new Point(8, 24);
-                valueLabel.Size      = new Size(kw - 16, 36);
+                valueLabel.Location  = new Point(8, 20);
+                valueLabel.Size      = new Size(kw - 16, 24);
                 valueLabel.TextAlign = ContentAlignment.MiddleLeft;
                 pnl.Controls.Add(valueLabel);
                 Controls.Add(pnl);
                 kx += kw + 8;
             }
 
-            AddKpiTile("Total Revenue",  Theme.Teal,                        _lblRevenue);
-            AddKpiTile("COGS",           Theme.Danger,                      _lblCOGS);
-            AddKpiTile("Gross Profit",   Theme.Gold,                        _lblGrossProfit);
-            AddKpiTile("Expenses",       Theme.Danger,                      _lblExpenses);
-            AddKpiTile("Net Profit",     Color.FromArgb(80, 210, 100),      _lblNetProfit);
-            y += kh + 16;
+            AddKpiTile("Gross Profit",   Theme.Gold,                   _lblGrossProfit);
+            AddKpiTile("Expenses",       Theme.Danger,                 _lblExpenses);
+            AddKpiTile("Net Profit",     Color.FromArgb(80, 210, 100), _lblNetProfit);
+            y += kh + 14;
 
             // ── Add Expense buttons + paid filter toggle ───────────────────────────
             _btnAddExp.Text     = "+ Add Expense";
@@ -202,34 +292,80 @@ namespace JaneERP
             _chkPaidOnly.Text     = "Show Paid";
             _chkPaidOnly.Location = new Point(340, y + 6);
             _chkPaidOnly.AutoSize = true;
-            _chkPaidOnly.Checked  = false;   // default: only unpaid/outstanding invoices
+            _chkPaidOnly.Checked  = false;
             _chkPaidOnly.CheckedChanged += (_, _) => LoadData();
             Controls.Add(_chkPaidOnly);
 
             y += 50;
 
+            // ── Revenue grid ───────────────────────────────────────────────────────
+            Controls.Add(new Label
+            {
+                Text      = "Revenue Orders  (double-click to view detail)",
+                Font      = new Font("Segoe UI", 10F, FontStyle.Bold),
+                ForeColor = Theme.TextSecondary,
+                Location  = new Point(14, y),
+                AutoSize  = true
+            });
+            y += 22;
+
+            _dgvRevenue.Location             = new Point(14, y);
+            _dgvRevenue.Anchor               = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left;
+            _dgvRevenue.Size                 = new Size(460, 220);
+            _dgvRevenue.ReadOnly             = true;
+            _dgvRevenue.AllowUserToAddRows   = false;
+            _dgvRevenue.AllowUserToDeleteRows= false;
+            _dgvRevenue.SelectionMode        = DataGridViewSelectionMode.FullRowSelect;
+            _dgvRevenue.MultiSelect          = false;
+            _dgvRevenue.AutoGenerateColumns  = false;
+            _dgvRevenue.RowHeadersVisible    = false;
+            _dgvRevenue.Columns.Add(new DataGridViewTextBoxColumn { Name = "rDate",     HeaderText = "Date",     Width = 90  });
+            _dgvRevenue.Columns.Add(new DataGridViewTextBoxColumn { Name = "rOrder",    HeaderText = "Order #",  Width = 72  });
+            _dgvRevenue.Columns.Add(new DataGridViewTextBoxColumn { Name = "rCustomer", HeaderText = "Customer", AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill });
+            _dgvRevenue.Columns.Add(new DataGridViewTextBoxColumn { Name = "rAmount",   HeaderText = "Amount",   Width = 88  });
+            _dgvRevenue.Columns.Add(new DataGridViewTextBoxColumn { Name = "rStatus",   HeaderText = "Status",   Width = 70  });
+            _dgvRevenue.CellDoubleClick  += DgvRevenue_CellDoubleClick;
+            _dgvRevenue.CellMouseEnter   += DgvRevenue_CellMouseEnter;
+            _dgvRevenue.CellMouseLeave   += DgvRevenue_CellMouseLeave;
+            _dgvRevenue.SelectionChanged += DgvRevenue_SelectionChanged;
+            Controls.Add(_dgvRevenue);
+
+            // Order detail inline panel (shown below the revenue grid on row select)
+            _pnlOrderDetail.Location  = new Point(14, y + 226);
+            _pnlOrderDetail.Size      = new Size(460, 52);
+            _pnlOrderDetail.Anchor    = AnchorStyles.Top | AnchorStyles.Left;
+            _pnlOrderDetail.BackColor = Theme.Surface;
+            _pnlOrderDetail.Visible   = false;
+
+            _lblOrderDetail.Location  = new Point(8, 6);
+            _lblOrderDetail.Size      = new Size(444, 40);
+            _lblOrderDetail.Font      = new Font("Segoe UI", 8.5F);
+            _lblOrderDetail.ForeColor = Theme.TextSecondary;
+            _pnlOrderDetail.Controls.Add(_lblOrderDetail);
+            Controls.Add(_pnlOrderDetail);
+
             // ── Expenses grid ──────────────────────────────────────────────────────
-            var lblExpTitle = new Label
+            int expX = 490;
+            Controls.Add(new Label
             {
                 Text      = "Expense Transactions",
                 Font      = new Font("Segoe UI", 10F, FontStyle.Bold),
                 ForeColor = Theme.TextSecondary,
-                Location  = new Point(490, y),
+                Location  = new Point(expX, y - 22),
                 AutoSize  = true
-            };
-            Controls.Add(lblExpTitle);
+            });
 
             _btnDeleteExp.Text     = "Delete Selected";
-            _btnDeleteExp.Location = new Point(760, y - 2);
+            _btnDeleteExp.Location = new Point(expX + 270, y - 24);
             _btnDeleteExp.Size     = new Size(120, 24);
             _btnDeleteExp.UseVisualStyleBackColor = true;
             _btnDeleteExp.Anchor   = AnchorStyles.Top | AnchorStyles.Right;
             _btnDeleteExp.Click   += BtnDeleteExp_Click;
             Controls.Add(_btnDeleteExp);
 
-            _dgvExpenses.Location        = new Point(490, y + 22);
+            _dgvExpenses.Location        = new Point(expX, y);
             _dgvExpenses.Anchor          = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
-            _dgvExpenses.Size            = new Size(556, 300);
+            _dgvExpenses.Size            = new Size(648, 300);
             _dgvExpenses.ReadOnly        = true;
             _dgvExpenses.AllowUserToAddRows    = false;
             _dgvExpenses.AllowUserToDeleteRows = false;
@@ -249,7 +385,12 @@ namespace JaneERP
             _lblStatus.AutoSize = true;
             Controls.Add(_lblStatus);
 
-            SizeChanged += (_, _) => _lblStatus.Location = new Point(14, ClientSize.Height - 22);
+            SizeChanged += (_, _) =>
+            {
+                _lblStatus.Location = new Point(14, ClientSize.Height - 22);
+                // Keep order detail panel pinned below revenue grid
+                _pnlOrderDetail.Location = new Point(14, _dgvRevenue.Bottom + 6);
+            };
         }
 
         // ── Data loading ──────────────────────────────────────────────────────────
@@ -261,10 +402,24 @@ namespace JaneERP
                 var from = _dtpFrom.Value.Date;
                 var to   = _dtpTo.Value.Date.AddDays(1).AddTicks(-1);
 
-                var summary = _repo.GetSummary(from, to, _chkPaidOnly.Checked);
-                var rows    = _repo.GetExpenseRows(from, to);
+                var summary     = _repo.GetSummary(from, to, _chkPaidOnly.Checked);
+                var expenseRows = _repo.GetExpenseRows(from, to);
+                _revenueRows    = _repo.GetRevenueRows(from, to, _chkPaidOnly.Checked);
 
-                _lblRevenue.Text     = $"${summary.Revenue:N2}";
+                // ── Revenue KPI tile ──────────────────────────────────────────────
+                _lblRevenue.Text         = $"${summary.NetRevenue:N2}";
+                _lblRevenue.ForeColor    = Theme.Teal;
+                if (summary.CreditNotes > 0)
+                {
+                    _lblRevenueGross.Text   = $"Gross: ${summary.Revenue:N2}";
+                    _lblRevenueReturns.Text = $"Returns: (${summary.CreditNotes:N2})";
+                }
+                else
+                {
+                    _lblRevenueGross.Text   = $"Gross: ${summary.Revenue:N2}";
+                    _lblRevenueReturns.Text = "";
+                }
+
                 _lblCOGS.Text        = $"${summary.Cogs:N2}";
                 _lblGrossProfit.Text = $"${summary.GrossProfit:N2}";
                 _lblExpenses.Text    = $"${summary.Expenses:N2}";
@@ -273,8 +428,27 @@ namespace JaneERP
                     ? Color.FromArgb(80, 210, 100)
                     : Color.FromArgb(210, 80, 80);
 
+                // ── Revenue grid ──────────────────────────────────────────────────
+                _dgvRevenue.Rows.Clear();
+                _pnlOrderDetail.Visible = false;
+                foreach (var r in _revenueRows)
+                {
+                    int idx  = _dgvRevenue.Rows.Add();
+                    var row  = _dgvRevenue.Rows[idx];
+                    row.Cells["rDate"].Value     = r.OrderDate.ToString("yyyy-MM-dd");
+                    row.Cells["rOrder"].Value    = r.OrderNumber;
+                    row.Cells["rCustomer"].Value = r.CustomerName;
+                    row.Cells["rAmount"].Value   = $"${r.TotalPrice:N2}";
+                    row.Cells["rStatus"].Value   = r.IsPaid ? "Paid" : r.Status;
+                    if (r.IsPaid)
+                        row.DefaultCellStyle.ForeColor = Color.FromArgb(80, 210, 100);
+                    else if (r.Status == "Live" || r.Status == "WIP")
+                        row.DefaultCellStyle.ForeColor = Color.FromArgb(220, 160, 60);
+                }
+
+                // ── Expense grid ──────────────────────────────────────────────────
                 _dgvExpenses.Rows.Clear();
-                foreach (var r in rows)
+                foreach (var r in expenseRows)
                 {
                     int idx = _dgvExpenses.Rows.Add();
                     var row = _dgvExpenses.Rows[idx];
@@ -285,11 +459,83 @@ namespace JaneERP
                     row.Tag = r.ExpenseID;
                 }
 
-                _lblStatus.Text = $"Period: {from:yyyy-MM-dd} → {_dtpTo.Value:yyyy-MM-dd}  |  {rows.Count} expense(s)";
+                _lblStatus.Text = $"Period: {from:yyyy-MM-dd} → {_dtpTo.Value:yyyy-MM-dd}  |  {_revenueRows.Count} order(s)  |  {expenseRows.Count} expense(s)";
             }
             catch (Exception ex)
             {
                 _lblStatus.Text = "Error: " + ex.Message;
+            }
+        }
+
+        // ── Revenue grid actions ──────────────────────────────────────────────────
+
+        private void DgvRevenue_CellDoubleClick(object? sender, DataGridViewCellEventArgs e)
+        {
+            if (e.RowIndex < 0 || e.RowIndex >= _revenueRows.Count) return;
+            var rev = _revenueRows[e.RowIndex];
+            // Show detail in the inline panel (prominent) and as a tooltip-style dialog
+            ShowOrderDetailPanel(rev);
+        }
+
+        private void DgvRevenue_SelectionChanged(object? sender, EventArgs e)
+        {
+            int idx = _dgvRevenue.CurrentCell?.RowIndex ?? -1;
+            if (idx >= 0 && idx < _revenueRows.Count)
+                ShowOrderDetailPanel(_revenueRows[idx]);
+            else
+                _pnlOrderDetail.Visible = false;
+        }
+
+        private void ShowOrderDetailPanel(RevenueRow rev)
+        {
+            string payTag  = rev.IsPaid ? "PAID" : "UNPAID";
+            _lblOrderDetail.Text = $"Order #{rev.OrderNumber}   |   {rev.CustomerName}   |   {rev.OrderDate:yyyy-MM-dd}   |   ${rev.TotalPrice:N2}   |   {rev.Status}  [{payTag}]";
+            _pnlOrderDetail.Visible = true;
+        }
+
+        private void DgvRevenue_CellMouseEnter(object? sender, DataGridViewCellEventArgs e)
+        {
+            if (e.RowIndex >= 0)
+                _dgvRevenue.Cursor = Cursors.Hand;
+        }
+
+        private void DgvRevenue_CellMouseLeave(object? sender, DataGridViewCellEventArgs e)
+        {
+            _dgvRevenue.Cursor = Cursors.Default;
+        }
+
+        // ── COGS Detail button ────────────────────────────────────────────────────
+
+        private void BtnCogsDetail_Click(object? sender, EventArgs e)
+        {
+            try
+            {
+                var from = _dtpFrom.Value.Date;
+                var to   = _dtpTo.Value.Date.AddDays(1).AddTicks(-1);
+                var bd   = _repo.GetCOGSBreakdown(from, to);
+
+                string note = bd.IsPlaceholder
+                    ? "\n\nNote: Sub-component columns (MaterialsCost, LaborCost, BatchLossCost)\nhave not yet been added to the WorkOrders table.\nAll COGS is shown as 'Other / Total' until those columns are populated."
+                    : "";
+
+                string msg =
+                    $"COGS Breakdown  ({from:yyyy-MM-dd} → {_dtpTo.Value:yyyy-MM-dd})\n" +
+                    $"─────────────────────────────────────\n" +
+                    $"Materials:    ${bd.MaterialsCost,12:N2}\n" +
+                    $"Labor:        ${bd.LaborCost,12:N2}\n" +
+                    $"Batch Loss:   ${bd.BatchLossCost,12:N2}\n" +
+                    $"Other/Total:  ${bd.OtherCost,12:N2}\n" +
+                    $"─────────────────────────────────────\n" +
+                    $"Total COGS:   ${bd.Total,12:N2}" +
+                    note;
+
+                MessageBox.Show(this, msg, "COGS Breakdown",
+                    MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, $"Could not load COGS breakdown: {ex.Message}",
+                    "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
 

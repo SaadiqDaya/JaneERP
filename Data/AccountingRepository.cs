@@ -102,6 +102,85 @@ namespace JaneERP.Data
             };
         }
 
+        public List<RevenueRow> GetRevenueRows(DateTime from, DateTime to, bool showPaid = false)
+        {
+            using var db = new SqlConnection(_cs);
+            string filter = showPaid ? "" : "AND ISNULL(IsPaid, 0) = 0";
+            return db.Query<RevenueRow>($@"
+                SELECT so.SalesOrderID,
+                       so.OrderNumber,
+                       so.OrderDate,
+                       ISNULL(c.FullName, c.Email) AS CustomerName,
+                       so.TotalPrice,
+                       so.Status,
+                       so.IsPaid
+                FROM   SalesOrders so
+                LEFT JOIN Customers c ON c.CustomerID = so.CustomerID
+                WHERE  so.OrderDate >= @from AND so.OrderDate <= @to
+                  AND  so.Status NOT IN ('Draft', 'Cancelled')
+                  AND  so.TotalPrice > 0
+                  {filter}
+                ORDER  BY so.OrderDate DESC", new { from, to }).ToList();
+        }
+
+        public COGSBreakdown GetCOGSBreakdown(DateTime from, DateTime to)
+        {
+            using var db = new SqlConnection(_cs);
+
+            // Attempt to read sub-component columns (MaterialsCost, LaborCost, BatchLossCost)
+            // which may not exist yet in the WorkOrders table.  Fall back gracefully.
+            bool hasSubColumns = false;
+            try
+            {
+                hasSubColumns = db.ExecuteScalar<int>(@"
+                    SELECT COUNT(1) FROM sys.columns
+                    WHERE  object_id = OBJECT_ID('WorkOrders')
+                      AND  name IN ('MaterialsCost','LaborCost','BatchLossCost')") == 3;
+            }
+            catch { /* schema check failed — treat as missing */ }
+
+            if (hasSubColumns)
+            {
+                var row = db.QueryFirstOrDefault(@"
+                    SELECT ISNULL(SUM(MaterialsCost), 0)  AS MaterialsCost,
+                           ISNULL(SUM(LaborCost),     0)  AS LaborCost,
+                           ISNULL(SUM(BatchLossCost), 0)  AS BatchLossCost
+                    FROM   WorkOrders
+                    WHERE  Status = 'Complete'
+                      AND  CompletedAt >= @from AND CompletedAt <= @to
+                      AND  CostOfGoods IS NOT NULL", new { from, to });
+
+                return new COGSBreakdown
+                {
+                    MaterialsCost = (decimal)(row?.MaterialsCost ?? 0m),
+                    LaborCost     = (decimal)(row?.LaborCost     ?? 0m),
+                    BatchLossCost = (decimal)(row?.BatchLossCost ?? 0m),
+                    OtherCost     = 0m,
+                    IsPlaceholder = false
+                };
+            }
+            else
+            {
+                // Sub-columns not yet added to WorkOrders.
+                // Return the total COGS as OtherCost and flag as placeholder so UI can inform the user.
+                decimal total = db.ExecuteScalar<decimal>(@"
+                    SELECT ISNULL(SUM(CostOfGoods), 0)
+                    FROM   WorkOrders
+                    WHERE  Status = 'Complete'
+                      AND  CompletedAt >= @from AND CompletedAt <= @to
+                      AND  CostOfGoods IS NOT NULL", new { from, to });
+
+                return new COGSBreakdown
+                {
+                    MaterialsCost = 0m,
+                    LaborCost     = 0m,
+                    BatchLossCost = 0m,
+                    OtherCost     = total,
+                    IsPlaceholder = true
+                };
+            }
+        }
+
         public List<ExpenseRow> GetExpenseRows(DateTime from, DateTime to)
         {
             using var db = new SqlConnection(_cs);
