@@ -31,6 +31,7 @@ namespace JaneERP
         private Button         _btnMarkDone    = new() { Text = "✓  Mark This Batch Done",      Height = 36, Width = 240 };
         private Button         _btnMarkAll     = new() { Text = "✓✓  Mark ALL Batches Done",    Height = 36, Width = 240 };
         private Button         _btnComplete    = new() { Text = "🏁  Complete Session",           Height = 36, Width = 240 };
+        private Button         _btnClose       = new() { Text = "Close",                          Height = 36, Width = 240 };
         private Label          _lblProgress    = new() { AutoSize = true, Font = new Font(SystemFonts.DefaultFont, FontStyle.Bold) };
         private DataGridView   _dgvProgress    = new() { Dock = DockStyle.Fill };
 
@@ -109,6 +110,8 @@ namespace JaneERP
             pnlBtns.Controls.Add(_btnMarkAll);
             pnlBtns.Controls.Add(new Panel { Height = 16 }); // spacer
             pnlBtns.Controls.Add(_btnComplete);
+            pnlBtns.Controls.Add(new Panel { Height = 8 }); // spacer
+            pnlBtns.Controls.Add(_btnClose);
 
             pnlLeft.Controls.Add(pnlBtns);
             pnlLeft.Controls.Add(pnlInfo);
@@ -133,6 +136,7 @@ namespace JaneERP
             _btnMarkDone.Click   += BtnMarkDone_Click;
             _btnMarkAll.Click    += BtnMarkAll_Click;
             _btnComplete.Click   += BtnComplete_Click;
+            _btnClose.Click      += BtnClose_Click;
         }
 
         // ── Data loading ──────────────────────────────────────────────────────────
@@ -321,6 +325,19 @@ namespace JaneERP
             MessageBox.Show(this, "Cook session completed!", "Complete", MessageBoxButtons.OK, MessageBoxIcon.Information);
             _btnComplete.Enabled = false;
             Reload();
+        }
+
+        private void BtnClose_Click(object? sender, EventArgs e)
+        {
+            bool sessionInProgress = _steps.Any(s => !s.IsDone);
+            if (sessionInProgress)
+            {
+                var result = MessageBox.Show(this,
+                    "A cook session is in progress. Are you sure you want to close?",
+                    "Close", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
+                if (result != DialogResult.Yes) return;
+            }
+            this.Close();
         }
 
         // ── ComboBox item wrappers ────────────────────────────────────────────────

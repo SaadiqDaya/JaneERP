@@ -34,6 +34,7 @@ namespace JaneERP
         private Button         _btnTraveller  = new() { Text = "Export Traveller CSV",  Width = 170, Height = 34 };
         private Button         _btnLabels     = new() { Text = "Export Labels CSV",      Width = 150, Height = 34 };
         private Button         _btnRefresh    = new() { Text = "↺ Refresh",              Width = 90,  Height = 34 };
+        private Button         _btnClose      = new() { Text = "Close",                  Width = 90,  Height = 34 };
         private Label          _lblStatus     = new() { AutoSize = true, Text = "" };
 
         public FormBatchCooking()
@@ -122,11 +123,13 @@ namespace JaneERP
             toolbar.Controls.Add(_btnStart);
             toolbar.Controls.Add(_btnTraveller);
             toolbar.Controls.Add(_btnLabels);
+            toolbar.Controls.Add(_btnClose);
             toolbar.Controls.Add(_lblStatus);
 
             _btnStart.Click     += BtnStart_Click;
             _btnTraveller.Click += BtnTraveller_Click;
             _btnLabels.Click    += BtnLabels_Click;
+            _btnClose.Click     += (_, _) => this.Close();
 
             // ── Section headers ───────────────────────────────────────────────────
             var lblLeft  = new Label
@@ -155,6 +158,7 @@ namespace JaneERP
 
             Controls.Add(_split);
             Controls.Add(toolbar);
+            Theme.AddFormHeader(this, "🧪  Batch Cooking");
         }
 
         private void PopulateLossPresets()
@@ -317,6 +321,50 @@ namespace JaneERP
 
         // ── Button handlers ───────────────────────────────────────────────────────
 
+        /// <summary>
+        /// Checks whether all ingredients required for the selected work orders are sufficiently
+        /// in stock. Warns the user if any are short, but allows override — the user may intentionally
+        /// cook with partial stock (e.g. split across two sessions).
+        /// Returns false only if the user explicitly cancels after seeing the shortage warning.
+        /// </summary>
+        private bool CheckIngredientAvailability()
+        {
+            var selected = GetSelectedWorkOrders();
+            if (selected.Count == 0) return true;
+
+            decimal sessionLoss = CurrentLossPercent;
+
+            // Aggregate BOM quantities — same logic as RefreshIngredientPreview
+            var summary = new Dictionary<int, (string PartName, decimal Total, int OnHand)>();
+            foreach (var wo in selected)
+            {
+                var bom = _repo.GetWOBomPreview(wo.WorkOrderID);
+                foreach (var b in bom)
+                {
+                    decimal effectiveRate = b.CreatesBatchLoss
+                        ? (b.BatchLossRate > 0 ? b.BatchLossRate : sessionLoss)
+                        : 0m;
+                    decimal adjustedQty = b.RequiredQty * (1m + effectiveRate / 100m);
+                    if (summary.TryGetValue(b.PartID, out var existing))
+                        summary[b.PartID] = (existing.PartName, existing.Total + adjustedQty, b.OnHand);
+                    else
+                        summary[b.PartID] = (b.PartName, adjustedQty, b.OnHand);
+                }
+            }
+
+            var shortages = summary.Values
+                .Where(s => s.OnHand < (int)Math.Ceiling((double)s.Total))
+                .Select(s => $"  \u2022 {s.PartName}: need {s.Total:N0}, have {s.OnHand:N0}")
+                .ToList();
+
+            if (shortages.Count == 0) return true;
+
+            var message = $"Insufficient ingredients for this batch:\n\n{string.Join("\n", shortages)}\n\nContinue anyway?";
+            var result = MessageBox.Show(this, message, "Inventory Shortage",
+                MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
+            return result == DialogResult.Yes;
+        }
+
         private void BtnStart_Click(object? sender, EventArgs e)
         {
             var woIds = GetSelectedWOIds();
@@ -326,6 +374,8 @@ namespace JaneERP
                     MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }
+
+            if (!CheckIngredientAvailability()) return;
 
             string  name = _txtName.Text.Trim();
             if (string.IsNullOrEmpty(name)) name = $"Cook {DateTime.Now:yyyy-MM-dd HH:mm}";
