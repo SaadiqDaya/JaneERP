@@ -124,12 +124,13 @@ namespace JaneERP
             dgvPOs.Location = new Point(12, 92);
             dgvPOs.Size     = new Size(976, 472);
             dgvPOs.ReadOnly = true;
-            dgvPOs.AllowUserToAddRows    = false;
-            dgvPOs.AllowUserToDeleteRows = false;
-            dgvPOs.SelectionMode         = DataGridViewSelectionMode.FullRowSelect;
-            dgvPOs.MultiSelect           = false;
-            dgvPOs.AutoGenerateColumns   = false;
-            dgvPOs.RowHeadersVisible     = false;
+            dgvPOs.AllowUserToAddRows     = false;
+            dgvPOs.AllowUserToDeleteRows  = false;
+            dgvPOs.AllowUserToResizeRows  = false;
+            dgvPOs.SelectionMode          = DataGridViewSelectionMode.FullRowSelect;
+            dgvPOs.MultiSelect            = false;
+            dgvPOs.AutoGenerateColumns    = false;
+            dgvPOs.RowHeadersVisible      = false;
 
             dgvPOs.Columns.Add(new DataGridViewTextBoxColumn { Name = "cNum",      HeaderText = "PO #",           DataPropertyName = "PONumber",     Width = 120 });
             dgvPOs.Columns.Add(new DataGridViewTextBoxColumn { Name = "cSupplier", HeaderText = "Supplier",       DataPropertyName = "SupplierName", AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill });

@@ -25,12 +25,14 @@ namespace JaneERP
             }
         }
 
-        private readonly IShopifySyncService  _svc     = AppServices.Get<IShopifySyncService>();
+        // Resolved lazily in constructor so any registration error surfaces in the Load event handler
+        private readonly IShopifySyncService? _svc;
         private readonly Panel               _pnlHeader = new();
         private readonly SplitContainer      _split   = new();
         private readonly DataGridView        _dgvOrders = new();
         private readonly DataGridView        _dgvItems  = new();
         private readonly Label               _lblOrderInfo = new();
+        private readonly Label               _lblError     = new();
 
         private readonly Button _btnRefresh      = new() { Text = "↺  Refresh" };
         private readonly Button _btnStartPicking = new() { Text = "▶  Start Picking" };
@@ -50,6 +52,11 @@ namespace JaneERP
             StartPosition   = FormStartPosition.CenterScreen;
             FormBorderStyle = FormBorderStyle.None;
 
+            // Resolve service before BuildUI so any failure can be shown gracefully
+            string? serviceError = null;
+            try   { _svc = AppServices.Get<IShopifySyncService>(); }
+            catch (Exception ex) { serviceError = ex.Message; }
+
             BuildUI();
             Theme.Apply(this);
             Theme.MakeBorderless(this);
@@ -59,14 +66,27 @@ namespace JaneERP
 
             Load += (_, _) =>
             {
+                if (_svc == null || serviceError != null)
+                {
+                    ShowError($"Picking screen could not start: {serviceError ?? "ShopifySyncService not registered."}");
+                    UpdateButtons();
+                    return;
+                }
                 try { RefreshOrders(); }
                 catch (Exception ex)
                 {
                     Logging.AppLogger.Error($"[FormPickingDash.Load] {ex}");
-                    MessageBox.Show($"Picking screen error: {ex.Message}", "Error",
-                        MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    ShowError($"Picking screen error: {ex.Message}");
                 }
             };
+        }
+
+        private void ShowError(string message)
+        {
+            _lblError.Text      = message;
+            _lblError.Visible   = true;
+            _lblOrderInfo.Text  = message;
+            Logging.AppLogger.Error($"[FormPickingDash] {message}");
         }
 
         // ── Layout ────────────────────────────────────────────────────────────────
@@ -127,7 +147,17 @@ namespace JaneERP
             // Right: item list
             BuildItemsPanel();
 
+            // Error label (visible only when something goes wrong, floats over the split container)
+            _lblError.Visible   = false;
+            _lblError.Font      = new Font("Segoe UI", 10F, FontStyle.Bold);
+            _lblError.ForeColor = Color.OrangeRed;
+            _lblError.AutoSize  = false;
+            _lblError.TextAlign = ContentAlignment.MiddleLeft;
+            _lblError.Padding   = new Padding(12, 0, 0, 0);
+            _lblError.Dock      = DockStyle.Fill;
+
             Controls.Add(_split);
+            Controls.Add(_lblError);
             Controls.Add(pnlActions);
             Controls.Add(_pnlHeader);
 
@@ -202,6 +232,7 @@ namespace JaneERP
 
         private void RefreshOrders()
         {
+            if (_svc == null) { ShowError("Service unavailable — cannot load orders."); UpdateButtons(); return; }
             int? prevId = _current?.SalesOrderID;
             try { _orders = _svc.GetFulfillmentOrders("Live", "Picking"); }
             catch (Exception ex)
@@ -210,6 +241,7 @@ namespace JaneERP
                 _orders = [];
                 _dgvOrders.Rows.Clear();
                 _lblOrderInfo.Text = $"Could not load orders: {ex.Message}";
+                ShowError($"Could not load orders: {ex.Message}");
                 UpdateButtons();
                 return;
             }
@@ -246,6 +278,7 @@ namespace JaneERP
 
         private void LoadItems(int salesOrderId)
         {
+            if (_svc == null) { ShowError("Service unavailable — cannot load items."); return; }
             try { _items = _svc.GetOrderItemsWithPicking(salesOrderId); }
             catch (Exception ex)
             {
@@ -354,7 +387,7 @@ namespace JaneERP
 
         private void BtnStartPicking_Click(object? sender, EventArgs e)
         {
-            if (_current == null || _current.Status != "Live") return;
+            if (_svc == null || _current == null || _current.Status != "Live") return;
 
             // Regression guard: "Live" is forward from nothing, but guard against any edge case
             if (IsStatusRegression(_current.Status, "Picking"))
@@ -396,7 +429,7 @@ namespace JaneERP
 
         private void BtnPickAll_Click(object? sender, EventArgs e)
         {
-            if (_current == null || _current.Status != "Picking") return;
+            if (_svc == null || _current == null || _current.Status != "Picking") return;
             try
             {
                 string picker = AppSession.CurrentUser?.Username ?? "system";
@@ -418,7 +451,7 @@ namespace JaneERP
 
         private void BtnSave_Click(object? sender, EventArgs e)
         {
-            if (_current == null) return;
+            if (_svc == null || _current == null) return;
             try
             {
                 CommitAndSave();
@@ -437,7 +470,7 @@ namespace JaneERP
 
         private void BtnComplete_Click(object? sender, EventArgs e)
         {
-            if (_current == null || _current.Status != "Picking") return;
+            if (_svc == null || _current == null || _current.Status != "Picking") return;
             if (!_items.All(i => i.PickedQty >= i.Quantity))
             {
                 MessageBox.Show(this,
@@ -481,6 +514,7 @@ namespace JaneERP
 
         private void CommitAndSave()
         {
+            if (_svc == null) throw new InvalidOperationException("Picking service is not available.");
             _dgvItems.CommitEdit(DataGridViewDataErrorContexts.Commit);
             _dgvItems.EndEdit();
             string picker = AppSession.CurrentUser?.Username ?? "system";

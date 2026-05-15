@@ -3,7 +3,7 @@ using System.Runtime.InteropServices;
 namespace JaneERP
 {
     /// <summary>
-    /// Jvnction Jane dark theme — deep black background · violet neon accents · teal highlights.
+    /// Jvnction Jane theme — white/light-gray content area · dark-teal header + sidebar · teal + purple accents.
     /// </summary>
     public static class Theme
     {
@@ -26,10 +26,7 @@ namespace JaneERP
             {
                 if (e.Button != MouseButtons.Left) return;
 
-                // Don't steal the drag if the cursor is inside the resize border zone —
-                // clicking there should resize, not move. Convert the click position to
-                // form-client coordinates and skip if we're within BorderWidth pixels of any edge.
-                const int bw = 8; // must match ResizableHelper.BorderWidth
+                const int bw = 8;
                 var posInForm = form.PointToClient(Cursor.Position);
                 if (posInForm.X <= bw || posInForm.X >= form.ClientSize.Width  - bw ||
                     posInForm.Y <= bw || posInForm.Y >= form.ClientSize.Height - bw)
@@ -46,7 +43,6 @@ namespace JaneERP
         {
             if (e.Button != MouseButtons.Left || sender is not Form f) return;
 
-            // Skip if the click is in the resize border zone
             const int bw = 8;
             var p = f.PointToClient(Cursor.Position);
             if (p.X <= bw || p.X >= f.ClientSize.Width  - bw ||
@@ -64,7 +60,7 @@ namespace JaneERP
                 Text      = "×",
                 Font      = new Font("Segoe UI", 13F, FontStyle.Bold),
                 Size      = new Size(32, 28),
-                BackColor = Color.FromArgb(160, 30, 20),
+                BackColor = Color.FromArgb(180, 40, 30),
                 ForeColor = Color.White,
                 FlatStyle = FlatStyle.Flat,
                 Cursor    = Cursors.Hand,
@@ -82,11 +78,9 @@ namespace JaneERP
                 btn.BringToFront();
             }
 
-            // Subscribe to events AND position immediately — handles being called from a Load
-            // handler (where the Load event has already fired) as well as from constructors.
             form.Load   += (_, _) => Position();
             form.Resize += (_, _) => Position();
-            Position();   // always run now; BringToFront is safe even before handle creation
+            Position();
             return btn;
         }
 
@@ -98,7 +92,7 @@ namespace JaneERP
             private const int HTLEFT         = 10, HTRIGHT       = 11;
             private const int HTTOP          = 12, HTTOPLEFT     = 13, HTTOPRIGHT    = 14;
             private const int HTBOTTOM       = 15, HTBOTTOMLEFT  = 16, HTBOTTOMRIGHT = 17;
-            private const int BorderWidth    = 8;   // wider zone — easier to grab on large windows
+            private const int BorderWidth    = 8;
             private readonly Form _form;
 
             internal ResizableHelper(Form form)
@@ -126,25 +120,21 @@ namespace JaneERP
                     if (b)       { m.Result = (IntPtr)HTBOTTOM;      return; }
                 }
 
-                // WM_SETCURSOR: FormBorderStyle.None strips WS_THICKFRAME, so DefWindowProc
-                // will not set a resize cursor on its own. Handle it here so the cursor visually
-                // indicates the resize zone — otherwise the user sees only the default arrow and
-                // doesn't know the edge is draggable.
                 if (m.Msg == WM_SETCURSOR)
                 {
                     int htCode = (int)(m.LParam.ToInt64() & 0xFFFF);
                     Cursor? cursor = htCode switch
                     {
-                        HTLEFT or HTRIGHT                       => Cursors.SizeWE,
-                        HTTOP  or HTBOTTOM                      => Cursors.SizeNS,
-                        HTTOPLEFT  or HTBOTTOMRIGHT             => Cursors.SizeNWSE,
-                        HTTOPRIGHT or HTBOTTOMLEFT              => Cursors.SizeNESW,
-                        _                                       => null
+                        HTLEFT or HTRIGHT                   => Cursors.SizeWE,
+                        HTTOP  or HTBOTTOM                  => Cursors.SizeNS,
+                        HTTOPLEFT  or HTBOTTOMRIGHT         => Cursors.SizeNWSE,
+                        HTTOPRIGHT or HTBOTTOMLEFT          => Cursors.SizeNESW,
+                        _                                   => null
                     };
                     if (cursor != null)
                     {
                         Cursor.Current = cursor;
-                        m.Result       = (IntPtr)1;  // mark as handled — prevent DefWindowProc reset
+                        m.Result       = (IntPtr)1;
                         return;
                     }
                 }
@@ -168,29 +158,28 @@ namespace JaneERP
         }
 
         // ── Core palette ─────────────────────────────────────────────────────────
-        // Deep black base with violet neon accent
-        public static readonly Color Background    = Color.FromArgb(8,   10,  20);   // #080A14
-        public static readonly Color Surface       = Color.FromArgb(14,  16,  30);   // #0E101E
-        public static readonly Color Header        = Color.FromArgb(5,   6,   14);   // #05060E
-        public static Color Gold          = Color.FromArgb(155, 55,  220);  // #9B37DC — violet accent
-        public static Color GoldDark      = Color.FromArgb(105, 25,  165);  // #6919A5 — deep violet
-        public static Color Teal          = Color.FromArgb(32,  184, 204);  // #20B8CC — keep teal
-        public static readonly Color TextPrimary   = Color.FromArgb(234, 234, 234);  // #EAEAEA
-        public static readonly Color TextSecondary = Color.FromArgb(170, 150, 200);  // #AA96C8 — soft lavender
-        public static readonly Color TextMuted     = Color.FromArgb(90,  75,  120);  // #5A4B78 — muted violet
-        public static readonly Color Border        = Color.FromArgb(55,  25,  90);   // #37195A — dark violet
-        public static readonly Color InputBg       = Color.FromArgb(6,   7,   16);   // #060710
-        public static readonly Color RowAlt        = Color.FromArgb(11,  13,  24);   // #0B0D18
-        public static readonly Color Selected      = Color.FromArgb(60,  20,  100);  // #3C1464 — violet selection
-        public static readonly Color Danger        = Color.FromArgb(200, 60,  50);   // #C83C32
+        // Light theme: off-white content · dark-teal header/sidebar · teal primary · purple secondary
+        public static readonly Color Background    = Color.FromArgb(243, 246, 249);  // #F3F6F9 — content bg
+        public static readonly Color Surface       = Color.FromArgb(255, 255, 255);  // #FFFFFF — card/panel
+        public static readonly Color Header        = Color.FromArgb(11,  37,  42);   // #0B252A — dark teal
+        public static Color Gold          = Color.FromArgb(0,   190, 214);  // #00BED6 — teal primary
+        public static Color GoldDark      = Color.FromArgb(0,   145, 165);  // #0091A5 — deep teal
+        public static Color Teal          = Color.FromArgb(109, 40,  217);  // #6D28D9 — purple secondary
+        public static readonly Color TextPrimary   = Color.FromArgb(26,  32,  44);   // #1A202C — near-black
+        public static readonly Color TextSecondary = Color.FromArgb(100, 116, 139);  // #64748B — medium gray
+        public static readonly Color TextMuted     = Color.FromArgb(148, 163, 184);  // #94A3B8 — muted gray
+        public static readonly Color Border        = Color.FromArgb(226, 232, 240);  // #E2E8F0 — light border
+        public static readonly Color InputBg       = Color.FromArgb(248, 250, 252);  // #F8FAFC — input bg
+        public static readonly Color RowAlt        = Color.FromArgb(248, 250, 252);  // #F8FAFC — alt row
+        public static readonly Color Selected      = Color.FromArgb(0,   190, 214);  // teal — selection bg
+        public static readonly Color Danger        = Color.FromArgb(220, 38,  38);   // #DC2626 — red
 
-        /// <summary>Semi-transparent glow colour used for neon border effects.</summary>
-        public static Color GlowOuter = Color.FromArgb(90, 155, 55, 220);  // 35% alpha violet
+        /// <summary>Semi-transparent teal used for hover/active borders on tiles.</summary>
+        public static Color GlowOuter = Color.FromArgb(90, 0, 190, 214);
 
         /// <summary>
         /// Applies custom accent/highlight colours loaded from <paramref name="settings"/>.
         /// Call once at startup, after <see cref="AppSettings.Load"/>, before any form is shown.
-        /// Empty strings leave the default theme colours unchanged.
         /// </summary>
         public static void ApplyCustomColors(AppSettings settings)
         {
@@ -201,9 +190,9 @@ namespace JaneERP
                     var c  = ColorTranslator.FromHtml(settings.AccentColor);
                     Gold      = c;
                     GoldDark  = Color.FromArgb(
-                        Math.Max(0, c.R - 50),
-                        Math.Max(0, c.G - 30),
-                        Math.Max(0, c.B - 55));
+                        Math.Max(0, c.R - 30),
+                        Math.Max(0, c.G - 45),
+                        Math.Max(0, c.B - 50));
                     GlowOuter = Color.FromArgb(90, c.R, c.G, c.B);
                 }
                 catch { /* keep defaults on parse failure */ }
@@ -215,7 +204,20 @@ namespace JaneERP
             }
         }
 
-        /// <summary>Recursively apply the dark theme to a control and all its children.</summary>
+        // ── Dark-panel detector ───────────────────────────────────────────────────
+        /// <summary>Returns true if the control lives inside a panel tagged "header" or "sidebar".</summary>
+        private static bool IsOnDarkPanel(Control c)
+        {
+            var p = c.Parent;
+            while (p != null)
+            {
+                if (p.Tag as string is "header" or "sidebar") return true;
+                p = p.Parent;
+            }
+            return false;
+        }
+
+        /// <summary>Recursively apply the theme to a control and all its children.</summary>
         public static void Apply(Control root)
         {
             ApplyOne(root);
@@ -232,10 +234,32 @@ namespace JaneERP
                     f.ForeColor = TextPrimary;
                     break;
 
-                case Panel p:
-                    p.BackColor = p.Tag as string == "header" ? Header : Surface;
-                    p.ForeColor = TextPrimary;
+                case TabPage tp:
+                    tp.BackColor = Background;
+                    tp.ForeColor = TextPrimary;
                     break;
+
+                case Panel p:
+                {
+                    var ptag = p.Tag as string;
+                    if (ptag is "header" or "sidebar")
+                    {
+                        p.BackColor = Header;
+                        p.ForeColor = Color.White;
+                    }
+                    else if (ptag == "card")
+                    {
+                        p.BackColor = Surface;       // white card
+                        p.ForeColor = TextPrimary;
+                    }
+                    else if (ptag == null)           // untagged → standard content bg
+                    {
+                        p.BackColor = Background;
+                        p.ForeColor = TextPrimary;
+                    }
+                    // else: custom tag → leave colours intact (accent lines, dividers, etc.)
+                    break;
+                }
 
                 case GroupBox grp:
                     grp.BackColor = Surface;
@@ -244,13 +268,24 @@ namespace JaneERP
 
                 case Label lbl:
                     lbl.BackColor = Color.Transparent;
-                    lbl.ForeColor = TextPrimary;
+                    lbl.ForeColor = IsOnDarkPanel(lbl) ? Color.White : TextPrimary;
                     break;
 
                 case TextBox txt:
                     txt.BackColor   = InputBg;
                     txt.ForeColor   = TextPrimary;
                     txt.BorderStyle = BorderStyle.FixedSingle;
+                    break;
+
+                case RichTextBox rtb:
+                    rtb.BackColor   = Surface;
+                    rtb.ForeColor   = TextPrimary;
+                    rtb.BorderStyle = BorderStyle.FixedSingle;
+                    break;
+
+                case NumericUpDown nud:
+                    nud.BackColor = InputBg;
+                    nud.ForeColor = TextPrimary;
                     break;
 
                 case Button btn:
@@ -274,8 +309,13 @@ namespace JaneERP
                     break;
 
                 case CheckBox chk:
-                    chk.ForeColor = TextPrimary;
                     chk.BackColor = Color.Transparent;
+                    chk.ForeColor = IsOnDarkPanel(chk) ? Color.White : TextPrimary;
+                    break;
+
+                case RadioButton rb:
+                    rb.BackColor = Color.Transparent;
+                    rb.ForeColor = IsOnDarkPanel(rb) ? Color.White : TextPrimary;
                     break;
 
                 case DateTimePicker dtp:
@@ -283,21 +323,29 @@ namespace JaneERP
                     dtp.ForeColor               = TextPrimary;
                     dtp.CalendarForeColor       = TextPrimary;
                     dtp.CalendarMonthBackground = Surface;
-                    dtp.CalendarTitleBackColor  = Header;
-                    dtp.CalendarTitleForeColor  = Gold;
+                    dtp.CalendarTitleBackColor  = Gold;
+                    dtp.CalendarTitleForeColor  = Color.White;
+                    break;
+
+                case TabControl tc:
+                    tc.BackColor = Background;
+                    tc.ForeColor = TextPrimary;
                     break;
 
                 case PictureBox:
-                    break;
+                    break;  // leave as-is
 
                 default:
-                    c.BackColor = Background;
-                    c.ForeColor = TextPrimary;
+                    if (!IsOnDarkPanel(c))
+                    {
+                        c.BackColor = Background;
+                        c.ForeColor = TextPrimary;
+                    }
                     break;
             }
         }
 
-        /// <summary>Violet-filled primary action button.</summary>
+        /// <summary>Teal-filled primary action button.</summary>
         public static void StyleButton(Button btn)
         {
             btn.FlatStyle = FlatStyle.Flat;
@@ -309,19 +357,19 @@ namespace JaneERP
             btn.Cursor    = Cursors.Hand;
         }
 
-        /// <summary>Outlined secondary button (no fill).</summary>
+        /// <summary>Outlined secondary button (subtle border, no fill).</summary>
         public static void StyleSecondaryButton(Button btn)
         {
             btn.FlatStyle = FlatStyle.Flat;
             btn.FlatAppearance.BorderColor        = Border;
             btn.FlatAppearance.BorderSize         = 1;
-            btn.FlatAppearance.MouseOverBackColor = Color.FromArgb(30, 15, 50);
+            btn.FlatAppearance.MouseOverBackColor = Color.FromArgb(240, 244, 248);
             btn.BackColor = Surface;
             btn.ForeColor = TextPrimary;
             btn.Cursor    = Cursors.Hand;
         }
 
-        /// <summary>Apply dark theme to a DataGridView.</summary>
+        /// <summary>Apply light theme to a DataGridView.</summary>
         public static void StyleGrid(DataGridView dgv)
         {
             dgv.EnableHeadersVisualStyles = false;
@@ -339,7 +387,7 @@ namespace JaneERP
             dgv.AlternatingRowsDefaultCellStyle.ForeColor = TextPrimary;
 
             dgv.ColumnHeadersDefaultCellStyle.BackColor = Header;
-            dgv.ColumnHeadersDefaultCellStyle.ForeColor = Gold;
+            dgv.ColumnHeadersDefaultCellStyle.ForeColor = Color.White;
             dgv.ColumnHeadersDefaultCellStyle.Font      = new Font("Segoe UI", 9F, FontStyle.Bold);
             dgv.ColumnHeadersBorderStyle               = DataGridViewHeaderBorderStyle.Single;
         }
