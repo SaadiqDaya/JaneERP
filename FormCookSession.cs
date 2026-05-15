@@ -302,25 +302,36 @@ namespace JaneERP
         private void BtnComplete_Click(object? sender, EventArgs e)
         {
             int pending = _steps.Count(s => !s.IsDone);
+            bool force = false;
             if (pending > 0)
             {
                 var res = MessageBox.Show(this,
                     $"{pending} step(s) are still pending.\nForce complete the session anyway?",
                     "Pending Steps", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
                 if (res != DialogResult.Yes) return;
-                _repo.CompleteCookSession(_sessionId, forceComplete: true);
-            }
-            else
-            {
-                _repo.CompleteCookSession(_sessionId);
+                force = true;
             }
 
-            // Deduct ingredient stock now that the session is marked complete
-            bool deducted = _repo.DeductSessionIngredients(_sessionId);
-            if (!deducted)
-                MessageBox.Show(this,
-                    "Warning: Session completed but ingredient stock could not be updated.\nPlease adjust stock manually.",
-                    "Stock Warning", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            try
+            {
+                // Single atomic transaction: marks Complete + deducts all ingredient stock
+                bool ok = _repo.CompleteCookSessionAndDeductStock(_sessionId, force, _user);
+                if (!ok)
+                    MessageBox.Show(this,
+                        "Warning: Session completed but ingredient stock could not be updated.\nPlease adjust stock manually.",
+                        "Stock Warning", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
+            catch (InvalidOperationException ioex)
+            {
+                MessageBox.Show(this, ioex.Message, "Cannot Complete", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+            catch (Exception ex)
+            {
+                Logging.AppLogger.Error($"[FormCookSession.BtnComplete_Click] {ex}");
+                MessageBox.Show(this, "Completion failed: " + ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
 
             MessageBox.Show(this, "Cook session completed!", "Complete", MessageBoxButtons.OK, MessageBoxIcon.Information);
             _btnComplete.Enabled = false;
