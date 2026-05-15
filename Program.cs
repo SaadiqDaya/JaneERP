@@ -1,5 +1,6 @@
 using JaneERP.Data;
 using JaneERP.Infrastructure;
+using JaneERP.Interfaces;
 using JaneERP.Logging;
 using JaneERP.Manufacturing;
 using JaneERP.Services;
@@ -123,6 +124,33 @@ namespace JaneERP
 
             // ── Build DI container (after schema, before login) ───────────────────────
             ServiceRegistration.Build();
+
+            // ── Overdue task notifications (fire-and-forget, once per calendar day) ──
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    var checkFile = Path.Combine(
+                        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                        "JaneERP", "last_overdue_check.txt");
+                    var lastCheck = DateTime.MinValue;
+                    if (File.Exists(checkFile))
+                        DateTime.TryParse(File.ReadAllText(checkFile).Trim(), out lastCheck);
+
+                    if (lastCheck.Date < DateTime.Today)
+                    {
+                        var taskRepo = AppServices.Get<ITaskRepository>();
+                        await NotificationService.SendOverdueTaskNotificationsAsync(taskRepo);
+
+                        Directory.CreateDirectory(Path.GetDirectoryName(checkFile)!);
+                        File.WriteAllText(checkFile, DateTime.Now.ToString("o"));
+                    }
+                }
+                catch (Exception ex)
+                {
+                    AppLogger.Audit("system", "OverdueTaskNotifyFailed", ex.Message);
+                }
+            });
 
             Application.AddMessageFilter(new JaneERP.Security.GlobalActivityFilter());
             Application.Run(new FormAppLogin());

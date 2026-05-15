@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Mail;
+using JaneERP.Interfaces;
 using JaneERP.Logging;
 
 namespace JaneERP.Services
@@ -76,6 +77,58 @@ namespace JaneERP.Services
                 $"[JaneERP] You were mentioned in a task",
                 $"{mentionedBy} mentioned you in the task: \"{taskTitle}\"\n\n" +
                 $"Open JaneERP and go to Tasks to view the full message.");
+        }
+
+        /// <summary>Notifies a user that they have been @mentioned in a task, including the comment text.</summary>
+        public static Task<bool> NotifyMentionAsync(string toEmail, string mentionedBy, string taskTitle, string commentText)
+        {
+            return SendEmailAsync(
+                toEmail,
+                $"JaneERP — {mentionedBy} mentioned you in a task",
+                $"Hi,\n\n{mentionedBy} mentioned you in task \"{taskTitle}\":\n\n\"{commentText}\"\n\n" +
+                $"Log in to JaneERP to view and respond.\n\nJaneERP Task System");
+        }
+
+        /// <summary>
+        /// Groups overdue tasks by assignee and sends one summary email per person.
+        /// Only runs when SMTP is configured; silently skips users with no email address.
+        /// </summary>
+        public static async Task SendOverdueTaskNotificationsAsync(ITaskRepository taskRepo)
+        {
+            try
+            {
+                var overdue = taskRepo.GetOverdueTasks();
+                if (!overdue.Any()) return;
+
+                // Collect all unique assignees and resolve their emails in one query
+                var assignees   = overdue.Select(t => t.AssignedTo).Distinct().ToList();
+                var emailLookup = taskRepo.GetUserEmails(assignees)
+                                         .ToDictionary(r => r.Username, r => r.Email,
+                                                       StringComparer.OrdinalIgnoreCase);
+
+                // Group by assignee and send one digest per person
+                var byAssignee = overdue.GroupBy(t => t.AssignedTo);
+
+                foreach (var group in byAssignee)
+                {
+                    if (!emailLookup.TryGetValue(group.Key, out var email) ||
+                        string.IsNullOrWhiteSpace(email))
+                        continue;
+
+                    var taskList = string.Join("\n", group.Select(t =>
+                        $"  \u2022 {t.Title} (due {t.DueDate:yyyy-MM-dd}, Priority: {t.Priority})"));
+
+                    await SendEmailAsync(
+                        to:      email,
+                        subject: $"JaneERP \u2014 You have {group.Count()} overdue task(s)",
+                        body:    $"Hi {group.Key},\n\nThe following tasks are overdue:\n\n{taskList}\n\n" +
+                                 $"Please log in to JaneERP to update these tasks.\n\nJaneERP Task System");
+                }
+            }
+            catch (Exception ex)
+            {
+                AppLogger.Error($"[SendOverdueTaskNotifications] {ex}");
+            }
         }
 
         /// <summary>Notifies an admin that a product has fallen below its reorder point.</summary>
