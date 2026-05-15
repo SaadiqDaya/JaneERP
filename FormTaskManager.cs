@@ -19,6 +19,20 @@ namespace JaneERP
         private Button       btnClose        = new();
         private Label        lblFilter   = new();
 
+        // Search / filter bar extras
+        private TextBox      txtSearch      = new();
+        private TextBox      txtTagFilter   = new();
+        private CheckBox     chkShowAll     = new();
+
+        // Bulk operation buttons
+        private Button       btnReassign    = new();
+        private Button       btnSetPriority = new();
+        private Button       btnSetDue      = new();
+
+        // Workload summary
+        private FlowLayoutPanel pnlWorkload = new();
+        private Label           lblWorkloadTitle = new();
+
         // Mentions panel
         private Label        lblMentions          = new();
         private DataGridView dgvMentions          = new();
@@ -44,8 +58,8 @@ namespace JaneERP
         private void BuildUI()
         {
             Text            = "Task Manager";
-            ClientSize      = new Size(920, 740);
-            MinimumSize     = new Size(760, 620);
+            ClientSize      = new Size(1000, 820);
+            MinimumSize     = new Size(820, 700);
             StartPosition   = FormStartPosition.CenterParent;
 
             // ── Header ────────────────────────────────────────────────────────────
@@ -58,6 +72,7 @@ namespace JaneERP
                 AutoSize  = true
             });
 
+            // ── Filter bar row 1: Assignee + Stage ──────────────────────────────
             lblFilter.Text     = "Show tasks for:";
             lblFilter.Location = new Point(12, 52);
             lblFilter.AutoSize = true;
@@ -78,10 +93,28 @@ namespace JaneERP
             cboStageFilter.Size          = new Size(130, 23);
             cboStageFilter.Items.AddRange(new object[] { "All Stages", "Open", "In Progress", "Done", "Overdue" });
             cboStageFilter.SelectedIndex = 0;
-            // After form loads, enrich with any workflow stage names
             Load += (_, _) => EnrichStageFilter();
             cboStageFilter.SelectedIndexChanged += (_, _) => LoadTasks();
             Controls.Add(cboStageFilter);
+
+            // ── Filter bar row 2: Search + Tag + Show All ─────────────────────
+            Controls.Add(new Label { Text = "Search:", Location = new Point(12, 82), AutoSize = true });
+            txtSearch.Location    = new Point(66, 79);
+            txtSearch.Size        = new Size(200, 23);
+            txtSearch.TextChanged += (_, _) => LoadTasks();
+            Controls.Add(txtSearch);
+
+            Controls.Add(new Label { Text = "Tag:", Location = new Point(280, 82), AutoSize = true });
+            txtTagFilter.Location    = new Point(310, 79);
+            txtTagFilter.Size        = new Size(150, 23);
+            txtTagFilter.TextChanged += (_, _) => LoadTasks();
+            Controls.Add(txtTagFilter);
+
+            chkShowAll.Text     = "Show all";
+            chkShowAll.Location = new Point(474, 81);
+            chkShowAll.AutoSize = true;
+            chkShowAll.CheckedChanged += (_, _) => LoadTasks();
+            Controls.Add(chkShowAll);
 
             // ── Grid ─────────────────────────────────────────────────────────────
             dgvTasks.AutoGenerateColumns = false;
@@ -92,14 +125,20 @@ namespace JaneERP
             dgvTasks.Columns.Add(new DataGridViewTextBoxColumn { Name = "colPriority",  HeaderText = "Priority",    DataPropertyName = "Priority",    Width = 80  });
             dgvTasks.Columns.Add(new DataGridViewTextBoxColumn { Name = "colCreatedBy", HeaderText = "Created By",  DataPropertyName = "CreatedBy",   Width = 110 });
             dgvTasks.Columns.Add(new DataGridViewTextBoxColumn { Name = "colWorkflow",  HeaderText = "Workflow",    DataPropertyName = "WorkflowName", Width = 120 });
+            dgvTasks.Columns.Add(new DataGridViewTextBoxColumn { Name = "colRef",       HeaderText = "Ref",         Width = 90  }); // LinkedDisplay lives on TaskLinkedRecord; FormTaskDetail shows it
             dgvTasks.Columns.Add(new DataGridViewTextBoxColumn { Name = "colDesc",      HeaderText = "Description", DataPropertyName = "Description",  AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill });
+
+            // Tooltip on Ref column header
+            var colRef = dgvTasks.Columns["colRef"] as DataGridViewTextBoxColumn;
+            if (colRef != null) colRef.ToolTipText = "Double-click row to view linked record in task detail";
+
             dgvTasks.ReadOnly              = true;
             dgvTasks.AllowUserToAddRows    = false;
             dgvTasks.SelectionMode         = DataGridViewSelectionMode.FullRowSelect;
-            dgvTasks.MultiSelect           = true;     // allow multi-select for bulk mark-done
+            dgvTasks.MultiSelect           = true;
             dgvTasks.Anchor                = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
-            dgvTasks.Location              = new Point(12, 80);
-            dgvTasks.Size                  = new Size(896, 390);
+            dgvTasks.Location              = new Point(12, 110);
+            dgvTasks.Size                  = new Size(976, 360);
 
             dgvTasks.CellFormatting += (s, e) =>
             {
@@ -132,7 +171,6 @@ namespace JaneERP
                 }
                 else if (dgvTasks.Columns["colStage"] is DataGridViewColumn colStage && e.ColumnIndex == colStage.Index)
                 {
-                    // Colour-code stages: first stage = muted, last/Done = green, others = teal
                     e.CellStyle.ForeColor = t.Status switch
                     {
                         "Open"        => Theme.TextMuted,
@@ -150,28 +188,43 @@ namespace JaneERP
                 using var detail = new FormTaskDetail(_repo, task);
                 detail.ShowDialog(this);
                 if (detail.Changed) LoadTasks();
-                LoadMentions(); // refresh mentions after viewing/commenting on a task
+                LoadMentions();
             };
 
             Controls.Add(dgvTasks);
+
+            // ── Workload summary ──────────────────────────────────────────────────
+            lblWorkloadTitle.Text      = "Workload:";
+            lblWorkloadTitle.Font      = new Font("Segoe UI", 8.5F, FontStyle.Bold);
+            lblWorkloadTitle.ForeColor = Theme.TextMuted;
+            lblWorkloadTitle.Location  = new Point(12, 478);
+            lblWorkloadTitle.AutoSize  = true;
+            Controls.Add(lblWorkloadTitle);
+
+            pnlWorkload.Location    = new Point(80, 474);
+            pnlWorkload.Size        = new Size(900, 26);
+            pnlWorkload.Anchor      = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
+            pnlWorkload.FlowDirection = FlowDirection.LeftToRight;
+            pnlWorkload.WrapContents  = false;
+            Controls.Add(pnlWorkload);
 
             // ── Mentions panel ────────────────────────────────────────────────────
             lblMentions.Text      = "Recent Mentions (@you):";
             lblMentions.Font      = new Font("Segoe UI", 9F, FontStyle.Bold);
             lblMentions.ForeColor = Theme.Gold;
-            lblMentions.Location  = new Point(12, 482);
+            lblMentions.Location  = new Point(12, 510);
             lblMentions.AutoSize  = true;
             Controls.Add(lblMentions);
 
             btnClearMentions.Text     = "Clear All";
             btnClearMentions.Size     = new Size(80, 22);
-            btnClearMentions.Location = new Point(200, 480);
+            btnClearMentions.Location = new Point(200, 508);
             btnClearMentions.Click   += BtnClearMentions_Click;
             Controls.Add(btnClearMentions);
 
             btnClearSelected.Text     = "Clear Selected";
             btnClearSelected.Size     = new Size(100, 22);
-            btnClearSelected.Location = new Point(288, 480);
+            btnClearSelected.Location = new Point(288, 508);
             btnClearSelected.Click   += BtnClearSelected_Click;
             Controls.Add(btnClearSelected);
 
@@ -183,8 +236,8 @@ namespace JaneERP
             dgvMentions.AllowUserToAddRows = false;
             dgvMentions.SelectionMode      = DataGridViewSelectionMode.FullRowSelect;
             dgvMentions.Anchor             = AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
-            dgvMentions.Location           = new Point(12, 508);
-            dgvMentions.Size               = new Size(896, 120);
+            dgvMentions.Location           = new Point(12, 536);
+            dgvMentions.Size               = new Size(976, 130);
 
             dgvMentions.CellFormatting += (s, e) =>
             {
@@ -200,42 +253,63 @@ namespace JaneERP
             btnAdd.Text     = "+ Add Task(s)";
             btnAdd.Size     = new Size(120, 30);
             btnAdd.Anchor   = AnchorStyles.Bottom | AnchorStyles.Left;
-            btnAdd.Location = new Point(12, 694);
+            btnAdd.Location = new Point(12, 778);
             btnAdd.Click   += BtnAdd_Click;
             Controls.Add(btnAdd);
 
             btnDone.Text     = "Mark Done";
-            btnDone.Size     = new Size(110, 30);
+            btnDone.Size     = new Size(100, 30);
             btnDone.Anchor   = AnchorStyles.Bottom | AnchorStyles.Left;
-            btnDone.Location = new Point(140, 694);
+            btnDone.Location = new Point(140, 778);
             btnDone.Click   += BtnDone_Click;
             Controls.Add(btnDone);
+
+            btnReassign.Text     = "Reassign...";
+            btnReassign.Size     = new Size(100, 30);
+            btnReassign.Anchor   = AnchorStyles.Bottom | AnchorStyles.Left;
+            btnReassign.Location = new Point(248, 778);
+            btnReassign.Click   += BtnReassign_Click;
+            Controls.Add(btnReassign);
+
+            btnSetPriority.Text     = "Set Priority...";
+            btnSetPriority.Size     = new Size(110, 30);
+            btnSetPriority.Anchor   = AnchorStyles.Bottom | AnchorStyles.Left;
+            btnSetPriority.Location = new Point(356, 778);
+            btnSetPriority.Click   += BtnSetPriority_Click;
+            Controls.Add(btnSetPriority);
+
+            btnSetDue.Text     = "Set Due Date...";
+            btnSetDue.Size     = new Size(115, 30);
+            btnSetDue.Anchor   = AnchorStyles.Bottom | AnchorStyles.Left;
+            btnSetDue.Location = new Point(474, 778);
+            btnSetDue.Click   += BtnSetDue_Click;
+            Controls.Add(btnSetDue);
 
             btnDelete.Text     = "Delete";
             btnDelete.Size     = new Size(80, 30);
             btnDelete.Anchor   = AnchorStyles.Bottom | AnchorStyles.Left;
-            btnDelete.Location = new Point(258, 694);
+            btnDelete.Location = new Point(597, 778);
             btnDelete.Click   += BtnDelete_Click;
             Controls.Add(btnDelete);
 
             btnEmail.Text     = "Email Outstanding";
-            btnEmail.Size     = new Size(150, 30);
+            btnEmail.Size     = new Size(140, 30);
             btnEmail.Anchor   = AnchorStyles.Bottom | AnchorStyles.Left;
-            btnEmail.Location = new Point(346, 694);
+            btnEmail.Location = new Point(685, 778);
             btnEmail.Click   += BtnEmail_Click;
             Controls.Add(btnEmail);
 
             btnWorkflows.Text     = "Manage Workflows";
             btnWorkflows.Size     = new Size(140, 30);
             btnWorkflows.Anchor   = AnchorStyles.Bottom | AnchorStyles.Left;
-            btnWorkflows.Location = new Point(504, 694);
+            btnWorkflows.Location = new Point(833, 778);
             btnWorkflows.Click   += (_, _) => { using var f = new FormWorkflowEditor(_repo); f.ShowDialog(this); };
             Controls.Add(btnWorkflows);
 
             btnClose.Text     = "Close";
             btnClose.Size     = new Size(80, 30);
             btnClose.Anchor   = AnchorStyles.Bottom | AnchorStyles.Right;
-            btnClose.Location = new Point(828, 694);
+            btnClose.Location = new Point(908, 778);
             btnClose.Click   += (_, _) => Close();
             Controls.Add(btnClose);
         }
@@ -248,16 +322,15 @@ namespace JaneERP
 
             var stageSel       = cboStageFilter.SelectedItem?.ToString() ?? "All Stages";
             bool filterOverdue = stageSel == "Overdue";
-            // Legacy statuses map directly to Status column; workflow stages map to WorkflowCurrentStatus
             string? filterStatus = stageSel is "All Stages" or "Overdue" ? null
                 : stageSel is "Open" or "In Progress" or "Done" ? stageSel
-                : null; // workflow stage — we filter client-side below
+                : null;
             string? filterStage = stageSel is "All Stages" or "Overdue" or "Open" or "In Progress" or "Done"
                 ? null : stageSel;
 
             var tasks = _repo.GetAll(filterUser, filterStatus);
 
-            // Client-side stage filter for workflow-stage names (not legacy statuses)
+            // Client-side stage filter for workflow-stage names
             if (!string.IsNullOrEmpty(filterStage))
                 tasks = tasks.Where(t => string.Equals(t.WorkflowCurrentStatus, filterStage,
                     StringComparison.OrdinalIgnoreCase)).ToList();
@@ -265,7 +338,73 @@ namespace JaneERP
             if (filterOverdue)
                 tasks = tasks.Where(t => t.Status != "Done" && t.DueDate.Date < DateTime.Today).ToList();
 
+            // ── Default filter: hide Done tasks older than 30 days ────────────────
+            if (!chkShowAll.Checked)
+            {
+                tasks = tasks.Where(t =>
+                    t.Status != "Done" ||
+                    t.CreatedAt >= DateTime.Now.AddDays(-30)
+                ).ToList();
+            }
+
+            // ── Tag filter ────────────────────────────────────────────────────────
+            if (!string.IsNullOrWhiteSpace(txtTagFilter.Text))
+            {
+                var tag = txtTagFilter.Text.Trim().ToLower();
+                tasks = tasks.Where(t =>
+                    !string.IsNullOrEmpty(t.Tags) &&
+                    t.Tags.ToLower().Split(',').Select(s => s.Trim()).Any(s => s == tag || s.Contains(tag))
+                ).ToList();
+            }
+
+            // ── Search filter ─────────────────────────────────────────────────────
+            if (!string.IsNullOrWhiteSpace(txtSearch.Text))
+            {
+                var q = txtSearch.Text.Trim().ToLower();
+                tasks = tasks.Where(t =>
+                    t.Title.ToLower().Contains(q) ||
+                    (t.Description ?? "").ToLower().Contains(q) ||
+                    (t.AssignedTo ?? "").ToLower().Contains(q) ||
+                    (t.Tags ?? "").ToLower().Contains(q)
+                ).ToList();
+            }
+
             dgvTasks.DataSource = tasks;
+
+            // Refresh workload summary after every load
+            LoadWorkloadSummary();
+        }
+
+        /// <summary>Loads and displays the open task count per user in the workload panel.</summary>
+        private void LoadWorkloadSummary()
+        {
+            try
+            {
+                pnlWorkload.Controls.Clear();
+                var summary = _repo.GetWorkloadSummary();
+
+                // Sort: highest count first, then alphabetically
+                foreach (var kvp in summary.OrderByDescending(k => k.Value).ThenBy(k => k.Key))
+                {
+                    var user  = string.IsNullOrWhiteSpace(kvp.Key) ? "Unassigned" : kvp.Key;
+                    var count = kvp.Value;
+                    var lbl   = new Label
+                    {
+                        Text      = $"{user} ({count})",
+                        AutoSize  = true,
+                        Margin    = new Padding(0, 3, 10, 0),
+                        ForeColor = count >= 8 ? Color.FromArgb(220, 100, 30) : Theme.TextPrimary,
+                        Font      = count >= 8
+                            ? new Font("Segoe UI", 8.5F, FontStyle.Bold)
+                            : new Font("Segoe UI", 8.5F)
+                    };
+                    pnlWorkload.Controls.Add(lbl);
+                }
+            }
+            catch (Exception ex)
+            {
+                JaneERP.Logging.AppLogger.Info($"[FormTaskManager.LoadWorkloadSummary]: {ex.Message}");
+            }
         }
 
         /// <summary>Adds any workflow stage names to the stage filter combo (deduplicated).</summary>
@@ -310,7 +449,6 @@ namespace JaneERP
 
             using var detail = new FormTaskDetail(_repo, task);
             detail.ShowDialog(this);
-            // Don't auto-clear — user must explicitly click "Clear Selected" or "Clear All"
             if (detail.Changed) LoadTasks();
         }
 
@@ -356,7 +494,7 @@ namespace JaneERP
             if (frm.ShowDialog(this) == DialogResult.OK)
             {
                 LoadTasks();
-                LoadMentions(); // refresh immediately so new @mentions appear instantly
+                LoadMentions();
             }
         }
 
@@ -380,8 +518,87 @@ namespace JaneERP
                 try { _repo.UpdateStatus(task!.TaskID, "Done"); done++; }
                 catch (Exception ex) { JaneERP.Logging.AppLogger.Info($"[FormTaskManager.BtnDone_Click]: {ex.Message}"); }
             }
-            LoadTasks();
+            LoadTasks(); // also refreshes workload
             if (done > 0) MessageBox.Show(this, $"{done} task(s) marked Done.", "Done",
+                MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+
+        private void BtnReassign_Click(object? sender, EventArgs e)
+        {
+            var selected = GetSelectedTasks();
+            if (selected.Count == 0)
+            {
+                MessageBox.Show(this, "Select one or more tasks to reassign.", "Nothing Selected",
+                    MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            List<string> usernames;
+            try { usernames = _repo.GetAllUsernames(); }
+            catch { usernames = new List<string>(); }
+
+            var newUser = PickFromList("Reassign to...", usernames);
+            if (newUser == null) return;
+
+            var currentUser = AppSession.CurrentUser?.Username ?? "system";
+            int updated = 0;
+            foreach (var task in selected)
+            {
+                try { _repo.UpdateAssignedTo(task.TaskID, newUser, currentUser); updated++; }
+                catch (Exception ex) { JaneERP.Logging.AppLogger.Info($"[FormTaskManager.BtnReassign_Click]: {ex.Message}"); }
+            }
+            LoadTasks(); // refreshes workload
+            if (updated > 0) MessageBox.Show(this, $"{updated} task(s) reassigned to {newUser}.", "Reassigned",
+                MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+
+        private void BtnSetPriority_Click(object? sender, EventArgs e)
+        {
+            var selected = GetSelectedTasks();
+            if (selected.Count == 0)
+            {
+                MessageBox.Show(this, "Select one or more tasks.", "Nothing Selected",
+                    MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            var priority = PickFromList("Set Priority", new[] { "Low", "Normal", "High", "Urgent" });
+            if (priority == null) return;
+
+            var currentUser = AppSession.CurrentUser?.Username ?? "system";
+            int updated = 0;
+            foreach (var task in selected)
+            {
+                try { _repo.UpdatePriority(task.TaskID, priority, currentUser); updated++; }
+                catch (Exception ex) { JaneERP.Logging.AppLogger.Info($"[FormTaskManager.BtnSetPriority_Click]: {ex.Message}"); }
+            }
+            LoadTasks();
+            if (updated > 0) MessageBox.Show(this, $"{updated} task(s) set to {priority} priority.", "Priority Updated",
+                MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+
+        private void BtnSetDue_Click(object? sender, EventArgs e)
+        {
+            var selected = GetSelectedTasks();
+            if (selected.Count == 0)
+            {
+                MessageBox.Show(this, "Select one or more tasks.", "Nothing Selected",
+                    MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            var newDate = PickDate("Set Due Date");
+            if (newDate == null) return;
+
+            var currentUser = AppSession.CurrentUser?.Username ?? "system";
+            int updated = 0;
+            foreach (var task in selected)
+            {
+                try { _repo.UpdateDueDate(task.TaskID, newDate.Value, currentUser); updated++; }
+                catch (Exception ex) { JaneERP.Logging.AppLogger.Info($"[FormTaskManager.BtnSetDue_Click]: {ex.Message}"); }
+            }
+            LoadTasks();
+            if (updated > 0) MessageBox.Show(this, $"{updated} task(s) due date set to {newDate.Value:yyyy-MM-dd}.", "Due Date Updated",
                 MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
 
@@ -391,7 +608,11 @@ namespace JaneERP
             if (dgvTasks.SelectedRows[0].DataBoundItem is not ErpTask task) return;
             if (MessageBox.Show(this, $"Delete task '{task.Title}'?", "Confirm",
                     MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
-            try { _repo.Delete(task.TaskID); LoadTasks(); }
+            try
+            {
+                _repo.Delete(task.TaskID);
+                LoadTasks(); // refreshes workload
+            }
             catch (Exception ex) { MessageBox.Show(this, ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error); }
         }
 
@@ -424,6 +645,76 @@ namespace JaneERP
                     MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
+
+        // ── Helpers ──────────────────────────────────────────────────────────────
+
+        /// <summary>Returns all ErpTask items currently selected in the grid.</summary>
+        private List<ErpTask> GetSelectedTasks() =>
+            dgvTasks.SelectedRows.Cast<DataGridViewRow>()
+                .Select(r => r.DataBoundItem as ErpTask)
+                .Where(t => t != null)
+                .Select(t => t!)
+                .ToList();
+
+        /// <summary>Shows a small inline dialog with a ComboBox and returns the chosen value, or null if cancelled.</summary>
+        private string? PickFromList(string title, IEnumerable<string> options)
+        {
+            using var dlg = new Form
+            {
+                Text            = title,
+                Size            = new Size(280, 130),
+                StartPosition   = FormStartPosition.CenterParent,
+                FormBorderStyle = FormBorderStyle.FixedDialog,
+                MaximizeBox     = false,
+                MinimizeBox     = false
+            };
+            var cbo = new ComboBox
+            {
+                DropDownStyle = ComboBoxStyle.DropDownList,
+                Dock          = DockStyle.Top
+            };
+            foreach (var o in options) cbo.Items.Add(o);
+            if (cbo.Items.Count > 0) cbo.SelectedIndex = 0;
+
+            var btn = new Button
+            {
+                Text         = "OK",
+                DialogResult = DialogResult.OK,
+                Dock         = DockStyle.Bottom
+            };
+            dlg.Controls.AddRange(new Control[] { btn, cbo });
+            dlg.AcceptButton = btn;
+            return dlg.ShowDialog(this) == DialogResult.OK ? cbo.SelectedItem?.ToString() : null;
+        }
+
+        /// <summary>Shows a small inline dialog with a DateTimePicker and returns the chosen date, or null if cancelled.</summary>
+        private DateTime? PickDate(string title)
+        {
+            using var dlg = new Form
+            {
+                Text            = title,
+                Size            = new Size(280, 130),
+                StartPosition   = FormStartPosition.CenterParent,
+                FormBorderStyle = FormBorderStyle.FixedDialog,
+                MaximizeBox     = false,
+                MinimizeBox     = false
+            };
+            var dtp = new DateTimePicker
+            {
+                Format = DateTimePickerFormat.Short,
+                Value  = DateTime.Today.AddDays(7),
+                Dock   = DockStyle.Top
+            };
+            var btn = new Button
+            {
+                Text         = "OK",
+                DialogResult = DialogResult.OK,
+                Dock         = DockStyle.Bottom
+            };
+            dlg.Controls.AddRange(new Control[] { btn, dtp });
+            dlg.AcceptButton = btn;
+            return dlg.ShowDialog(this) == DialogResult.OK ? dtp.Value.Date : (DateTime?)null;
+        }
     }
 
     // ── Add Task(s) dialog ────────────────────────────────────────────────────────
@@ -431,7 +722,6 @@ namespace JaneERP
     {
         private readonly TaskRepository _repo;
 
-        // One task entry is a row: title | description | assigned-to | due-date | priority
         private DataGridView   dgvTasks          = new();
         private Button         btnSave           = new();
         private Button         btnCancel         = new();
@@ -466,7 +756,6 @@ namespace JaneERP
                 AutoSize  = true
             });
 
-            // Default assign + due
             Controls.Add(new Label { Text = "Default Assign To:", Location = new Point(12, 50), AutoSize = true });
             cboDefaultUser.Location      = new Point(140, 47);
             cboDefaultUser.Size          = new Size(160, 23);
@@ -524,7 +813,6 @@ namespace JaneERP
             };
             Controls.Add(btnFill);
 
-            // Grid: title | description | assigned | due | priority
             var userNames = new DataGridViewComboBoxColumn
             {
                 Name         = "colAssign",
@@ -557,7 +845,6 @@ namespace JaneERP
             dgvTasks.DataError += (s, e) => e.Cancel = true;
             Controls.Add(dgvTasks);
 
-            // Seed one blank row
             dgvTasks.Rows.Add();
             if (cboDefaultUser.SelectedItem != null)
                 dgvTasks.Rows[0].Cells["colAssign"].Value = cboDefaultUser.SelectedItem.ToString();
@@ -641,10 +928,8 @@ namespace JaneERP
                 {
                     var taskId = _repo.Add(task);
                     saved++;
-                    // Parse @mentions in the description and save to TaskMentions
                     if (!string.IsNullOrWhiteSpace(task.Description))
                         SaveDescriptionMentions(taskId, task.Description, task.CreatedBy);
-                    // Assign default workflow if one was selected
                     if (cboDefaultWorkflow.SelectedItem is TaskWorkflow selWorkflow)
                     {
                         try
@@ -655,7 +940,6 @@ namespace JaneERP
                         }
                         catch { }
                     }
-                    // Notify assignee (fire-and-forget; skip if assigning to yourself)
                     if (!string.IsNullOrEmpty(task.AssignedTo) &&
                         !task.AssignedTo.Equals(task.CreatedBy, StringComparison.OrdinalIgnoreCase))
                     {
