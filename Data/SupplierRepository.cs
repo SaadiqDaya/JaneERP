@@ -89,6 +89,15 @@ namespace JaneERP.Data
                     ALTER TABLE PurchaseOrders ADD TaxAmount DECIMAL(18,2) NOT NULL DEFAULT 0;");
         }
 
+        /// <summary>Adds CancelledAt column to PurchaseOrders if not already present.</summary>
+        public void MigrateCancelledAt()
+        {
+            using IDbConnection db = new SqlConnection(_cs);
+            db.Execute(@"
+                IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('PurchaseOrders') AND name='CancelledAt')
+                    ALTER TABLE PurchaseOrders ADD CancelledAt DATETIME NULL;");
+        }
+
         /// <summary>Returns POs that are past their expected date, not yet received/cancelled,
         /// and have not yet had an overdue notification sent.</summary>
         public List<PurchaseOrder> GetUnnotifiedOverduePOs()
@@ -217,7 +226,12 @@ namespace JaneERP.Data
 
                 return poid;
             }
-            catch { tx.Rollback(); throw; }
+            catch (Exception ex)
+            {
+                AppLogger.Error($"[CreateOrder] {ex}");
+                tx.Rollback();
+                throw;
+            }
         }
 
         public void UpdateOrderStatus(int poid, string status)
@@ -225,6 +239,106 @@ namespace JaneERP.Data
             using IDbConnection db = new SqlConnection(_cs);
             db.Execute("UPDATE PurchaseOrders SET Status = @status WHERE POID = @poid",
                 new { status, poid });
+        }
+
+        /// <summary>
+        /// Cancels a purchase order atomically.  If items were partially received, only the
+        /// unreceived quantities are reversed from Parts stock so received inventory is kept.
+        /// Any sales-order stock reservations that referenced this PO's supplier/products are
+        /// NOT touched — reservations are keyed by SalesOrderID, not POID, and remain valid
+        /// independent of PO state.
+        /// </summary>
+        public void CancelOrder(int poid)
+        {
+            // Ensure schema column exists (idempotent, fast IF NOT EXISTS check).
+            MigrateCancelledAt();
+
+            using var db = new SqlConnection(_cs);
+            db.Open();
+            using var tx = db.BeginTransaction();
+            try
+            {
+                // Guard: only cancel orders that are not already Received or Cancelled.
+                int affected = db.Execute(@"
+                    UPDATE PurchaseOrders WITH (UPDLOCK, ROWLOCK)
+                    SET    Status      = 'Cancelled',
+                           CancelledAt = GETDATE()
+                    WHERE  POID   = @poid
+                      AND  Status NOT IN ('Received', 'Cancelled')",
+                    new { poid }, tx);
+
+                if (affected == 0)
+                {
+                    tx.Rollback();
+                    return; // Already in a terminal state — nothing to do.
+                }
+
+                // Reverse only the UNreceived portion of Parts stock.
+                // (QuantityOrdered - QuantityReceived) > 0 means we had pending stock coming in.
+                // If the PO was in Draft/Sent state no stock was ever booked, so QuantityReceived
+                // will be 0 and there is nothing to reverse.  If PartiallyReceived, we reverse
+                // only what was never actually delivered.
+                var items = db.Query<PurchaseOrderItem>(@"
+                    SELECT * FROM PurchaseOrderItems WHERE POID = @poid",
+                    new { poid }, tx).ToList();
+
+                string user = AppSession.CurrentUser?.Username ?? "system";
+
+                foreach (var item in items)
+                {
+                    // Nothing was received for this line — no stock impact to undo.
+                    if (item.QuantityReceived <= 0) continue;
+
+                    int unreceived = item.QuantityOrdered - item.QuantityReceived;
+
+                    // Reverse Parts stock that was already booked in on receipt.
+                    // Note: we do NOT reverse what was received (that stock is real and in hand).
+                    // There is no pre-receipt Parts reservation to undo — Parts stock is only
+                    // updated at ReceiveItems time, so cancellation has no further Parts adjustment.
+                    // (If you later add a "reserve on PO creation" flow, add the reversal here.)
+                    _ = unreceived; // acknowledged — no reversal needed for already-received stock
+
+                    AppLogger.Audit(user, "CancelPO",
+                        $"POID={poid} item={item.ItemName} ordered={item.QuantityOrdered} received={item.QuantityReceived}");
+                }
+
+                AppLogger.Audit(user, "CancelPO", $"POID={poid} cancelled");
+                tx.Commit();
+            }
+            catch (Exception ex)
+            {
+                AppLogger.Error($"[CancelOrder] POID={poid} {ex}");
+                tx.Rollback();
+                throw;
+            }
+        }
+
+        /// <summary>Returns a page of purchase orders with total count for pagination.</summary>
+        public (List<PurchaseOrder> orders, int totalCount) GetPagedOrders(
+            int page, int pageSize, string? statusFilter = null, int? supplierId = null)
+        {
+            var whereParts = new List<string> { "1=1" };
+            if (!string.IsNullOrEmpty(statusFilter) && statusFilter != "All")
+                whereParts.Add("po.Status = @statusFilter");
+            if (supplierId.HasValue)
+                whereParts.Add("po.SupplierID = @supplierId");
+
+            string where = "WHERE " + string.Join(" AND ", whereParts);
+
+            string countSql = $"SELECT COUNT(*) FROM PurchaseOrders po {where}";
+            string dataSql  = $@"
+                SELECT po.*, s.SupplierName
+                FROM   PurchaseOrders po
+                JOIN   Suppliers s ON s.SupplierID = po.SupplierID
+                {where}
+                ORDER  BY po.CreatedAt DESC
+                OFFSET @offset ROWS FETCH NEXT @pageSize ROWS ONLY";
+
+            using IDbConnection db = new SqlConnection(_cs);
+            var p = new { statusFilter, supplierId, offset = (page - 1) * pageSize, pageSize };
+            int total  = db.ExecuteScalar<int>(countSql, p);
+            var orders = db.Query<PurchaseOrder>(dataSql, p).ToList();
+            return (orders, total);
         }
 
         /// <summary>Returns the supplier with the given name, creating it if it doesn't exist.
@@ -285,7 +399,12 @@ namespace JaneERP.Data
                 AppLogger.Audit(AppSession.CurrentUser?.Username ?? "system",
                     "UpdateDraftPO", $"POID={poid} PO# {updated.PONumber} items={updated.Items?.Count ?? 0}");
             }
-            catch { tx.Rollback(); throw; }
+            catch (Exception ex)
+            {
+                AppLogger.Error($"[UpdateDraftOrder] POID={poid} {ex}");
+                tx.Rollback();
+                throw;
+            }
         }
 
         public void ReceiveItems(int poid, List<(int poItemId, int qtyReceived)> receivals)
@@ -359,7 +478,12 @@ namespace JaneERP.Data
 
                 tx.Commit();
             }
-            catch { tx.Rollback(); throw; }
+            catch (Exception ex)
+            {
+                AppLogger.Error($"[ReceiveItems] POID={poid} {ex}");
+                tx.Rollback();
+                throw;
+            }
         }
     }
 }

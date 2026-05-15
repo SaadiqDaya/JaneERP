@@ -46,17 +46,8 @@ namespace JaneERP
             StartPosition = FormStartPosition.CenterParent;
 
             // ── Header ────────────────────────────────────────────────────────
-            Controls.Add(new Label
-            {
-                Text      = "Returns Manager",
-                Font      = new Font("Segoe UI", 14F, FontStyle.Bold),
-                ForeColor = Theme.Gold,
-                Location  = new Point(12, 12),
-                AutoSize  = true
-            });
-
-            Controls.Add(new Label { Text = "Filter:", Location = new Point(12, 50), AutoSize = true });
-            _cboFilter.Location      = new Point(54, 46);
+            Controls.Add(new Label { Text = "Filter:", Location = new Point(12, 62), AutoSize = true });
+            _cboFilter.Location      = new Point(54, 58);
             _cboFilter.Size          = new Size(160, 23);
             _cboFilter.DropDownStyle = ComboBoxStyle.DropDownList;
             _cboFilter.Items.AddRange(new object[] { "All", "Pending", "Approved", "Rejected" });
@@ -65,7 +56,7 @@ namespace JaneERP
             Controls.Add(_cboFilter);
 
             _btnRefresh.Text     = "Refresh";
-            _btnRefresh.Location = new Point(224, 44);
+            _btnRefresh.Location = new Point(224, 58);
             _btnRefresh.Size     = new Size(80, 27);
             _btnRefresh.Click   += (_, _) => LoadData();
             Theme.StyleButton(_btnRefresh);
@@ -170,6 +161,7 @@ namespace JaneERP
             _lblStatus.AutoSize = true;
             Controls.Add(_lblStatus);
             SizeChanged += (_, _) => _lblStatus.Location = new Point(12, ClientSize.Height - 22);
+            Theme.AddFormHeader(this, "↩️  Returns Manager");
         }
 
         // ── Data loading ─────────────────────────────────────────────────────────
@@ -292,11 +284,23 @@ namespace JaneERP
                 _repo.ApproveReturn(ret.ReturnID);
                 LoadData();
 
-                // Show resulting credit
+                // Build per-product restock summary for confirmation message.
                 var approved = _repo.GetById(ret.ReturnID);
                 decimal balance = _repo.GetActiveCreditBalance(approved?.CustomerID ?? 0);
+
+                var resalableItems = approved?.Items
+                    .Where(i => i.Condition == "Resalable")
+                    .ToList() ?? [];
+
+                string restockLines = resalableItems.Count > 0
+                    ? string.Join("\n", resalableItems.Select(i =>
+                        $"  • {i.ReturnQty} unit(s) of {i.ProductName ?? i.SKU ?? $"ProductID {i.ProductID}"} restocked"))
+                    : "  (no resalable items — no inventory restocked)";
+
                 MessageBox.Show(this,
-                    $"Return #{ret.ReturnID} approved.\n\nCustomer credit balance: {balance:C}",
+                    $"Return #{ret.ReturnID} approved.\n\n" +
+                    $"Inventory restocked:\n{restockLines}\n\n" +
+                    $"Customer credit balance: {balance:C}",
                     "Approved", MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
             catch (Exception ex)
