@@ -10,6 +10,9 @@ namespace JaneERP
     {
         private readonly AppUser _user;
 
+        private string _salesPeriod     = "today";
+        private string _analyticsPeriod = "7d";
+
         /// <summary>True when the user explicitly clicked Logout (vs closing the window).</summary>
         public bool LoggedOut { get; private set; }
 
@@ -44,6 +47,12 @@ namespace JaneERP
             Load                 += (_, _) => System.Threading.Tasks.Task.Run(FetchBadgeCounts);
             FormClosed           += (_, _) => _badgeTimer.Stop();
             _badgeTimer.Start();
+
+            Load += (_, _) => BindTimeRangeBtns(_salesTimeBtns,     "Sales");
+            Load += (_, _) => BindTimeRangeBtns(_analyticsTimeBtns, "Analytics");
+
+            // Start on High Level view, highlight the nav button
+            Load += (_, _) => HighlightNavButton("HighLevel");
 
             Theme.Apply(this);
             Theme.MakeBorderless(this);
@@ -491,7 +500,11 @@ namespace JaneERP
                         btnCycleCount.Invalidate();
                     });
             }
-            catch { }
+            catch (Exception ex)
+            {
+                Logging.AppLogger.Error($"[FormMainMenu.FetchBadgeCounts] {ex}");
+                // Don't crash the menu — just log and continue with zero badges
+            }
         }
 
         private void DrawMentionBadge(object? sender, PaintEventArgs e)
@@ -553,6 +566,168 @@ namespace JaneERP
                 LineAlignment = StringAlignment.Center
             };
             g.DrawString(text, tf, tb, badgeRect, sf);
+        }
+
+        // ── Section switching ─────────────────────────────────────────────────
+
+        private string _currentSection = "HighLevel";
+
+        internal void ShowSection(string section)
+        {
+            _currentSection = section;
+
+            // Hide all views
+            pnlGrid.Visible               = false;
+            pnlSectionSales.Visible       = false;
+            pnlSectionPurchasing.Visible  = false;
+            pnlSectionProducts.Visible    = false;
+            pnlSectionMfg.Visible         = false;
+            pnlSectionAnalytics.Visible   = false;
+            pnlSectionTasks.Visible       = false;
+            pnlSectionData.Visible        = false;
+            pnlSectionAdmin.Visible       = false;
+
+            // Show requested view
+            switch (section)
+            {
+                case "HighLevel":   pnlGrid.Visible             = true; break;
+                case "Sales":       pnlSectionSales.Visible     = true; break;
+                case "Purchasing":  pnlSectionPurchasing.Visible = true; break;
+                case "Products":    pnlSectionProducts.Visible  = true; break;
+                case "Mfg":         pnlSectionMfg.Visible       = true; break;
+                case "Analytics":   pnlSectionAnalytics.Visible = true; break;
+                case "Tasks":       pnlSectionTasks.Visible     = true; break;
+                case "Data":        pnlSectionData.Visible      = true; break;
+                case "Admin":       pnlSectionAdmin.Visible     = true; break;
+            }
+
+            HighlightNavButton(section);
+
+            if (section != "HighLevel")
+                System.Threading.Tasks.Task.Run(() => FetchAndUpdateKPIs(section));
+        }
+
+        private void HighlightNavButton(string section)
+        {
+            var allNavBtns = new[] { _navHighLevel, _navSales, _navPurchasing, _navProducts, _navMfg, _navAnalytics, _navTasks, _navData, _navAdmin };
+            foreach (var b in allNavBtns)
+            {
+                if (b == null) continue;
+                b.BackColor = Color.Transparent;
+                b.ForeColor = Color.FromArgb(176, 213, 220);
+            }
+
+            var active = section switch
+            {
+                "Sales"      => _navSales,
+                "Purchasing" => _navPurchasing,
+                "Products"   => _navProducts,
+                "Mfg"        => _navMfg,
+                "Analytics"  => _navAnalytics,
+                "Tasks"      => _navTasks,
+                "Data"       => _navData,
+                "Admin"      => _navAdmin,
+                _            => _navHighLevel
+            };
+            if (active != null)
+            {
+                active.BackColor = Color.FromArgb(22, 60, 70);
+                active.ForeColor = Theme.Gold;
+            }
+        }
+
+        private void BindTimeRangeBtns(Button[] btns, string section)
+        {
+            if (btns.Length == 0) return;
+            string[] periods = { "today", "7d", "30d" };
+            for (int i = 0; i < btns.Length && i < 3; i++)
+            {
+                int idx = i;
+                btns[i].Click += (_, _) =>
+                {
+                    foreach (var b in btns)
+                    {
+                        b.BackColor = Color.FromArgb(22, 60, 70);
+                        b.ForeColor = Color.FromArgb(130, 180, 195);
+                    }
+                    btns[idx].BackColor = Theme.Gold;
+                    btns[idx].ForeColor = Color.White;
+                    if (section == "Sales")      _salesPeriod     = periods[idx];
+                    if (section == "Analytics")  _analyticsPeriod = periods[idx];
+                    System.Threading.Tasks.Task.Run(() => FetchAndUpdateKPIs(section));
+                };
+            }
+        }
+
+        private void FetchAndUpdateKPIs(string section)
+        {
+            try
+            {
+                var kpi = Infrastructure.AppServices.Get<Interfaces.IKPIRepository>().GetKPIs();
+                if (!IsHandleCreated || IsDisposed) return;
+
+                BeginInvoke(() =>
+                {
+                    switch (section)
+                    {
+                        case "Sales":
+                            string sp = _salesPeriod;
+                            decimal rev   = sp == "30d" ? kpi.RevenueLast30Days : sp == "7d" ? kpi.RevenueLast7Days : kpi.RevenueToday;
+                            int     ords  = sp == "30d" ? kpi.OrdersLast30Days  : sp == "7d" ? kpi.OrdersLast7Days  : kpi.OrdersToday;
+                            if (_kpiS0 != null) _kpiS0.Text = kpi.PendingOrders.ToString("N0");
+                            if (_kpiS1 != null) _kpiS1.Text = $"${rev:N0}";
+                            if (_kpiS2 != null) _kpiS2.Text = ords.ToString("N0");
+                            break;
+
+                        case "Purchasing":
+                            if (_kpiPu0 != null) _kpiPu0.Text = kpi.PendingPOs.ToString("N0");
+                            if (_kpiPu1 != null) _kpiPu1.Text = $"${kpi.OutstandingPOAmount:N0}";
+                            break;
+
+                        case "Products":
+                            if (_kpiP0 != null) _kpiP0.Text = kpi.InStock.ToString("N0");
+                            if (_kpiP1 != null) _kpiP1.Text = kpi.LowStock.ToString("N0");
+                            if (_kpiP2 != null) _kpiP2.Text = $"${kpi.InventoryValue:N0}";
+                            break;
+
+                        case "Mfg":
+                            if (_kpiM0 != null) _kpiM0.Text = kpi.OpenWorkOrders.ToString("N0");
+                            break;
+
+                        case "Analytics":
+                            string ap = _analyticsPeriod;
+                            decimal exp = ap == "30d" ? kpi.ExpensesLast30Days : kpi.ExpensesLast7Days;
+                            decimal rev2 = ap == "30d" ? kpi.RevenueLast30Days : ap == "7d" ? kpi.RevenueLast7Days : kpi.RevenueToday;
+                            if (_kpiA0 != null) _kpiA0.Text = $"${exp:N0}";
+                            if (_kpiA1 != null) _kpiA1.Text = $"${rev2:N0}";
+                            if (_kpiA2 != null) _kpiA2.Text = $"${kpi.InventoryValue:N0}";
+                            if (_kpiA3 != null) _kpiA3.Text = kpi.LowStock.ToString("N0");
+                            if (_kpiA4 != null) _kpiA4.Text = kpi.LowStock.ToString("N0");
+                            break;
+
+                        case "Tasks":
+                            if (_kpiT0 != null) _kpiT0.Text = kpi.TasksOverdue.ToString("N0");
+                            if (_kpiT1 != null) _kpiT1.Text = kpi.TasksOpenTotal.ToString("N0");
+                            if (_kpiT2 != null) _kpiT2.Text = kpi.TasksDueThisWeek.ToString("N0");
+                            break;
+
+                        case "Data":
+                            if (_kpiD0 != null) _kpiD0.Text = kpi.TotalProducts.ToString("N0");
+                            if (_kpiD1 != null) _kpiD1.Text = kpi.TotalParts.ToString("N0");
+                            break;
+
+                        case "Admin":
+                            if (_kpiAd0 != null) _kpiAd0.Text = kpi.ActiveUsers.ToString("N0");
+                            if (_kpiAd1 != null) _kpiAd1.Text = kpi.TasksOverdue.ToString("N0");
+                            break;
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                Logging.AppLogger.Error($"[FormMainMenu.FetchAndUpdateKPIs] {ex}");
+                // KPIs are cosmetic — don't surface errors to the user
+            }
         }
     }
 }

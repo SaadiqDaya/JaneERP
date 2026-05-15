@@ -1,3 +1,4 @@
+using System.Configuration;
 using JaneERP.Data;
 using JaneERP.Infrastructure;
 using JaneERP.Interfaces;
@@ -45,47 +46,39 @@ namespace JaneERP
             }
 
             // ── Step 3: SQL Server schema against the selected company database ────────
-            // Order matters — Products must exist before anything that FKs to it (Shopify, Parts, Manufacturing).
-            // LocationRepository and MigrateProductColumns add FK columns to Products/InventoryTransactions
-            // via ALTER TABLE once their referenced tables (Locations, Vendors, ProductTypes) are ready.
-            SchemaStep("Users",          () => { var r = new UserRepository(); r.EnsureSchema(); r.MigrateUserColumns(); r.MigrateLockout(); });
-            SchemaStep("Stores",         () => new StoreRepository().EnsureSchema());
-            SchemaStep("Products",       () => new ProductRepository().EnsureSchema());          // creates Products, InventoryTransactions, ProductAttributes
-            SchemaStep("Shopify",        () => new ShopifySyncService().EnsureSchema());         // creates Customers, SalesOrders, SalesOrderItems (FK to Products)
-            SchemaStep("Locations",      () => { var r = new LocationRepository(); r.EnsureSchema(); r.SeedDefaultLocations(); r.EnsureBinsSchema(); }); // adds FK cols to Products/InventoryTransactions
-            SchemaStep("Vendors",        () => new VendorRepository().EnsureSchema());
-            SchemaStep("ProductTypes",   () => new ProductTypeRepository().EnsureSchema());
-            SchemaStep("Parts",          () => new PartRepository().EnsureSchema());             // creates Parts, ProductParts (FK to Products)
-            SchemaStep("Suppliers",      () => new SupplierRepository().EnsureSchema());
-            SchemaStep("ProductMigrate", () => new ProductRepository().MigrateProductColumns()); // adds DefaultVendorID, ProductTypeID FK cols (Vendors/ProductTypes now exist)
-            SchemaStep("Manufacturing",  () => new ManufacturingRepository().EnsureSchema());    // creates ManufacturingOrders, WorkOrders (FK to Products)
-            SchemaStep("Tasks",         () => new TaskRepository().EnsureSchema());
-            SchemaStep("CycleCount",    () => new CycleCountRepository().EnsureSchema());
-            SchemaStep("Accounting",    () => { var r = new AccountingRepository(); r.EnsureSchema(); r.EnsureTaxRatesSchema(); });
-            SchemaStep("PackageComponents", () => new PackageRepository().EnsureSchema());
-            SchemaStep("DiscountTiers",  () => { var r = new DiscountTierRepository(); r.EnsureSchema(); r.MigrateCustomerTier(); r.MigrateOrderDiscount(); });
-            SchemaStep("PONotifiedAt",   () => new SupplierRepository().MigrateOverdueNotifiedColumn());
-            SchemaStep("POShipping",     () => new SupplierRepository().MigrateShippingCost());
-            SchemaStep("POTaxAmount",    () => new SupplierRepository().MigrateTaxAmount());
-            SchemaStep("CustomerNotes", () => new CustomerRepository().EnsureNotesSchema());
-            SchemaStep("ReturnOrders",  () => new ReturnRepository().EnsureSchema());
-            SchemaStep("Backorders",    () => new BackorderRepository().EnsureSchema());
+            // Progress screen shows each of the 72 DDL steps so the user is never left
+            // staring at a blank screen during first-run or after an update.
+            var activeCs = JaneERP.Security.CompanyManager.ActiveConnectionString
+                ?? ConfigurationManager.ConnectionStrings["MyERP"]?.ConnectionString
+                ?? throw new InvalidOperationException("No active database connection.");
 
-            // ── Migration version table (must run before any RunOnce migrations) ──
-            SchemaStep("MigrationTable", () => DataMigrations.EnsureMigrationTable());
+            FormSchemaProgress.RunWithProgress(activeCs);
 
-            // ── One-time data migrations — each runs exactly once, tracked by AppliedMigrations ──
-            SchemaStep("FgEjuiceType",        () => DataMigrations.SetFgProductTypeEjuice());
-            SchemaStep("FgBoms",              () => DataMigrations.SetFgProductBoms());
+            // ── One-time data migrations (tracked by AppliedMigrations table) ─────────
+            SchemaStep("FgEjuiceType",          () => DataMigrations.SetFgProductTypeEjuice());
+            SchemaStep("FgBoms",                () => DataMigrations.SetFgProductBoms());
             SchemaStep("ProductPartsMigration", () => DataMigrations.EnsureAllProductsHaveParts());
 
-            // ── Performance hardening — runs once per database, safe to skip on failure ──
-            // RCSI first: eliminates reader/writer blocking for concurrent users.
-            // Indexes second: created after all schema steps so all tables exist.
-            SchemaStep("EnableRCSI",          () => DataMigrations.EnableReadCommittedSnapshot());
-            SchemaStep("PerformanceIndexes",  () => DataMigrations.AddPerformanceIndexes());
-            SchemaStep("RowVersion",          () => DataMigrations.AddRowVersionToProducts());
-            SchemaStep("ReturnSupport",       () => DataMigrations.AddReturnSupport());
+            // ── First-run wizard (only when the database has no users yet) ────────────
+            // Lets the user create an admin account and configure currencies, labour
+            // rates, and tax codes before they ever see the login screen.
+            try
+            {
+                var userRepo = new UserRepository();
+                if (!userRepo.HasAnyUsers())
+                {
+                    using var setup = new FormFirstRunSetup();
+                    if (setup.ShowDialog() != DialogResult.OK)
+                    {
+                        // User closed the wizard without finishing — still boot normally,
+                        // FormAppLogin will prompt for first-run account creation.
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                AppLogger.Audit("system", "FirstRunWizardFailed", ex.ToString());
+            }
 
             // ── Auto-backup (runs after schema is ready, before login) ─────────────
             if (BackupService.IsBackupDue())

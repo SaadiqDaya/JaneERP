@@ -133,6 +133,12 @@ namespace JaneERP
         public string BackupSchedule  { get; set; } = "None";
         /// <summary>UTC datetime of the last successful backup.</summary>
         public DateTime? LastBackupAt { get; set; }
+        // NOTE: AppSettings does not currently track LastModifiedBy / LastModifiedAt.
+        // The settings.json file's filesystem timestamp serves as a rough "last saved" indicator.
+        // If per-user change tracking is needed in the future, add:
+        //   public string?   LastModifiedBy { get; set; }
+        //   public DateTime? LastModifiedAt { get; set; }
+        // and populate them in Save() via AppSession.CurrentUser?.Username.
 
         // ── Manufacturing ─────────────────────────────────────────────────────────
 

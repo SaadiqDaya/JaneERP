@@ -55,6 +55,24 @@ namespace JaneERP.Services
                 File.Copy(SqliteDbPath, sqliteBackupPath, overwrite: false);
             }
 
+            // ── Retention: keep the 7 most recent SQL backups, delete older ones ──
+            try
+            {
+                var oldSqlBaks = Directory.GetFiles(backupFolder, "JaneERP_SQL_*.bak")
+                    .OrderByDescending(f => f)
+                    .Skip(7);
+                foreach (var old in oldSqlBaks)
+                {
+                    File.Delete(old);
+                    Logging.AppLogger.Info($"[Backup] Pruned old backup: {old}");
+                }
+            }
+            catch (Exception ex)
+            {
+                // Retention cleanup failure must not block or throw — log and move on
+                Logging.AppLogger.Error($"[Backup.Retention] {ex.Message}");
+            }
+
             // ── Record success ─────────────────────────────────────────────────────
             var settings = AppSettings.Current;
             settings.LastBackupAt = DateTime.UtcNow;
@@ -84,6 +102,17 @@ namespace JaneERP.Services
                 $"BACKUP DATABASE [{dbName}] TO DISK = @path WITH FORMAT, INIT, COMPRESSION",
                 new { path = backupFilePath },
                 commandTimeout: 120);
+
+            // ── Post-backup validation ─────────────────────────────────────────────
+            // Confirm the file was actually written and is a plausible size.
+            // A legitimate SQL Server .bak file is always at least a few MB; less than
+            // 10 KB almost certainly means the BACKUP command silently wrote nothing useful.
+            var info = new FileInfo(backupFilePath);
+            if (!info.Exists || info.Length < 10_000)
+                throw new Exception(
+                    $"Backup validation failed — file is suspiciously small ({info.Length:N0} bytes): {backupFilePath}");
+
+            Logging.AppLogger.Info($"[Backup] SQL backup validated: {backupFilePath} ({info.Length / 1024.0 / 1024.0:F1} MB)");
         }
     }
 }
