@@ -538,11 +538,15 @@ namespace JaneERP
                 string?  notes  = string.IsNullOrWhiteSpace(txtNotes.Text) ? null : txtNotes.Text.Trim();
 
                 _custRepo.RecordPayment(tag.ID, _selectedCustomerId, amount, method, date, notes);
+                MessageBox.Show(this, $"Payment of {amount:C} recorded successfully.", "Payment Recorded",
+                    MessageBoxButtons.OK, MessageBoxIcon.Information);
+                // Refresh the transactions panel and customer list totals
                 DgvCustomers_SelectionChanged(null, EventArgs.Empty);
+                LoadCustomers();
             }
             catch (Exception ex)
             {
-                MessageBox.Show(this, "Failed to record payment: " + ex.Message, "Error",
+                MessageBox.Show(this, ex.Message, "Payment Failed",
                     MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }

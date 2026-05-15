@@ -91,7 +91,12 @@ namespace JaneERP.Data
                     SELECT 1 FROM sys.columns
                     WHERE object_id = OBJECT_ID('CustomerPayments') AND name = 'PaymentMethod')
                 ALTER TABLE CustomerPayments
-                    ADD PaymentMethod NVARCHAR(50) NOT NULL DEFAULT 'Cash';");
+                    ADD PaymentMethod NVARCHAR(50) NOT NULL DEFAULT 'Cash';
+                IF NOT EXISTS (
+                    SELECT 1 FROM sys.columns
+                    WHERE object_id = OBJECT_ID('CustomerPayments') AND name = 'RecordedBy')
+                ALTER TABLE CustomerPayments
+                    ADD RecordedBy NVARCHAR(100) NULL;");
         }
 
         public void RecordPayment(int salesOrderId, int customerId, decimal amount,
@@ -116,7 +121,7 @@ namespace JaneERP.Data
             {
                 tx.Rollback();
                 Logging.AppLogger.Error($"[CustomerRepository.RecordPayment] salesOrderId={salesOrderId} customerId={customerId}: {ex}");
-                throw;
+                throw new Exception($"Payment failed: {ex.Message}", ex);
             }
         }
 
