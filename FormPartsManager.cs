@@ -270,7 +270,7 @@ namespace JaneERP
 
                 // ── Refresh pagination bar ────────────────────────────────────────
                 _pnlPartsPager.Controls.Clear();
-                var pager = BuildPaginationBar(ref _partsPage, _partsTotalCount, PartsPageSize, () => LoadParts());
+                var pager = BuildPaginationBar(() => _partsPage, v => _partsPage = v, _partsTotalCount, PartsPageSize, () => LoadParts());
                 pager.Dock = DockStyle.Fill;
                 _pnlPartsPager.Controls.Add(pager);
 
@@ -286,7 +286,7 @@ namespace JaneERP
         // ── Pagination helper ─────────────────────────────────────────────────────
 
         private Panel BuildPaginationBar(
-            ref int currentPage, int totalCount, int pageSize,
+            Func<int> getPage, Action<int> setPage, int totalCount, int pageSize,
             Action reload)
         {
             var panel   = new Panel { Height = 36, Dock = DockStyle.Bottom };
@@ -294,14 +294,15 @@ namespace JaneERP
             var lblPage = new Label  { AutoSize = true, Top = 10, Left = 96 };
             var btnNext = new Button { Text = "Next →", Size = new Size(80, 28), Left = 0, Top = 4 };
 
+            int currentPage = getPage();
             int totalPages = Math.Max(1, (int)Math.Ceiling(totalCount / (double)pageSize));
             lblPage.Text    = $"Page {currentPage} of {totalPages}  ({totalCount:N0} records)";
             btnPrev.Enabled = currentPage > 1;
             btnNext.Enabled = currentPage < totalPages;
             btnNext.Left    = lblPage.PreferredWidth + 96 + 8;
 
-            btnPrev.Click += (s, e) => { currentPage--; reload(); };
-            btnNext.Click += (s, e) => { currentPage++; reload(); };
+            btnPrev.Click += (s, e) => { setPage(getPage() - 1); reload(); };
+            btnNext.Click += (s, e) => { setPage(getPage() + 1); reload(); };
 
             panel.Controls.AddRange(new Control[] { btnPrev, lblPage, btnNext });
             return panel;
