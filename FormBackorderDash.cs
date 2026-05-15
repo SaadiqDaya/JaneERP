@@ -8,10 +8,11 @@ namespace JaneERP
     {
         private readonly IBackorderRepository _repo = AppServices.Get<IBackorderRepository>();
 
-        private DataGridView   _dgv       = new();
+        private DataGridView   _dgv         = new();
         private Button         _btnRefresh  = new();
         private Button         _btnFulfill  = new();
         private Button         _btnCancel   = new();
+        private Button         _btnViewOrder = new();
         private Label          _lblStatus   = new();
         private List<Backorder> _rows       = [];
 
@@ -73,6 +74,14 @@ namespace JaneERP
             Theme.StyleButton(_btnCancel);
             Controls.Add(_btnCancel);
 
+            _btnViewOrder.Text     = "View Order";
+            _btnViewOrder.Location = new Point(356, 68);
+            _btnViewOrder.Size     = new Size(100, 27);
+            _btnViewOrder.Enabled  = false;
+            _btnViewOrder.Click   += BtnViewOrder_Click;
+            Theme.StyleButton(_btnViewOrder);
+            Controls.Add(_btnViewOrder);
+
             _dgv.Location        = new Point(12, 104);
             _dgv.Size            = new Size(976, 444);
             _dgv.Anchor          = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
@@ -84,6 +93,7 @@ namespace JaneERP
             _dgv.SelectionMode         = DataGridViewSelectionMode.FullRowSelect;
             _dgv.SelectionChanged     += (_, _) => UpdateButtons();
             _dgv.CellFormatting       += Dgv_CellFormatting;
+            _dgv.CellDoubleClick      += (_, _) => BtnViewOrder_Click(null, EventArgs.Empty);
 
             _dgv.Columns.Add(new DataGridViewTextBoxColumn { Name = "colOrder",    HeaderText = "Order #",     Width = 80  });
             _dgv.Columns.Add(new DataGridViewTextBoxColumn { Name = "colCustomer", HeaderText = "Customer",    Width = 160 });
@@ -143,8 +153,25 @@ namespace JaneERP
         {
             bool hasSelection = _dgv.SelectedRows.Count > 0
                 && _dgv.SelectedRows[0].Tag is Backorder;
-            _btnFulfill.Enabled = hasSelection;
-            _btnCancel.Enabled  = hasSelection;
+            _btnFulfill.Enabled   = hasSelection;
+            _btnCancel.Enabled    = hasSelection;
+            _btnViewOrder.Enabled = hasSelection;
+        }
+
+        private void BtnViewOrder_Click(object? sender, EventArgs e)
+        {
+            if (_dgv.SelectedRows.Count == 0 || _dgv.SelectedRows[0].Tag is not Backorder bo) return;
+
+            MessageBox.Show(this,
+                $"Order #:       {bo.OrderNumber}\n" +
+                $"Customer:      {bo.CustomerName ?? "—"}\n" +
+                $"Product:       {bo.ProductName}  ({bo.SKU})\n" +
+                $"B/O Qty:       {bo.BackorderedQty}   Filled: {bo.FulfilledQty}   Remaining: {bo.RemainingQty}\n" +
+                $"In Stock:      {bo.AvailableStock}\n" +
+                $"Status:        {bo.Status}\n" +
+                $"Created:       {bo.CreatedAt:yyyy-MM-dd}",
+                $"Order #{bo.OrderNumber} — Backorder Detail",
+                MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
 
         private void BtnFulfill_Click(object? sender, EventArgs e)

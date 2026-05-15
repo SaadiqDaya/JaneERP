@@ -84,7 +84,7 @@ namespace JaneERP
             btnExitApp.Click += (_, _) => Application.Exit();
 
             // ── Build icon buttons ─────────────────────────────────────────────
-            btnInventory      = MakeIconButton("\U0001F4E6", "Inventory Manager", btnInventory_Click);
+            btnInventory      = MakeIconButton("\U0001F4E6", "Stock Browser",     btnInventory_Click);
             btnParts          = MakeIconButton("\U0001F527", "Parts",           btnParts_Click);
             btnBOM            = MakeIconButton("\U0001F4CB", "BOM",             btnBOM_Click);
             btnSales          = MakeIconButton("\U0001F6D2", "Sales",           btnSales_Click);
@@ -107,7 +107,7 @@ namespace JaneERP
             btnDashboard      = MakeIconButton("\U0001F4C9", "KPI",             btnDashboard_Click);
             btnReports        = MakeIconButton("\U0001F4C8", "Reports",         btnReports_Click);
             btnReorderReport  = MakeIconButton("\u26A0",     "Reorder",         btnReorderReport_Click);
-            btnInventoryDash  = MakeIconButton("\U0001F4CA", "Inventory",       btnInventoryDash_Click);
+            btnInventoryDash  = MakeIconButton("\U0001F4CA", "Inv. Snapshot",   btnInventoryDash_Click);
             btnUnverified     = MakeIconButton("\u26A0",     "Unverified",      btnUnverified_Click);
             btnExport         = MakeIconButton("\U0001F4BE", "Exports",         btnExport_Click);
             btnImports        = MakeIconButton("\U0001F4E5", "Imports",         btnImports_Click);
@@ -130,7 +130,7 @@ namespace JaneERP
             btnOphelia.Click += btnOphelia_Click;
 
             // ── Tooltips ──────────────────────────────────────────────────────
-            toolTip1.SetToolTip(btnInventory,      "Inventory Manager — browse and manage products");
+            toolTip1.SetToolTip(btnInventory,      "Stock Browser — browse and manage all products and stock levels");
             toolTip1.SetToolTip(btnParts,          "Manage raw material parts and BOM components");
             toolTip1.SetToolTip(btnBOM,            "Edit Bill of Materials for products");
             toolTip1.SetToolTip(btnSales,          "View and manage Shopify & manual sales orders");
@@ -152,7 +152,7 @@ namespace JaneERP
             toolTip1.SetToolTip(btnDashboard,      "Live KPI dashboard — orders, stock, revenue");
             toolTip1.SetToolTip(btnReports,        "Stock, sales, COGS and cycle count reports");
             toolTip1.SetToolTip(btnReorderReport,  "Products and parts that need reordering");
-            toolTip1.SetToolTip(btnInventoryDash,  "Inventory health snapshot");
+            toolTip1.SetToolTip(btnInventoryDash,  "Inventory Snapshot — health overview: stock alerts, low stock, and value summary");
             toolTip1.SetToolTip(btnUnverified,     "Review auto-created products and parts");
             toolTip1.SetToolTip(btnSettings,       "Configure theme, logo, colors and app settings");
             toolTip1.SetToolTip(btnExport,         "Export ERP data to CSV files");

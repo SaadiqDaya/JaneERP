@@ -10,6 +10,7 @@ namespace JaneERP
         private readonly AppSettings          _settings;
         private readonly IUomRepository       _uomRepo       = AppServices.Get<IUomRepository>();
         private readonly IAccountingRepository _accountingRepo = AppServices.Get<IAccountingRepository>();
+        private readonly IStoreRepository     _storeRepo     = AppServices.Get<IStoreRepository>();
         private DataGridView            _dgvUom         = new();
         private DataGridView            _dgvConversions = new();
         private DataGridView            _dgvTaxRates    = new();
@@ -50,6 +51,7 @@ namespace JaneERP
         private TextBox      txtSmtpUser   = new();
         private TextBox      txtSmtpPass   = new();
         private TextBox      txtFromEmail  = new();
+        private Button       btnTestEmail  = new();
         // Security settings
         private NumericUpDown nudMaxAttempts  = new();
         private NumericUpDown nudLockoutMins  = new();
@@ -148,7 +150,8 @@ namespace JaneERP
             {
                 "Company", "Currencies", "Order Types", "Fulfillment",
                 "Notifications", "Security", "System", "Units of Measure",
-                "Backup", "Manufacturing", "Appearance", "Tax Rates"
+                "Backup", "Manufacturing", "Appearance", "Tax Rates",
+                "Integrations"
             });
             pnlNav.Controls.Add(lstNav);
             // (pnlNav and divider added to Controls at end of BuildUI in correct dock order)
@@ -172,7 +175,8 @@ namespace JaneERP
                 BuildPageBackup(),
                 BuildPageManufacturing(),
                 BuildPageAppearance(),
-                BuildPageTaxRates()
+                BuildPageTaxRates(),
+                BuildPageIntegrations()
             };
 
             // Each page fills the content area; WinForms handles sizing via Dock.
@@ -209,6 +213,19 @@ namespace JaneERP
         {
             var pnl = new Panel { AutoScroll = true };
             int y = 16;
+
+            // ── Version label ─────────────────────────────────────────────────────
+            var lblVersion = new Label
+            {
+                Text      = $"JaneERP  v{Application.ProductVersion}",
+                Font      = new Font("Segoe UI", 8.5F),
+                ForeColor = Theme.TextSecondary,
+                AutoSize  = true,
+                Location  = new Point(16, y)
+            };
+            pnl.Controls.Add(lblVersion);
+            y += 24;
+
             pnl.Controls.Add(new Label { Text = "Company Logo (PNG or JPG):", Location = new Point(16, y), AutoSize = true });
             y += 22;
 
@@ -469,6 +486,21 @@ namespace JaneERP
             txtFromEmail.PlaceholderText = "noreply@company.com";
             txtFromEmail.Text            = _settings.FromEmail;
             pnl.Controls.Add(txtFromEmail);
+            y += 40;
+
+            btnTestEmail.Text     = "Send Test Email";
+            btnTestEmail.Size     = new Size(150, 28);
+            btnTestEmail.Location = new Point(134, y);
+            btnTestEmail.Click   += BtnTestEmail_Click;
+            pnl.Controls.Add(btnTestEmail);
+
+            pnl.Controls.Add(new Label
+            {
+                Text      = "Sends a test message to the From Email address using the settings above.\nSave settings first before testing.",
+                ForeColor = Theme.TextSecondary,
+                Location  = new Point(292, y + 4),
+                Size      = new Size(340, 34)
+            });
 
             return pnl;
         }
@@ -615,6 +647,47 @@ namespace JaneERP
             };
             grpExports.Controls.Add(btnBrowseExport);
             pnl.Controls.Add(grpExports);
+            y += 104;
+
+            var grpLogs = new GroupBox
+            {
+                Text      = "Application Logs",
+                Font      = new Font("Segoe UI", 10F, FontStyle.Bold),
+                ForeColor = Theme.Gold,
+                Location  = new Point(16, y),
+                Size      = new Size(580, 90)
+            };
+            grpLogs.Controls.Add(new Label
+            {
+                Text      = "Logs are stored in %AppData%\\JaneERP\\logs. Archived logs older than 30 days are deleted automatically.",
+                ForeColor = Theme.TextSecondary, Location = new Point(10, 24), Size = new Size(550, 18)
+            });
+            var btnClearLogs = new Button { Text = "Clear Today's Log", Location = new Point(10, 50), Size = new Size(160, 28) };
+            btnClearLogs.Click += (_, _) =>
+            {
+                string logFile = System.IO.Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                    "JaneERP", "logs", "app.log");
+                if (!System.IO.File.Exists(logFile))
+                {
+                    MessageBox.Show(this, "No log file found.", "Info", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    return;
+                }
+                if (MessageBox.Show(this, "Clear the current app.log? This cannot be undone.", "Confirm",
+                    MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
+                try
+                {
+                    System.IO.File.WriteAllText(logFile, "");
+                    MessageBox.Show(this, "Log cleared.", "Done", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show(this, "Could not clear log: " + ex.Message, "Error",
+                        MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
+            };
+            grpLogs.Controls.Add(btnClearLogs);
+            pnl.Controls.Add(grpLogs);
 
             return pnl;
         }
@@ -1392,7 +1465,15 @@ namespace JaneERP
             _settings.AdminPhone           = txtAdminPhone.Text.Trim();
             _settings.AdminEmail           = txtAdminEmail.Text.Trim();
             _settings.RememberLastUsername = chkRememberUser.Checked;
-            _settings.BackupFolder        = _txtBackupFolder.Text.Trim();
+            string backupFolder = _txtBackupFolder.Text.Trim();
+            if (!string.IsNullOrWhiteSpace(backupFolder) && !Directory.Exists(backupFolder))
+            {
+                if (MessageBox.Show(this,
+                    $"Backup folder does not exist:\n{backupFolder}\n\nSave anyway?", "Backup Folder Not Found",
+                    MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes)
+                    return;
+            }
+            _settings.BackupFolder        = backupFolder;
             _settings.BackupSchedule      = _cboBackupSchedule.SelectedItem?.ToString() ?? "None";
             _settings.DefaultExportPath   = _txtDefaultExportPath.Text.Trim();
             _settings.DefaultLabourRate   = _nudLabourRate.Value;
@@ -1448,11 +1529,188 @@ namespace JaneERP
             }
         }
 
+        private async void BtnTestEmail_Click(object? sender, EventArgs e)
+        {
+            string smtpServer = txtSmtpServer.Text.Trim();
+            string smtpUser   = txtSmtpUser.Text.Trim();
+            string smtpPass   = txtSmtpPass.Text.Trim();
+            string fromEmail  = txtFromEmail.Text.Trim();
+
+            if (string.IsNullOrWhiteSpace(smtpServer) || string.IsNullOrWhiteSpace(smtpUser) || string.IsNullOrWhiteSpace(fromEmail))
+            {
+                MessageBox.Show(this, "Fill in SMTP Server, Username, and From Email before testing.",
+                    "Missing Settings", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            btnTestEmail.Enabled = false;
+            btnTestEmail.Text    = "Sending...";
+            try
+            {
+                using var client = new System.Net.Mail.SmtpClient(smtpServer, (int)nudSmtpPort.Value)
+                {
+                    EnableSsl   = true,
+                    Credentials = new System.Net.NetworkCredential(smtpUser, smtpPass)
+                };
+                var msg = new System.Net.Mail.MailMessage(fromEmail, fromEmail)
+                {
+                    Subject = "JaneERP Test Email",
+                    Body    = "This is a test email from JaneERP. If you receive this, your email settings are correct."
+                };
+                await client.SendMailAsync(msg);
+                MessageBox.Show(this, "Test email sent successfully!", "Success",
+                    MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, $"Email failed: {ex.Message}", "Error",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+            finally
+            {
+                btnTestEmail.Enabled = true;
+                btnTestEmail.Text    = "Send Test Email";
+            }
+        }
+
         private static Color TryParseColor(string? hex, Color fallback)
         {
             if (string.IsNullOrEmpty(hex)) return fallback;
             try { return ColorTranslator.FromHtml(hex); }
             catch { return fallback; }
+        }
+
+        // ── Integrations page ─────────────────────────────────────────────────────
+
+        private Panel BuildPageIntegrations()
+        {
+            var pnl = new Panel { AutoScroll = true };
+            int y = 16;
+
+            pnl.Controls.Add(new Label
+            {
+                Text      = "Integrations",
+                Font      = new Font("Segoe UI", 11F, FontStyle.Bold),
+                ForeColor = Theme.Gold,
+                Location  = new Point(16, y),
+                AutoSize  = true
+            });
+            y += 32;
+
+            // ── Shopify section ───────────────────────────────────────────────────
+            pnl.Controls.Add(new Label
+            {
+                Text      = "Shopify",
+                Font      = new Font("Segoe UI", 10F, FontStyle.Bold),
+                ForeColor = Theme.Gold,
+                Location  = new Point(16, y),
+                AutoSize  = true
+            });
+            y += 24;
+
+            pnl.Controls.Add(new Label
+            {
+                Text      = "Shopify stores are managed from the main menu \u2192 Shopify Stores button.",
+                ForeColor = Theme.TextSecondary,
+                Location  = new Point(16, y),
+                AutoSize  = true
+            });
+            y += 22;
+
+            // ── Connected stores grid ─────────────────────────────────────────────
+            var dgvStores = new DataGridView
+            {
+                AutoGenerateColumns   = false,
+                AllowUserToAddRows    = false,
+                AllowUserToDeleteRows = false,
+                ReadOnly              = true,
+                SelectionMode         = DataGridViewSelectionMode.FullRowSelect,
+                MultiSelect           = false,
+                RowHeadersVisible     = false,
+                Location              = new Point(16, y),
+                Size                  = new Size(580, 160),
+                Anchor                = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right
+            };
+            dgvStores.Columns.Add(new DataGridViewTextBoxColumn { Name = "colStoreName",   HeaderText = "Store Name",    Width = 180 });
+            dgvStores.Columns.Add(new DataGridViewTextBoxColumn { Name = "colDomain",      HeaderText = "Domain",        AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill });
+            dgvStores.Columns.Add(new DataGridViewTextBoxColumn { Name = "colConnected",   HeaderText = "Connected",     Width = 120 });
+            dgvStores.Columns.Add(new DataGridViewCheckBoxColumn { Name = "colActive",     HeaderText = "Active",        Width = 60  });
+            pnl.Controls.Add(dgvStores);
+            y += 170;
+
+            var btnRefreshStores = new Button { Text = "Refresh List", Size = new Size(110, 27), Location = new Point(16, y) };
+            btnRefreshStores.Click += (_, _) => LoadIntegrationStores(dgvStores);
+            pnl.Controls.Add(btnRefreshStores);
+
+            var btnTestConn = new Button { Text = "Test Connection", Size = new Size(140, 27), Location = new Point(134, y) };
+            btnTestConn.Click += async (_, _) =>
+            {
+                if (dgvStores.SelectedRows.Count == 0)
+                {
+                    MessageBox.Show(this, "Select a store row to test.", "No Selection",
+                        MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
+
+                string domain = dgvStores.SelectedRows[0].Cells["colDomain"].Value?.ToString() ?? "";
+                if (string.IsNullOrWhiteSpace(domain))
+                {
+                    MessageBox.Show(this, "Selected store has no domain configured.", "Error",
+                        MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
+
+                btnTestConn.Enabled = false;
+                btnTestConn.Text    = "Testing...";
+                try
+                {
+                    string url = domain.StartsWith("https://", StringComparison.OrdinalIgnoreCase)
+                        ? domain
+                        : $"https://{domain}";
+                    using var http = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(10) };
+                    var resp = await http.GetAsync(url);
+                    MessageBox.Show(this,
+                        $"Connection to {domain} returned HTTP {(int)resp.StatusCode} ({resp.StatusCode}).",
+                        "Test Result", MessageBoxButtons.OK,
+                        resp.IsSuccessStatusCode ? MessageBoxIcon.Information : MessageBoxIcon.Warning);
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show(this, $"Connection failed: {ex.Message}", "Test Failed",
+                        MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
+                finally
+                {
+                    btnTestConn.Enabled = true;
+                    btnTestConn.Text    = "Test Connection";
+                }
+            };
+            pnl.Controls.Add(btnTestConn);
+
+            // Load stores when this page first becomes visible
+            pnl.VisibleChanged += (_, _) => { if (pnl.Visible) LoadIntegrationStores(dgvStores); };
+
+            return pnl;
+        }
+
+        private void LoadIntegrationStores(DataGridView dgv)
+        {
+            dgv.Rows.Clear();
+            try
+            {
+                foreach (var store in _storeRepo.GetAll())
+                {
+                    int idx = dgv.Rows.Add();
+                    dgv.Rows[idx].Cells["colStoreName"].Value = store.StoreName;
+                    dgv.Rows[idx].Cells["colDomain"].Value    = store.StoreDomain;
+                    dgv.Rows[idx].Cells["colConnected"].Value = store.CreatedAt.ToLocalTime().ToString("yyyy-MM-dd");
+                    dgv.Rows[idx].Cells["colActive"].Value    = store.IsActive;
+                }
+            }
+            catch (Exception ex)
+            {
+                Logging.AppLogger.Info($"[FormSettings.LoadIntegrationStores]: {ex.Message}");
+            }
         }
 
         // ── Tax Rates page ────────────────────────────────────────────────────────

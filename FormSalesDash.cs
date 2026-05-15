@@ -84,6 +84,12 @@ namespace JaneERP
                 txtMaxAmount.TextChanged += (_, _) => ApplyFilters();
 
                 Shown += FormSalesDash_Shown;
+
+                // Tooltip — clarify when to use Quick Fulfil vs the Picking → Packing workflow
+                var tip = new ToolTip();
+                tip.SetToolTip(btnQuickFulfil,
+                    "Quick Fulfil: for simple, single-pick orders.\n" +
+                    "Use Picking → Packing for warehouse orders.");
             }
             catch (Exception ex)
             {

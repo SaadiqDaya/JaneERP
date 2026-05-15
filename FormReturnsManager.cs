@@ -18,9 +18,10 @@ namespace JaneERP
         private DataGridView _dgvReturns = new();
         private DataGridView _dgvItems   = new();
         private ComboBox     _cboFilter  = new();
-        private Button       _btnRefresh = new();
-        private Button       _btnApprove = new();
-        private Button       _btnReject  = new();
+        private Button       _btnRefresh    = new();
+        private Button       _btnApprove    = new();
+        private Button       _btnReject     = new();
+        private Button       _btnViewOrder  = new();
         private Label        _lblReturnMeta  = new();
         private Label        _lblCreditAmt   = new();
         private Label        _lblStatus      = new();
@@ -82,6 +83,7 @@ namespace JaneERP
             _dgvReturns.SelectionMode         = DataGridViewSelectionMode.FullRowSelect;
             _dgvReturns.CellFormatting       += DgvReturns_CellFormatting;
             _dgvReturns.SelectionChanged     += DgvReturns_SelectionChanged;
+            _dgvReturns.CellDoubleClick      += (_, _) => BtnViewOrder_Click(null, EventArgs.Empty);
 
             _dgvReturns.Columns.Add(new DataGridViewTextBoxColumn { Name = "colRID",      HeaderText = "Return #",  Width = 72  });
             _dgvReturns.Columns.Add(new DataGridViewTextBoxColumn { Name = "colON",       HeaderText = "Order #",   Width = 80  });
@@ -155,6 +157,14 @@ namespace JaneERP
             Theme.StyleButton(_btnReject);
             Controls.Add(_btnReject);
 
+            _btnViewOrder.Text     = "View Original Order";
+            _btnViewOrder.Location = new Point(rx, 534);
+            _btnViewOrder.Size     = new Size(160, 30);
+            _btnViewOrder.Enabled  = false;
+            _btnViewOrder.Click   += BtnViewOrder_Click;
+            Theme.StyleButton(_btnViewOrder);
+            Controls.Add(_btnViewOrder);
+
             _lblStatus.Anchor   = AnchorStyles.Bottom | AnchorStyles.Left;
             _lblStatus.Location = new Point(12, ClientSize.Height - 22);
             _lblStatus.AutoSize = true;
@@ -208,11 +218,12 @@ namespace JaneERP
 
         private void ClearDetail()
         {
-            _lblReturnMeta.Text  = "";
-            _lblCreditAmt.Text   = "";
+            _lblReturnMeta.Text   = "";
+            _lblCreditAmt.Text    = "";
             _dgvItems.Rows.Clear();
-            _btnApprove.Enabled  = false;
-            _btnReject.Enabled   = false;
+            _btnApprove.Enabled   = false;
+            _btnReject.Enabled    = false;
+            _btnViewOrder.Enabled = false;
         }
 
         // ── Selection ────────────────────────────────────────────────────────────
@@ -254,8 +265,9 @@ namespace JaneERP
                 : $"Est. credit: see approve step";
 
             bool isPending = full.Status == "Pending";
-            _btnApprove.Enabled = isPending;
-            _btnReject.Enabled  = isPending;
+            _btnApprove.Enabled   = isPending;
+            _btnReject.Enabled    = isPending;
+            _btnViewOrder.Enabled = true;
         }
 
         // ── Actions ──────────────────────────────────────────────────────────────
@@ -315,6 +327,32 @@ namespace JaneERP
                 MessageBox.Show(this, "Rejection failed: " + ex.Message, "Error",
                     MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
+        }
+
+        private void BtnViewOrder_Click(object? sender, EventArgs e)
+        {
+            if (_dgvReturns.SelectedRows.Count == 0
+                || _dgvReturns.SelectedRows[0].Tag is not ReturnOrder ret) return;
+
+            // Load full detail in case items aren't populated yet
+            var full = _repo.GetById(ret.ReturnID) ?? ret;
+
+            string itemLines = full.Items.Count > 0
+                ? string.Join("\n", full.Items.Select(i =>
+                    $"  • {i.SKU}  {i.ProductName}  ×{i.ReturnQty}  [{i.Condition}]"))
+                : "  (no items loaded)";
+
+            MessageBox.Show(this,
+                $"Original Order #:  {full.OriginalOrderNumber}\n" +
+                $"Customer:          {full.CustomerName ?? "—"}\n" +
+                $"Return Date:       {full.ReturnDate:yyyy-MM-dd}\n" +
+                $"Status:            {full.Status}\n" +
+                $"Reason:            {full.Reason ?? "—"}\n" +
+                $"Notes:             {full.Notes ?? "—"}\n" +
+                $"Created by:        {full.CreatedBy ?? "—"}\n\n" +
+                $"Return Items:\n{itemLines}",
+                $"Original Order #{full.OriginalOrderNumber} — Return #{full.ReturnID}",
+                MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
 
         // ── Cell formatting ──────────────────────────────────────────────────────

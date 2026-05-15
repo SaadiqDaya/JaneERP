@@ -16,12 +16,13 @@ namespace JaneERP
         private readonly IManufacturingRepository _moRepo = AppServices.Get<IManufacturingRepository>();
         private readonly IProductRepository       _pRepo  = AppServices.Get<IProductRepository>();
 
-        private DataGridView dgvMOs     = new();
-        private DataGridView dgvWOs     = new();
-        private Button       btnNewMO   = new();
-        private Button       btnClose   = new();
-        private Label        lblMOs     = new();
-        private Label        lblWOs     = new();
+        private DataGridView dgvMOs        = new();
+        private DataGridView dgvWOs        = new();
+        private Button       btnNewMO      = new();
+        private Button       btnPicking    = new();
+        private Button       btnClose      = new();
+        private Label        lblMOs        = new();
+        private Label        lblWOs        = new();
 
         public FormManufacturingDash()
         {
@@ -103,6 +104,17 @@ namespace JaneERP
                 LoadOrders();
             };
             Controls.Add(btnProcess);
+
+            btnPicking.Text     = "→ Picking Dashboard";
+            btnPicking.Location = new Point(408, 524);
+            btnPicking.Size     = new Size(160, 32);
+            btnPicking.Anchor   = AnchorStyles.Bottom | AnchorStyles.Left;
+            btnPicking.Click   += (_, _) =>
+            {
+                using var frm = new FormPickingDash();
+                frm.ShowDialog(this);
+            };
+            Controls.Add(btnPicking);
 
             btnClose.Text     = "Close";
             btnClose.Location = new Point(896, 524);

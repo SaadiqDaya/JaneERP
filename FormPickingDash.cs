@@ -355,6 +355,16 @@ namespace JaneERP
         private void BtnStartPicking_Click(object? sender, EventArgs e)
         {
             if (_current == null || _current.Status != "Live") return;
+
+            // Regression guard: "Live" is forward from nothing, but guard against any edge case
+            if (IsStatusRegression(_current.Status, "Picking"))
+            {
+                var res = MessageBox.Show(this,
+                    $"Move order from '{_current.Status}' back to 'Picking'?\nThis may affect picking records.",
+                    "Status Regression", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
+                if (res != DialogResult.Yes) return;
+            }
+
             try
             {
                 // Show inventory reservation dialog so the picker can lock specific locations
@@ -441,7 +451,11 @@ namespace JaneERP
                 _svc.UpdateOrderStatus(_current.SalesOrderID, "Packing");
                 Logging.AppLogger.Audit(AppSession.CurrentUser?.Username ?? "system",
                     "PickingComplete", $"OrderID={_current.SalesOrderID} #{_current.OrderNumber}");
+                string movedOrderNumber = _current.OrderNumber.ToString();
                 RefreshOrders();
+                MessageBox.Show(this,
+                    $"Order #{movedOrderNumber} fully picked — moved to Packing.",
+                    "Moved to Packing", MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
             catch (Exception ex)
             {
@@ -452,6 +466,18 @@ namespace JaneERP
         }
 
         // ── Helpers ───────────────────────────────────────────────────────────────
+
+        /// <summary>
+        /// Returns true if transitioning from <paramref name="current"/> to <paramref name="next"/>
+        /// is a regression (moving to an earlier status in the workflow).
+        /// </summary>
+        private static bool IsStatusRegression(string current, string next)
+        {
+            var order = new[] { "Draft", "Live", "Picking", "Packing", "Shipped", "Complete" };
+            int ci = Array.IndexOf(order, current);
+            int ni = Array.IndexOf(order, next);
+            return ci >= 0 && ni >= 0 && ni < ci;
+        }
 
         private void CommitAndSave()
         {

@@ -375,6 +375,15 @@ namespace JaneERP
         {
             if (_current == null || _current.Status != "Packing") return;
 
+            // Regression guard
+            if (IsStatusRegression(_current.Status, "Shipped"))
+            {
+                var res = MessageBox.Show(this,
+                    $"Move order from '{_current.Status}' back to 'Shipped'?\nThis may affect packing/picking records.",
+                    "Status Regression", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
+                if (res != DialogResult.Yes) return;
+            }
+
             string tracking = _txtTracking.Text.Trim();
             string carrier  = _txtCarrier.Text.Trim();
 
@@ -405,6 +414,15 @@ namespace JaneERP
             if (_current == null) return;
             if (_current.Status != "Shipped") return;
 
+            // Regression guard
+            if (IsStatusRegression(_current.Status, "Complete"))
+            {
+                var res = MessageBox.Show(this,
+                    $"Move order from '{_current.Status}' back to 'Complete'?\nThis may affect packing/picking records.",
+                    "Status Regression", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
+                if (res != DialogResult.Yes) return;
+            }
+
             var ans = MessageBox.Show(this,
                 $"Mark Order #{_current.OrderNumber} as Complete?\n\nInventory was already deducted when the order was shipped.",
                 "Confirm Complete", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
@@ -425,6 +443,18 @@ namespace JaneERP
         }
 
         // ── Helpers ───────────────────────────────────────────────────────────────
+
+        /// <summary>
+        /// Returns true if transitioning from <paramref name="current"/> to <paramref name="next"/>
+        /// is a regression (moving to an earlier status in the workflow).
+        /// </summary>
+        private static bool IsStatusRegression(string current, string next)
+        {
+            var order = new[] { "Draft", "Live", "Picking", "Packing", "Shipped", "Complete" };
+            int ci = Array.IndexOf(order, current);
+            int ni = Array.IndexOf(order, next);
+            return ci >= 0 && ni >= 0 && ni < ci;
+        }
 
         private void UpdateButtons()
         {
