@@ -3,6 +3,13 @@ namespace JaneERP
     partial class FormSalesDash
     {
         private System.ComponentModel.IContainer components = null;
+
+        // Pagination controls (declared here, wired in InitializeComponent)
+        private Button   _btnPagePrev;
+        private Button   _btnPageNext;
+        private Label    _lblPageInfo;
+        private ComboBox _cboPageSize;
+
         private System.Windows.Forms.Button btnFetch;
         private System.Windows.Forms.DataGridView dgvOrders;
         private System.Windows.Forms.Label lblStatus;
@@ -339,6 +346,83 @@ namespace JaneERP
 
             pnlStatus.Controls.Add(lblStatus);
 
+            // ── Pagination toolbar — sits between grid and actions bar ─────────────
+            var pnlPagination = new Panel
+            {
+                Dock      = DockStyle.Bottom,
+                Height    = 34,
+                BackColor = Theme.Surface,
+                Name      = "pnlPagination"
+            };
+
+            _btnPagePrev = new Button
+            {
+                Text     = "← Prev",
+                Size     = new Size(72, 24),
+                Location = new Point(8, 5),
+                Name     = "btnPagePrev"
+            };
+            _btnPagePrev.Click += (_, _) =>
+            {
+                if (_currentPage > 1) { _currentPage--; ApplyPagedOrders(); }
+            };
+
+            _lblPageInfo = new Label
+            {
+                AutoSize  = false,
+                Width     = 260,
+                Height    = 24,
+                TextAlign = ContentAlignment.MiddleCenter,
+                Location  = new Point(86, 5),
+                Font      = new Font("Segoe UI", 8.5F),
+                ForeColor = Theme.TextSecondary,
+                Name      = "lblPageInfo"
+            };
+
+            _btnPageNext = new Button
+            {
+                Text     = "Next →",
+                Size     = new Size(72, 24),
+                Location = new Point(352, 5),
+                Name     = "btnPageNext"
+            };
+            _btnPageNext.Click += (_, _) =>
+            {
+                int pages = (int)Math.Ceiling(_fullOrders.Count / (double)_pageSize);
+                if (_currentPage < pages) { _currentPage++; ApplyPagedOrders(); }
+            };
+
+            var lblPageSizeLabel = new Label
+            {
+                Text      = "Show:",
+                AutoSize  = true,
+                Location  = new Point(436, 9),
+                ForeColor = Theme.TextSecondary,
+                Font      = new Font("Segoe UI", 8.5F)
+            };
+
+            _cboPageSize = new ComboBox
+            {
+                DropDownStyle = ComboBoxStyle.DropDownList,
+                Width         = 60,
+                Location      = new Point(475, 5),
+                Name          = "cboPageSize",
+                Font          = new Font("Segoe UI", 8.5F)
+            };
+            _cboPageSize.Items.AddRange(new object[] { 25, 50, 100 });
+            _cboPageSize.SelectedIndex = 1;   // default 50
+            _cboPageSize.SelectedIndexChanged += (_, _) =>
+            {
+                _pageSize    = (int)_cboPageSize.SelectedItem!;
+                _currentPage = 1;
+                ApplyPagedOrders();
+            };
+
+            pnlPagination.Controls.AddRange(new Control[]
+            {
+                _btnPagePrev, _lblPageInfo, _btnPageNext, lblPageSizeLabel, _cboPageSize
+            });
+
             // ── Form ─────────────────────────────────────────────────────────────
             ClientSize  = new Size(1140, 680);
             MinimumSize = new Size(900, 560);
@@ -348,14 +432,15 @@ namespace JaneERP
             Text        = "Shopify Orders";
 
             // Dock ordering: Fill first, then Bottom (first=bottommost), then Top (last=topmost)
-            Controls.Add(splitMain);    // Fill (SplitContainer holds dgvOrders + detail panel)
-            Controls.Add(pnlStatus);    // Bottom — very bottom (added first)
-            Controls.Add(sepAS);        // Bottom — above status
-            Controls.Add(pnlActions);   // Bottom — above separator (added last, closest to grid)
-            Controls.Add(sepFA);        // Top — between filter and grid (added first among Top)
-            Controls.Add(pnlFilter);    // Top — below header
-            Controls.Add(sepHF);        // Top — between header and filter
-            Controls.Add(pnlHeader);    // Top — topmost (added last)
+            Controls.Add(splitMain);       // Fill (SplitContainer holds dgvOrders + detail panel)
+            Controls.Add(pnlStatus);       // Bottom — very bottom (added first)
+            Controls.Add(sepAS);           // Bottom — above status
+            Controls.Add(pnlActions);      // Bottom — above separator (added last, closest to grid)
+            Controls.Add(pnlPagination);   // Bottom — between grid and actions bar
+            Controls.Add(sepFA);           // Top — between filter and grid (added first among Top)
+            Controls.Add(pnlFilter);       // Top — below header
+            Controls.Add(sepHF);           // Top — between header and filter
+            Controls.Add(pnlHeader);       // Top — topmost (added last)
 
             ((System.ComponentModel.ISupportInitialize)dgvOrders).EndInit();
             ResumeLayout(false);

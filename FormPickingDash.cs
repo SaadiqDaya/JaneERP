@@ -34,11 +34,13 @@ namespace JaneERP
         private readonly Label               _lblOrderInfo = new();
         private readonly Label               _lblError     = new();
 
-        private readonly Button _btnRefresh      = new() { Text = "↺  Refresh" };
-        private readonly Button _btnStartPicking = new() { Text = "▶  Start Picking" };
-        private readonly Button _btnPickAll      = new() { Text = "✓  Pick All" };
-        private readonly Button _btnSave         = new() { Text = "💾  Save" };
-        private readonly Button _btnComplete     = new() { Text = "✓✓  Complete → Packing" };
+        private readonly Button   _btnRefresh      = new() { Text = "↺  Refresh" };
+        private readonly Button   _btnStartPicking = new() { Text = "▶  Start Picking" };
+        private readonly Button   _btnPickAll      = new() { Text = "✓  Pick All" };
+        private readonly Button   _btnSave         = new() { Text = "💾  Save" };
+        private readonly Button   _btnComplete     = new() { Text = "✓✓  Complete → Packing" };
+        private readonly CheckBox _chkShowOlder    = new() { Text = "Show older (incl. Shipped)" };
+        private readonly Label    _lblOrderCount   = new();
 
         private List<FulfillmentOrder> _orders  = [];
         private List<SalesOrderItem>   _items   = [];
@@ -97,6 +99,7 @@ namespace JaneERP
             _pnlHeader.Dock      = DockStyle.Top;
             _pnlHeader.Height    = 52;
             _pnlHeader.BackColor = Theme.Header;
+            _pnlHeader.Tag       = "header";
             _pnlHeader.Controls.Add(new Label
             {
                 Text      = "📦  Picking Dashboard",
@@ -106,12 +109,20 @@ namespace JaneERP
                 AutoSize  = true
             });
 
+            // Order count badge (shown in header)
+            _lblOrderCount.Font      = new Font("Segoe UI", 9F, FontStyle.Bold);
+            _lblOrderCount.ForeColor = Color.FromArgb(180, 220, 255);
+            _lblOrderCount.Location  = new Point(260, 17);
+            _lblOrderCount.AutoSize  = true;
+            _pnlHeader.Controls.Add(_lblOrderCount);
+
             // Bottom action bar
             var pnlActions = new Panel
             {
                 Dock      = DockStyle.Bottom,
                 Height    = 54,
-                BackColor = Theme.Header
+                BackColor = Theme.Header,
+                Tag       = "header"
             };
             StyleBtn(_btnRefresh,      Theme.StyleSecondaryButton, 90);
             StyleBtn(_btnStartPicking, Theme.StyleButton,          126);
@@ -125,6 +136,11 @@ namespace JaneERP
             _btnSave.Click         += BtnSave_Click;
             _btnComplete.Click     += BtnComplete_Click;
 
+            _chkShowOlder.ForeColor    = Theme.TextSecondary;
+            _chkShowOlder.Font         = new Font("Segoe UI", 9F);
+            _chkShowOlder.AutoSize     = true;
+            _chkShowOlder.CheckedChanged += (_, _) => RefreshOrders();
+
             int bx = 12;
             foreach (var btn in new Button[] { _btnRefresh, _btnStartPicking, _btnPickAll, _btnSave, _btnComplete })
             {
@@ -132,6 +148,8 @@ namespace JaneERP
                 pnlActions.Controls.Add(btn);
                 bx += btn.Width + 8;
             }
+            _chkShowOlder.Location = new Point(bx + 8, 17);
+            pnlActions.Controls.Add(_chkShowOlder);
 
             // Split container
             _split.Dock             = DockStyle.Fill;
@@ -184,7 +202,7 @@ namespace JaneERP
             _dgvOrders.SelectionChanged += DgvOrders_SelectionChanged;
             _dgvOrders.CellFormatting   += DgvOrders_CellFormatting;
 
-            var lbl = MakeSectionLabel("Live & Picking Orders");
+            var lbl = MakeSectionLabel("Active Picking Orders  (Live & Picking)");
             var pnl = new Panel { Dock = DockStyle.Fill };
             pnl.Controls.Add(_dgvOrders);
             pnl.Controls.Add(lbl);
@@ -234,7 +252,14 @@ namespace JaneERP
         {
             if (_svc == null) { ShowError("Service unavailable — cannot load orders."); UpdateButtons(); return; }
             int? prevId = _current?.SalesOrderID;
-            try { _orders = _svc.GetFulfillmentOrders("Live", "Picking"); }
+
+            // Default: only Live + Picking (active orders ready to pick).
+            // "Show older" adds Packing and Shipped so supervisors can review recently-completed picking.
+            string[] statuses = _chkShowOlder.Checked
+                ? new[] { "Live", "Picking", "Packing", "Shipped" }
+                : new[] { "Live", "Picking" };
+
+            try { _orders = _svc.GetFulfillmentOrders(statuses); }
             catch (Exception ex)
             {
                 Logging.AppLogger.Error($"[FormPickingDash.RefreshOrders] {ex}");
@@ -245,6 +270,12 @@ namespace JaneERP
                 UpdateButtons();
                 return;
             }
+
+            // Update count badge
+            int activeCount = _orders.Count(o => o.Status is "Live" or "Picking");
+            _lblOrderCount.Text = activeCount == 0
+                ? "No orders ready to pick"
+                : $"{activeCount} order{(activeCount == 1 ? "" : "s")} ready to pick";
 
             _dgvOrders.SuspendLayout();
             _dgvOrders.Rows.Clear();

@@ -43,10 +43,11 @@ namespace JaneERP
         private readonly TextBox   _txtCarrier      = new();
 
         // Action buttons
-        private readonly Button _btnRefresh  = new() { Text = "↺  Refresh"       };
-        private readonly Button _btnShip     = new() { Text = "🚚  Ship Order"    };
-        private readonly Button _btnComplete = new() { Text = "☑  Mark Complete"  };
-        private readonly CheckBox _chkShowShipped = new() { Text = "Show Shipped" };
+        private readonly Button   _btnRefresh      = new() { Text = "↺  Refresh"       };
+        private readonly Button   _btnShip         = new() { Text = "🚚  Ship Order"    };
+        private readonly Button   _btnComplete     = new() { Text = "☑  Mark Complete"  };
+        private readonly CheckBox _chkShowShipped  = new() { Text = "Show older (Shipped/Complete)" };
+        private readonly Label    _lblOrderCount   = new();
 
         private List<FulfillmentOrder> _orders  = [];
         private FulfillmentOrder?      _current;
@@ -77,6 +78,7 @@ namespace JaneERP
             _pnlHeader.Dock      = DockStyle.Top;
             _pnlHeader.Height    = 52;
             _pnlHeader.BackColor = Theme.Header;
+            _pnlHeader.Tag       = "header";
             _pnlHeader.Controls.Add(new Label
             {
                 Text      = "📬  Packing & Shipping Dashboard",
@@ -86,12 +88,20 @@ namespace JaneERP
                 AutoSize  = true
             });
 
+            // Order count badge
+            _lblOrderCount.Font      = new Font("Segoe UI", 9F, FontStyle.Bold);
+            _lblOrderCount.ForeColor = Color.FromArgb(180, 220, 255);
+            _lblOrderCount.Location  = new Point(330, 17);
+            _lblOrderCount.AutoSize  = true;
+            _pnlHeader.Controls.Add(_lblOrderCount);
+
             // Bottom action bar
             var pnlActions = new Panel
             {
                 Dock      = DockStyle.Bottom,
                 Height    = 54,
-                BackColor = Theme.Header
+                BackColor = Theme.Header,
+                Tag       = "header"
             };
 
             Theme.StyleSecondaryButton(_btnRefresh);
@@ -273,10 +283,19 @@ namespace JaneERP
         private void RefreshOrders()
         {
             int? prevId = _current?.SalesOrderID;
+
+            // Default: only Packing status — orders ready to pack right now.
+            // "Show older" adds Shipped and Complete for supervisory review.
             var statuses = _chkShowShipped.Checked
-                ? new[] { "Packing", "Shipped" }
+                ? new[] { "Packing", "Shipped", "Complete" }
                 : new[] { "Packing" };
             _orders = _svc.GetFulfillmentOrders(statuses);
+
+            // Update count badge
+            int packingCount = _orders.Count(o => o.Status == "Packing");
+            _lblOrderCount.Text = packingCount == 0
+                ? "No orders ready to pack"
+                : $"{packingCount} order{(packingCount == 1 ? "" : "s")} ready to pack";
 
             _dgvOrders.SuspendLayout();
             _dgvOrders.Rows.Clear();

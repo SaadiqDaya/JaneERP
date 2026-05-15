@@ -30,6 +30,13 @@ namespace JaneERP
         private CancellationTokenSource? _syncCts;
         private System.Windows.Forms.Timer? _syncRefreshTimer;
 
+        // ── Client-side pagination ────────────────────────────────────────────────
+        private int         _currentPage    = 1;
+        private int         _pageSize       = 50;
+        // Holds the filter-narrowed list that pagination slices over.
+        // _fullOrders is the raw loaded data; _filteredOrders is what filters produce.
+        private List<Order> _filteredOrders = [];
+
         // Product setup notification bar (shown when unverified auto-created products exist)
         private Panel  _pnlSetupNotice = new();
         private Label  _lblSetupMsg    = new();
@@ -188,7 +195,7 @@ namespace JaneERP
                     svcLocal.GetErpOrders(orderType, nonShopifyOnly));
                 _fullOrders = orders;
                 ApplyFilters();
-                lblStatus.Text = $"{orders.Count} ERP order(s)";
+                // lblStatus is updated by ApplyPagedOrders via UpdatePageLabel
             }
             catch (Exception ex)
             {
@@ -404,7 +411,7 @@ namespace JaneERP
             if (decimal.TryParse(txtMaxAmount.Text, NumberStyles.Number, CultureInfo.InvariantCulture, out var parsedMax))
                 max = parsedMax;
 
-            var filtered = _fullOrders
+            _filteredOrders = _fullOrders
                 // Normalize UTC dates from Shopify to local time before comparing against picker values
                 .Where(o => {
                     var local = o.CreatedAt.Kind == DateTimeKind.Utc ? o.CreatedAt.ToLocalTime() : o.CreatedAt;
@@ -413,9 +420,60 @@ namespace JaneERP
                 .Where(o => o.TotalPrice >= min && o.TotalPrice <= max)
                 .ToList();
 
-            _currentOrders       = new BindingList<Order>(filtered);
+            // Reset to page 1 whenever filters change
+            _currentPage = 1;
+            ApplyPagedOrders();
+        }
+
+        /// <summary>
+        /// Slices _filteredOrders for the current page, binds to the grid, and updates the page label.
+        /// Call this instead of setting dgvOrders.DataSource directly.
+        /// </summary>
+        private void ApplyPagedOrders()
+        {
+            int total = _filteredOrders.Count;
+            int pages = Math.Max(1, (int)Math.Ceiling(total / (double)_pageSize));
+            _currentPage = Math.Clamp(_currentPage, 1, pages);
+
+            var paged = _filteredOrders
+                .Skip((_currentPage - 1) * _pageSize)
+                .Take(_pageSize)
+                .ToList();
+
+            _currentOrders       = new BindingList<Order>(paged);
             dgvOrders.DataSource = _currentOrders;
-            lblStatus.Text       = $"{filtered.Count} order(s) shown";
+            UpdatePageLabel(total, pages);
+        }
+
+        private void UpdatePageLabel(int filteredTotal, int pages)
+        {
+            if (_lblPageInfo == null) return;   // guard during InitializeComponent
+
+            // Show raw total in parentheses if different from filtered count
+            int rawTotal = _fullOrders.Count;
+            string totalStr = rawTotal != filteredTotal && rawTotal > 0
+                ? $"{filteredTotal:N0} of {rawTotal:N0} orders"
+                : $"{filteredTotal:N0} orders";
+
+            if (filteredTotal == 0)
+            {
+                _lblPageInfo.Text    = "No orders";
+                _btnPagePrev.Enabled = false;
+                _btnPageNext.Enabled = false;
+                lblStatus.Text       = "0 order(s) shown";
+                return;
+            }
+
+            int from = (_currentPage - 1) * _pageSize + 1;
+            int to   = Math.Min(_currentPage * _pageSize, filteredTotal);
+            _lblPageInfo.Text    = filteredTotal <= _pageSize
+                ? totalStr
+                : $"Page {_currentPage} of {pages}  ({totalStr})";
+            _btnPagePrev.Enabled = _currentPage > 1;
+            _btnPageNext.Enabled = _currentPage < pages;
+            lblStatus.Text       = filteredTotal <= _pageSize
+                ? $"{filteredTotal:N0} order(s) shown"
+                : $"Showing {from}–{to} of {filteredTotal:N0} order(s)";
         }
 
         // ── Product setup notification ────────────────────────────────────────────
@@ -820,7 +878,7 @@ namespace JaneERP
 
                     _fullOrders = orders.OrderByDescending(o => o.CreatedAt).ToList();
                     ApplyFilters();
-                    lblStatus.Text  = $"Fetched {_fullOrders.Count} orders";
+                    // lblStatus is updated by UpdatePageLabel via ApplyFilters → ApplyPagedOrders
                     btnSave.Enabled = _fullOrders.Count > 0;
                 }));
 
