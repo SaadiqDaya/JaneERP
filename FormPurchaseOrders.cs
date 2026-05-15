@@ -15,6 +15,12 @@ namespace JaneERP
 
         private List<PurchaseOrder> _orders = new();
 
+        // Pagination
+        private int _poPage      = 1;
+        private int _poTotalCount = 0;
+        private const int PoPageSize = 50;
+        private Panel _pnlPoPager = new();
+
         public FormPurchaseOrders()
         {
             BuildUI();
@@ -32,17 +38,8 @@ namespace JaneERP
             MinimumSize   = new Size(800, 500);
             StartPosition = FormStartPosition.CenterParent;
 
-            // ── Title label ──────────────────────────────────────────────────────
-            var lblTitle = new Label
-            {
-                Text      = "Purchase Orders",
-                Font      = new Font("Segoe UI", 14F, FontStyle.Bold),
-                ForeColor = Theme.Gold,
-                AutoSize  = false,
-                Location  = new Point(12, 12),
-                Size      = new Size(300, 30)
-            };
-            Controls.Add(lblTitle);
+            // ── Header bar ───────────────────────────────────────────────────────
+            Theme.AddFormHeader(this, "🚛  Purchase Orders");
 
             // ── Filter combo ─────────────────────────────────────────────────────
             var lblFilter = new Label
@@ -59,7 +56,7 @@ namespace JaneERP
             cmbFilter.DropDownStyle    = ComboBoxStyle.DropDownList;
             cmbFilter.Items.AddRange(new object[] { "Draft + Sent", "All", "Draft", "Sent", "PartiallyReceived", "Received", "Cancelled" });
             cmbFilter.SelectedIndex    = 0;
-            cmbFilter.SelectedIndexChanged += (_, _) => LoadOrders();
+            cmbFilter.SelectedIndexChanged += (_, _) => { _poPage = 1; LoadOrders(); };
             Controls.Add(cmbFilter);
 
             // ── Buttons ──────────────────────────────────────────────────────────
@@ -122,7 +119,7 @@ namespace JaneERP
             // ── DataGridView ─────────────────────────────────────────────────────
             dgvPOs.Anchor   = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
             dgvPOs.Location = new Point(12, 92);
-            dgvPOs.Size     = new Size(976, 472);
+            dgvPOs.Size     = new Size(976, 436);
             dgvPOs.ReadOnly = true;
             dgvPOs.AllowUserToAddRows     = false;
             dgvPOs.AllowUserToDeleteRows  = false;
@@ -144,6 +141,12 @@ namespace JaneERP
             dgvPOs.CellFormatting += DgvPOs_CellFormatting;
             dgvPOs.CellDoubleClick += DgvPOs_CellDoubleClick;
             Controls.Add(dgvPOs);
+
+            // ── Pagination bar ────────────────────────────────────────────────────
+            _pnlPoPager.Anchor   = AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
+            _pnlPoPager.Location = new Point(12, 536);
+            _pnlPoPager.Size     = new Size(976, 36);
+            Controls.Add(_pnlPoPager);
 
             // ── Status label ─────────────────────────────────────────────────────
             lblStatus.AutoSize = true;
@@ -197,27 +200,70 @@ namespace JaneERP
         {
             try
             {
-                string? filter = cmbFilter.SelectedItem?.ToString();
+                string? filter   = cmbFilter.SelectedItem?.ToString();
+                string? statusFilter = filter == "All" ? null : filter;
 
-                if (filter == "Draft + Sent")
+                // Prefer server-side paged method; fall back to GetOrders + client-side slice
+                try
                 {
-                    var all = _repo.GetOrders(null);
-                    _orders = all.Where(o => o.Status is "Draft" or "Sent").ToList();
+                    (_orders, _poTotalCount) = _repo.GetPagedOrders(_poPage, PoPageSize, statusFilter, null);
                 }
-                else
+                catch
                 {
-                    if (filter == "All") filter = null;
-                    _orders = _repo.GetOrders(filter);
+                    // Fallback: load all and slice
+                    List<PurchaseOrder> all;
+                    if (filter == "Draft + Sent")
+                    {
+                        all = _repo.GetOrders(null);
+                        all = all.Where(o => o.Status is "Draft" or "Sent").ToList();
+                    }
+                    else
+                    {
+                        all = _repo.GetOrders(filter == "All" ? null : filter);
+                    }
+                    _poTotalCount = all.Count;
+                    _orders = all.Skip((_poPage - 1) * PoPageSize).Take(PoPageSize).ToList();
                 }
 
                 dgvPOs.DataSource = null;
                 dgvPOs.DataSource = _orders;
-                lblStatus.Text    = $"{_orders.Count} order(s)";
+
+                // ── Refresh pagination bar ────────────────────────────────────────
+                _pnlPoPager.Controls.Clear();
+                var pager = BuildPaginationBar(ref _poPage, _poTotalCount, PoPageSize, () => LoadOrders());
+                pager.Dock = DockStyle.Fill;
+                _pnlPoPager.Controls.Add(pager);
+
+                lblStatus.Text = $"{_poTotalCount:N0} order(s)";
             }
             catch (Exception ex)
             {
                 lblStatus.Text = "Error loading orders: " + ex.Message;
             }
+        }
+
+        // ── Pagination helper ─────────────────────────────────────────────────────
+
+        private Panel BuildPaginationBar(
+            ref int currentPage, int totalCount, int pageSize,
+            Action reload)
+        {
+            var panel   = new Panel { Height = 36, Dock = DockStyle.Bottom };
+            var btnPrev = new Button { Text = "← Prev", Size = new Size(80, 28), Left = 8, Top = 4 };
+            var lblPage = new Label  { AutoSize = true, Top = 10, Left = 96 };
+            var btnNext = new Button { Text = "Next →", Size = new Size(80, 28), Left = 0, Top = 4 };
+
+            int totalPages = Math.Max(1, (int)Math.Ceiling(totalCount / (double)pageSize));
+            lblPage.Text    = $"Page {currentPage} of {totalPages}  ({totalCount:N0} records)";
+            btnPrev.Enabled = currentPage > 1;
+            btnNext.Enabled = currentPage < totalPages;
+            btnNext.Left    = lblPage.PreferredWidth + 96 + 8;
+
+            btnPrev.Click += (s, e) => { currentPage--; reload(); };
+            btnNext.Click += (s, e) => { currentPage++; reload(); };
+
+            panel.Controls.AddRange(new Control[] { btnPrev, lblPage, btnNext });
+            return panel;
         }
 
         private void BtnNew_Click(object? sender, EventArgs e)

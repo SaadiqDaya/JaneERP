@@ -50,6 +50,12 @@ namespace JaneERP
         private Panel               _pnlOrderDetail = new();
         private Label               _lblOrderDetail  = new();
 
+        // Pagination
+        private int _revenuePage    = 1;
+        private int _revenueTotalCount = 0;
+        private const int RevenuePageSize = 50;
+        private Panel _pnlRevenuePager = new();
+
         // Expenses grid
         private DataGridView _dgvExpenses = new();
         private Button       _btnDeleteExp = new();
@@ -75,18 +81,10 @@ namespace JaneERP
             MinimumSize   = new Size(960, 640);
             StartPosition = FormStartPosition.CenterParent;
 
-            int y = 12;
+            // ── Header bar ───────────────────────────────────────────────────────
+            Theme.AddFormHeader(this, "💰  Accounting");
 
-            // Title
-            Controls.Add(new Label
-            {
-                Text      = "Accounting",
-                Font      = new Font("Segoe UI", 14F, FontStyle.Bold),
-                ForeColor = Theme.Gold,
-                Location  = new Point(14, y),
-                AutoSize  = true
-            });
-            y += 38;
+            int y = 12;
 
             // ── Date range ─────────────────────────────────────────────────────────
             Controls.Add(new Label { Text = "From:", Location = new Point(14, y + 3), AutoSize = true, ForeColor = Theme.TextSecondary });
@@ -107,7 +105,7 @@ namespace JaneERP
             _btnLoad.Location = new Point(340, y - 1);
             _btnLoad.Size     = new Size(70, 26);
             _btnLoad.UseVisualStyleBackColor = true;
-            _btnLoad.Click   += (_, _) => LoadData();
+            _btnLoad.Click   += (_, _) => { _revenuePage = 1; LoadData(); };
             Controls.Add(_btnLoad);
 
             // ── Date quick-picks ──────────────────────────────────────────────────
@@ -125,7 +123,7 @@ namespace JaneERP
                 btn.FlatAppearance.BorderColor = Theme.Border;
                 btn.BackColor = Theme.Surface;
                 btn.ForeColor = Theme.TextSecondary;
-                btn.Click += (_, _) => { setDates(); LoadData(); };
+                btn.Click += (_, _) => { setDates(); _revenuePage = 1; LoadData(); };
                 Controls.Add(btn);
             }
 
@@ -299,7 +297,7 @@ namespace JaneERP
             _chkPaidOnly.Location = new Point(340, y + 6);
             _chkPaidOnly.AutoSize = true;
             _chkPaidOnly.Checked  = false;
-            _chkPaidOnly.CheckedChanged += (_, _) => LoadData();
+            _chkPaidOnly.CheckedChanged += (_, _) => { _revenuePage = 1; LoadData(); };
             Controls.Add(_chkPaidOnly);
 
             y += 50;
@@ -360,7 +358,7 @@ namespace JaneERP
 
             _dgvRevenue.Location             = new Point(0, 24);
             _dgvRevenue.Anchor               = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
-            _dgvRevenue.Size                 = new Size(_pnlRevenue.Width, _pnlRevenue.Height - 86);
+            _dgvRevenue.Size                 = new Size(_pnlRevenue.Width, _pnlRevenue.Height - 122);
             _dgvRevenue.ReadOnly             = true;
             _dgvRevenue.AllowUserToAddRows   = false;
             _dgvRevenue.AllowUserToDeleteRows= false;
@@ -392,6 +390,12 @@ namespace JaneERP
             _lblOrderDetail.ForeColor = Theme.TextSecondary;
             _pnlOrderDetail.Controls.Add(_lblOrderDetail);
             _pnlRevenue.Controls.Add(_pnlOrderDetail);
+
+            // Pagination bar — docked to the bottom of the revenue panel
+            _pnlRevenuePager.Dock      = DockStyle.Bottom;
+            _pnlRevenuePager.Height    = 36;
+            _pnlRevenuePager.BackColor = Theme.Surface;
+            _pnlRevenue.Controls.Add(_pnlRevenuePager);
 
             Controls.Add(_pnlRevenue);
 
@@ -463,7 +467,23 @@ namespace JaneERP
 
                 var summary     = _repo.GetSummary(from, to, _chkPaidOnly.Checked);
                 var expenseRows = _repo.GetExpenseRows(from, to);
-                _revenueRows    = _repo.GetRevenueRows(from, to, _chkPaidOnly.Checked);
+
+                // ── Revenue: prefer paged method; fall back to GetRevenueRows + client-side slice ──
+                try
+                {
+                    (_revenueRows, _revenueTotalCount) = _repo.GetPagedRevenue(
+                        _revenuePage, RevenuePageSize, from, to, _chkPaidOnly.Checked);
+                }
+                catch
+                {
+                    // Fallback: load all, slice client-side
+                    var all = _repo.GetRevenueRows(from, to, _chkPaidOnly.Checked);
+                    _revenueTotalCount = all.Count;
+                    _revenueRows = all
+                        .Skip((_revenuePage - 1) * RevenuePageSize)
+                        .Take(RevenuePageSize)
+                        .ToList();
+                }
 
                 // ── Revenue KPI tile ──────────────────────────────────────────────
                 _lblRevenue.Text         = $"${summary.NetRevenue:N2}";
@@ -505,6 +525,12 @@ namespace JaneERP
                         row.DefaultCellStyle.ForeColor = Color.FromArgb(220, 160, 60);
                 }
 
+                // ── Refresh pagination bar ────────────────────────────────────────
+                _pnlRevenuePager.Controls.Clear();
+                var pager = BuildPaginationBar(ref _revenuePage, _revenueTotalCount, RevenuePageSize, () => LoadData());
+                pager.Dock = DockStyle.Fill;
+                _pnlRevenuePager.Controls.Add(pager);
+
                 // ── Expense grid ──────────────────────────────────────────────────
                 _dgvExpenses.Rows.Clear();
                 foreach (var r in expenseRows)
@@ -518,12 +544,36 @@ namespace JaneERP
                     row.Tag = r.ExpenseID;
                 }
 
-                _lblStatus.Text = $"Period: {from:yyyy-MM-dd} → {_dtpTo.Value:yyyy-MM-dd}  |  {_revenueRows.Count} order(s)  |  {expenseRows.Count} expense(s)";
+                _lblStatus.Text = $"Period: {from:yyyy-MM-dd} → {_dtpTo.Value:yyyy-MM-dd}  |  {_revenueTotalCount:N0} order(s)  |  {expenseRows.Count} expense(s)";
             }
             catch (Exception ex)
             {
                 _lblStatus.Text = "Error: " + ex.Message;
             }
+        }
+
+        // ── Pagination helper ─────────────────────────────────────────────────────
+
+        private Panel BuildPaginationBar(
+            ref int currentPage, int totalCount, int pageSize,
+            Action reload)
+        {
+            var panel   = new Panel { Height = 36, Dock = DockStyle.Bottom };
+            var btnPrev = new Button { Text = "← Prev", Size = new Size(80, 28), Left = 8, Top = 4 };
+            var lblPage = new Label  { AutoSize = true, Top = 10, Left = 96 };
+            var btnNext = new Button { Text = "Next →", Size = new Size(80, 28), Left = 0, Top = 4 };
+
+            int totalPages = Math.Max(1, (int)Math.Ceiling(totalCount / (double)pageSize));
+            lblPage.Text     = $"Page {currentPage} of {totalPages}  ({totalCount:N0} records)";
+            btnPrev.Enabled  = currentPage > 1;
+            btnNext.Enabled  = currentPage < totalPages;
+            btnNext.Left     = lblPage.PreferredWidth + 96 + 8;
+
+            btnPrev.Click += (s, e) => { currentPage--; reload(); };
+            btnNext.Click += (s, e) => { currentPage++; reload(); };
+
+            panel.Controls.AddRange(new Control[] { btnPrev, lblPage, btnNext });
+            return panel;
         }
 
         // ── Revenue grid actions ──────────────────────────────────────────────────
@@ -1040,17 +1090,8 @@ namespace JaneERP
             MinimumSize   = new Size(360, 320);
             StartPosition = FormStartPosition.CenterParent;
 
-            Controls.Add(new Label
-            {
-                Text      = "Expense Categories",
-                Font      = new Font("Segoe UI", 11F, FontStyle.Bold),
-                ForeColor = Theme.Gold,
-                Location  = new Point(12, 12),
-                AutoSize  = true
-            });
-
-            _dgv.Location        = new Point(12, 44);
-            _dgv.Size            = new Size(374, 270);
+            _dgv.Location        = new Point(12, 64);
+            _dgv.Size            = new Size(374, 250);
             _dgv.Anchor          = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
             _dgv.ReadOnly        = true;
             _dgv.AllowUserToAddRows    = false;
@@ -1086,10 +1127,12 @@ namespace JaneERP
 
             SizeChanged += (_, _) =>
             {
-                _dgv.Size = new Size(ClientSize.Width - 24, ClientSize.Height - 130);
+                _dgv.Size = new Size(ClientSize.Width - 24, ClientSize.Height - 150);
                 _txtNew.Location = new Point(110, ClientSize.Height - 74);
                 _btnAdd.Location = new Point(ClientSize.Width - 100, ClientSize.Height - 76);
             };
+
+            Theme.AddFormHeader(this, "🏷️  Expense Categories");
         }
 
         private void LoadCategories()

@@ -29,6 +29,16 @@ namespace JaneERP
 
         private Part? _editing;
 
+        // Pagination
+        private int _partsPage      = 1;
+        private int _partsTotalCount = 0;
+        private const int PartsPageSize = 50;
+        private Panel _pnlPartsPager = new();
+
+        // Search / filter controls for parts
+        private TextBox  _txtPartsSearch = new();
+        private CheckBox _chkActiveOnly  = new();
+
         public FormPartsManager()
         {
             BuildUI();
@@ -40,14 +50,29 @@ namespace JaneERP
         private void BuildUI()
         {
             Text            = "Parts Manager";
-            ClientSize      = new Size(900, 560);
-            MinimumSize     = new Size(900, 560);
+            ClientSize      = new Size(900, 700);
+            MinimumSize     = new Size(900, 700);
             StartPosition   = FormStartPosition.CenterParent;
             FormBorderStyle = FormBorderStyle.Sizable;
 
+            // ── Search / filter bar ───────────────────────────────────────────────
+            Controls.Add(new Label { Text = "Search:", Location = new Point(12, 40), AutoSize = true });
+            _txtPartsSearch.Location    = new Point(60, 37);
+            _txtPartsSearch.Size        = new Size(200, 23);
+            _txtPartsSearch.PlaceholderText = "Part # or name…";
+            _txtPartsSearch.TextChanged += (_, _) => { _partsPage = 1; LoadParts(); };
+            Controls.Add(_txtPartsSearch);
+
+            _chkActiveOnly.Text     = "Active only";
+            _chkActiveOnly.Location = new Point(270, 39);
+            _chkActiveOnly.AutoSize = true;
+            _chkActiveOnly.Checked  = false;
+            _chkActiveOnly.CheckedChanged += (_, _) => { _partsPage = 1; LoadParts(); };
+            Controls.Add(_chkActiveOnly);
+
             dgvParts.Anchor          = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left;
-            dgvParts.Location        = new Point(12, 12);
-            dgvParts.Size            = new Size(500, 500);
+            dgvParts.Location        = new Point(12, 66);
+            dgvParts.Size            = new Size(500, 506);
             dgvParts.ReadOnly        = true;
             dgvParts.AllowUserToAddRows    = false;
             dgvParts.AllowUserToDeleteRows = false;
@@ -66,12 +91,18 @@ namespace JaneERP
             dgvParts.SelectionChanged += DgvParts_SelectionChanged;
             Controls.Add(dgvParts);
 
+            // ── Pagination bar ────────────────────────────────────────────────────
+            _pnlPartsPager.Anchor   = AnchorStyles.Bottom | AnchorStyles.Left;
+            _pnlPartsPager.Location = new Point(12, 580);
+            _pnlPartsPager.Size     = new Size(500, 36);
+            Controls.Add(_pnlPartsPager);
+
             lblCount.AutoSize = true;
             lblCount.Anchor   = AnchorStyles.Bottom | AnchorStyles.Left;
-            lblCount.Location = new Point(12, 520);
+            lblCount.Location = new Point(12, 620);
             Controls.Add(lblCount);
 
-            int x = 528, y = 12;
+            int x = 528, y = 64;
 
             lblEdit.AutoSize  = false;
             lblEdit.Font      = new Font("Segoe UI", 11F, FontStyle.Bold);
@@ -145,13 +176,14 @@ namespace JaneERP
             Controls.Add(btnNew);
 
             btnClose.Anchor   = AnchorStyles.Bottom | AnchorStyles.Right;
-            btnClose.Location = new Point(796, 516);
+            btnClose.Location = new Point(796, 656);
             btnClose.Size     = new Size(90, 30);
             btnClose.Text     = "Close";
             btnClose.Click   += (_, _) => Close();
             Controls.Add(btnClose);
 
             SetEditEnabled(false);
+            Theme.AddFormHeader(this, "🔩  Parts Manager");
         }
 
         private void AddField(ref int y, int x, string label, TextBox txt)
@@ -182,36 +214,97 @@ namespace JaneERP
         {
             try
             {
-                // Populate vendor dropdown
-                var vendors = _vendorRepo.GetAll().ToList();
-                cboVendor.DataSource    = new[] { new Models.Vendor { VendorID = 0, VendorName = "(none)" } }
-                    .Concat(vendors).ToList();
-                cboVendor.DisplayMember = "VendorName";
-                cboVendor.ValueMember   = "VendorID";
+                // Populate vendor dropdown (only if not already populated)
+                if (cboVendor.DataSource == null)
+                {
+                    var vendors = _vendorRepo.GetAll().ToList();
+                    cboVendor.DataSource    = new[] { new Models.Vendor { VendorID = 0, VendorName = "(none)" } }
+                        .Concat(vendors).ToList();
+                    cboVendor.DisplayMember = "VendorName";
+                    cboVendor.ValueMember   = "VendorID";
+                }
 
-                // Populate UOM dropdown
+                // Populate UOM dropdown (only once)
+                if (cboUom.Items.Count == 0)
+                {
+                    try
+                    {
+                        var abbrevs = _uomRepo.GetAbbreviations();
+                        cboUom.Items.Add("");
+                        foreach (var u in abbrevs) cboUom.Items.Add(u);
+                    }
+                    catch { /* non-fatal — table may not exist yet */ }
+                }
+
+                // Gather filter values
+                string? searchText = string.IsNullOrWhiteSpace(_txtPartsSearch.Text)
+                    ? null : _txtPartsSearch.Text.Trim();
+                bool activeOnly = _chkActiveOnly.Checked;
+
+                List<Part> pageParts;
+
+                // Prefer server-side paged method; fall back to GetAll + client-side slice
                 try
                 {
-                    var abbrevs = _uomRepo.GetAbbreviations();
-                    cboUom.Items.Clear();
-                    cboUom.Items.Add("");
-                    foreach (var u in abbrevs) cboUom.Items.Add(u);
+                    (pageParts, _partsTotalCount) = _repo.GetPagedParts(
+                        _partsPage, PartsPageSize, searchText, activeOnly);
+                    _allParts = pageParts;
                 }
-                catch { /* non-fatal — table may not exist yet */ }
+                catch
+                {
+                    var all = _repo.GetAll(includeInactive: !activeOnly).ToList();
+                    if (searchText != null)
+                    {
+                        var q = searchText.ToLower();
+                        all = all.Where(p =>
+                            (p.PartNumber ?? "").ToLower().Contains(q) ||
+                            (p.PartName   ?? "").ToLower().Contains(q)
+                        ).ToList();
+                    }
+                    _partsTotalCount = all.Count;
+                    pageParts = all.Skip((_partsPage - 1) * PartsPageSize).Take(PartsPageSize).ToList();
+                    _allParts = pageParts;
+                }
 
-                // Load parts — populate grid manually so we can inject Source Type / Source Number
-                // (Part model has no SourceType property; we derive it from DefaultVendorName).
-                var parts = _repo.GetAll(includeInactive: true).ToList();
-                _allParts = parts;
+                PopulatePartsGrid(pageParts);
 
-                PopulatePartsGrid(parts);
-                lblCount.Text = $"{parts.Count} part(s)";
+                // ── Refresh pagination bar ────────────────────────────────────────
+                _pnlPartsPager.Controls.Clear();
+                var pager = BuildPaginationBar(ref _partsPage, _partsTotalCount, PartsPageSize, () => LoadParts());
+                pager.Dock = DockStyle.Fill;
+                _pnlPartsPager.Controls.Add(pager);
+
+                lblCount.Text = $"{_partsTotalCount:N0} part(s)";
             }
             catch (Exception ex)
             {
                 MessageBox.Show(this, "Could not load parts: " + ex.Message, "Error",
                     MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
+        }
+
+        // ── Pagination helper ─────────────────────────────────────────────────────
+
+        private Panel BuildPaginationBar(
+            ref int currentPage, int totalCount, int pageSize,
+            Action reload)
+        {
+            var panel   = new Panel { Height = 36, Dock = DockStyle.Bottom };
+            var btnPrev = new Button { Text = "← Prev", Size = new Size(80, 28), Left = 8, Top = 4 };
+            var lblPage = new Label  { AutoSize = true, Top = 10, Left = 96 };
+            var btnNext = new Button { Text = "Next →", Size = new Size(80, 28), Left = 0, Top = 4 };
+
+            int totalPages = Math.Max(1, (int)Math.Ceiling(totalCount / (double)pageSize));
+            lblPage.Text    = $"Page {currentPage} of {totalPages}  ({totalCount:N0} records)";
+            btnPrev.Enabled = currentPage > 1;
+            btnNext.Enabled = currentPage < totalPages;
+            btnNext.Left    = lblPage.PreferredWidth + 96 + 8;
+
+            btnPrev.Click += (s, e) => { currentPage--; reload(); };
+            btnNext.Click += (s, e) => { currentPage++; reload(); };
+
+            panel.Controls.AddRange(new Control[] { btnPrev, lblPage, btnNext });
+            return panel;
         }
 
         private List<Part> _allParts = new();
@@ -400,15 +493,11 @@ namespace JaneERP
             FormBorderStyle = FormBorderStyle.None;
             StartPosition   = FormStartPosition.CenterParent;
 
-            var lbl = new Label { Text = $"Bill of Materials: {_product.ProductName}", Font = new Font("Segoe UI", 10F, FontStyle.Bold),
-                ForeColor = Theme.Gold, AutoSize = true, Location = new Point(12, 12) };
-            Controls.Add(lbl);
-
             // ── Parts section ─────────────────────────────────────────────────
-            Controls.Add(new Label { Text = "PARTS", Location = new Point(12, 38), AutoSize = true,
+            Controls.Add(new Label { Text = "PARTS", Location = new Point(12, 56), AutoSize = true,
                 Font = new Font("Segoe UI", 8F, FontStyle.Bold), ForeColor = Theme.TextMuted });
 
-            dgv.Location          = new Point(12, 56);
+            dgv.Location          = new Point(12, 74);
             dgv.Size              = new Size(556, 220);
             dgv.Anchor            = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
             dgv.AllowUserToAddRows    = false;
@@ -428,13 +517,13 @@ namespace JaneERP
             Controls.Add(dgv);
 
             btnAddPart.Text     = "+ Add Part";
-            btnAddPart.Location = new Point(12, 284);
+            btnAddPart.Location = new Point(12, 302);
             btnAddPart.Size     = new Size(110, 28);
             btnAddPart.Click   += BtnAddPart_Click;
             Controls.Add(btnAddPart);
 
             // ── Labour section ────────────────────────────────────────────────
-            Controls.Add(new Label { Text = "LABOUR COSTS", Location = new Point(12, 322), AutoSize = true,
+            Controls.Add(new Label { Text = "LABOUR COSTS", Location = new Point(12, 340), AutoSize = true,
                 Font = new Font("Segoe UI", 8F, FontStyle.Bold), ForeColor = Theme.TextMuted });
 
             dgvLabour.Location          = new Point(12, 340);
@@ -479,6 +568,8 @@ namespace JaneERP
 
             SizeChanged += (_, _) => RepositionBottom();
             Load        += (_, _) => RepositionBottom();
+
+            Theme.AddFormHeader(this, "📋  Bill of Materials");
         }
 
         private void RepositionBottom()

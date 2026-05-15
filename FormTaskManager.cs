@@ -8,6 +8,12 @@ namespace JaneERP
     {
         private readonly TaskRepository _repo = new();
 
+        // Pagination
+        private int _taskPage      = 1;
+        private int _taskTotalCount = 0;
+        private const int TaskPageSize = 50;
+        private Panel _pnlTaskPager = new();
+
         private DataGridView dgvTasks        = new();
         private ComboBox     cboFilter      = new();
         private ComboBox     cboStageFilter = new();
@@ -47,7 +53,6 @@ namespace JaneERP
             Theme.MakeBorderless(this);
             Theme.AddCloseButton(this);
             Theme.MakeResizable(this);
-            try { _repo.EnsureSchema(); } catch (Exception ex) { JaneERP.Logging.AppLogger.Info($"[FormTaskManager] EnsureSchema: {ex.Message}"); }
             LoadTasks();
             LoadMentions();
             _mentionsTimer.Tick += (_, _) => { if (!IsDisposed && IsHandleCreated) BeginInvoke(LoadMentions); };
@@ -58,19 +63,12 @@ namespace JaneERP
         private void BuildUI()
         {
             Text            = "Task Manager";
-            ClientSize      = new Size(1000, 820);
-            MinimumSize     = new Size(820, 700);
+            ClientSize      = new Size(1000, 860);
+            MinimumSize     = new Size(820, 740);
             StartPosition   = FormStartPosition.CenterParent;
 
             // ── Header ────────────────────────────────────────────────────────────
-            Controls.Add(new Label
-            {
-                Text      = "Task Manager",
-                Font      = new Font("Segoe UI", 14F, FontStyle.Bold),
-                ForeColor = Theme.Gold,
-                Location  = new Point(12, 12),
-                AutoSize  = true
-            });
+            Theme.AddFormHeader(this, "✅  Task Manager");
 
             // ── Filter bar row 1: Assignee + Stage ──────────────────────────────
             lblFilter.Text     = "Show tasks for:";
@@ -84,7 +82,7 @@ namespace JaneERP
             cboFilter.Items.Add("All Users");
             cboFilter.Items.Add("Me (" + (AppSession.CurrentUser?.Username ?? "") + ")");
             cboFilter.SelectedIndex = 0;
-            cboFilter.SelectedIndexChanged += (_, _) => LoadTasks();
+            cboFilter.SelectedIndexChanged += (_, _) => { _taskPage = 1; LoadTasks(); };
             Controls.Add(cboFilter);
 
             Controls.Add(new Label { Text = "Stage:", Location = new Point(316, 52), AutoSize = true });
@@ -94,26 +92,26 @@ namespace JaneERP
             cboStageFilter.Items.AddRange(new object[] { "All Stages", "Open", "In Progress", "Done", "Overdue" });
             cboStageFilter.SelectedIndex = 0;
             Load += (_, _) => EnrichStageFilter();
-            cboStageFilter.SelectedIndexChanged += (_, _) => LoadTasks();
+            cboStageFilter.SelectedIndexChanged += (_, _) => { _taskPage = 1; LoadTasks(); };
             Controls.Add(cboStageFilter);
 
             // ── Filter bar row 2: Search + Tag + Show All ─────────────────────
             Controls.Add(new Label { Text = "Search:", Location = new Point(12, 82), AutoSize = true });
             txtSearch.Location    = new Point(66, 79);
             txtSearch.Size        = new Size(200, 23);
-            txtSearch.TextChanged += (_, _) => LoadTasks();
+            txtSearch.TextChanged += (_, _) => { _taskPage = 1; LoadTasks(); };
             Controls.Add(txtSearch);
 
             Controls.Add(new Label { Text = "Tag:", Location = new Point(280, 82), AutoSize = true });
             txtTagFilter.Location    = new Point(310, 79);
             txtTagFilter.Size        = new Size(150, 23);
-            txtTagFilter.TextChanged += (_, _) => LoadTasks();
+            txtTagFilter.TextChanged += (_, _) => { _taskPage = 1; LoadTasks(); };
             Controls.Add(txtTagFilter);
 
             chkShowAll.Text     = "Show all";
             chkShowAll.Location = new Point(474, 81);
             chkShowAll.AutoSize = true;
-            chkShowAll.CheckedChanged += (_, _) => LoadTasks();
+            chkShowAll.CheckedChanged += (_, _) => { _taskPage = 1; LoadTasks(); };
             Controls.Add(chkShowAll);
 
             // ── Grid ─────────────────────────────────────────────────────────────
@@ -193,15 +191,21 @@ namespace JaneERP
 
             Controls.Add(dgvTasks);
 
+            // ── Pagination bar ────────────────────────────────────────────────────
+            _pnlTaskPager.Location  = new Point(12, 476);
+            _pnlTaskPager.Size      = new Size(976, 36);
+            _pnlTaskPager.Anchor    = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
+            Controls.Add(_pnlTaskPager);
+
             // ── Workload summary ──────────────────────────────────────────────────
             lblWorkloadTitle.Text      = "Workload:";
             lblWorkloadTitle.Font      = new Font("Segoe UI", 8.5F, FontStyle.Bold);
             lblWorkloadTitle.ForeColor = Theme.TextMuted;
-            lblWorkloadTitle.Location  = new Point(12, 478);
+            lblWorkloadTitle.Location  = new Point(12, 518);
             lblWorkloadTitle.AutoSize  = true;
             Controls.Add(lblWorkloadTitle);
 
-            pnlWorkload.Location    = new Point(80, 474);
+            pnlWorkload.Location    = new Point(80, 514);
             pnlWorkload.Size        = new Size(900, 26);
             pnlWorkload.Anchor      = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
             pnlWorkload.FlowDirection = FlowDirection.LeftToRight;
@@ -212,19 +216,19 @@ namespace JaneERP
             lblMentions.Text      = "Recent Mentions (@you):";
             lblMentions.Font      = new Font("Segoe UI", 9F, FontStyle.Bold);
             lblMentions.ForeColor = Theme.Gold;
-            lblMentions.Location  = new Point(12, 510);
+            lblMentions.Location  = new Point(12, 552);
             lblMentions.AutoSize  = true;
             Controls.Add(lblMentions);
 
             btnClearMentions.Text     = "Clear All";
             btnClearMentions.Size     = new Size(80, 22);
-            btnClearMentions.Location = new Point(200, 508);
+            btnClearMentions.Location = new Point(200, 550);
             btnClearMentions.Click   += BtnClearMentions_Click;
             Controls.Add(btnClearMentions);
 
             btnClearSelected.Text     = "Clear Selected";
             btnClearSelected.Size     = new Size(100, 22);
-            btnClearSelected.Location = new Point(288, 508);
+            btnClearSelected.Location = new Point(288, 550);
             btnClearSelected.Click   += BtnClearSelected_Click;
             Controls.Add(btnClearSelected);
 
@@ -236,7 +240,7 @@ namespace JaneERP
             dgvMentions.AllowUserToAddRows = false;
             dgvMentions.SelectionMode      = DataGridViewSelectionMode.FullRowSelect;
             dgvMentions.Anchor             = AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
-            dgvMentions.Location           = new Point(12, 536);
+            dgvMentions.Location           = new Point(12, 578);
             dgvMentions.Size               = new Size(976, 130);
 
             dgvMentions.CellFormatting += (s, e) =>
@@ -253,63 +257,63 @@ namespace JaneERP
             btnAdd.Text     = "+ Add Task(s)";
             btnAdd.Size     = new Size(120, 30);
             btnAdd.Anchor   = AnchorStyles.Bottom | AnchorStyles.Left;
-            btnAdd.Location = new Point(12, 778);
+            btnAdd.Location = new Point(12, 818);
             btnAdd.Click   += BtnAdd_Click;
             Controls.Add(btnAdd);
 
             btnDone.Text     = "Mark Done";
             btnDone.Size     = new Size(100, 30);
             btnDone.Anchor   = AnchorStyles.Bottom | AnchorStyles.Left;
-            btnDone.Location = new Point(140, 778);
+            btnDone.Location = new Point(140, 818);
             btnDone.Click   += BtnDone_Click;
             Controls.Add(btnDone);
 
             btnReassign.Text     = "Reassign...";
             btnReassign.Size     = new Size(100, 30);
             btnReassign.Anchor   = AnchorStyles.Bottom | AnchorStyles.Left;
-            btnReassign.Location = new Point(248, 778);
+            btnReassign.Location = new Point(248, 818);
             btnReassign.Click   += BtnReassign_Click;
             Controls.Add(btnReassign);
 
             btnSetPriority.Text     = "Set Priority...";
             btnSetPriority.Size     = new Size(110, 30);
             btnSetPriority.Anchor   = AnchorStyles.Bottom | AnchorStyles.Left;
-            btnSetPriority.Location = new Point(356, 778);
+            btnSetPriority.Location = new Point(356, 818);
             btnSetPriority.Click   += BtnSetPriority_Click;
             Controls.Add(btnSetPriority);
 
             btnSetDue.Text     = "Set Due Date...";
             btnSetDue.Size     = new Size(115, 30);
             btnSetDue.Anchor   = AnchorStyles.Bottom | AnchorStyles.Left;
-            btnSetDue.Location = new Point(474, 778);
+            btnSetDue.Location = new Point(474, 818);
             btnSetDue.Click   += BtnSetDue_Click;
             Controls.Add(btnSetDue);
 
             btnDelete.Text     = "Delete";
             btnDelete.Size     = new Size(80, 30);
             btnDelete.Anchor   = AnchorStyles.Bottom | AnchorStyles.Left;
-            btnDelete.Location = new Point(597, 778);
+            btnDelete.Location = new Point(597, 818);
             btnDelete.Click   += BtnDelete_Click;
             Controls.Add(btnDelete);
 
             btnEmail.Text     = "Email Outstanding";
             btnEmail.Size     = new Size(140, 30);
             btnEmail.Anchor   = AnchorStyles.Bottom | AnchorStyles.Left;
-            btnEmail.Location = new Point(685, 778);
+            btnEmail.Location = new Point(685, 818);
             btnEmail.Click   += BtnEmail_Click;
             Controls.Add(btnEmail);
 
             btnWorkflows.Text     = "Manage Workflows";
             btnWorkflows.Size     = new Size(140, 30);
             btnWorkflows.Anchor   = AnchorStyles.Bottom | AnchorStyles.Left;
-            btnWorkflows.Location = new Point(833, 778);
+            btnWorkflows.Location = new Point(833, 818);
             btnWorkflows.Click   += (_, _) => { using var f = new FormWorkflowEditor(_repo); f.ShowDialog(this); };
             Controls.Add(btnWorkflows);
 
             btnClose.Text     = "Close";
             btnClose.Size     = new Size(80, 30);
             btnClose.Anchor   = AnchorStyles.Bottom | AnchorStyles.Right;
-            btnClose.Location = new Point(908, 778);
+            btnClose.Location = new Point(908, 818);
             btnClose.Click   += (_, _) => Close();
             Controls.Add(btnClose);
         }
@@ -328,51 +332,99 @@ namespace JaneERP
             string? filterStage = stageSel is "All Stages" or "Overdue" or "Open" or "In Progress" or "Done"
                 ? null : stageSel;
 
-            var tasks = _repo.GetAll(filterUser, filterStatus);
+            string? searchText = string.IsNullOrWhiteSpace(txtSearch.Text)    ? null : txtSearch.Text.Trim();
+            string? tagText    = string.IsNullOrWhiteSpace(txtTagFilter.Text) ? null : txtTagFilter.Text.Trim();
 
-            // Client-side stage filter for workflow-stage names
-            if (!string.IsNullOrEmpty(filterStage))
+            List<ErpTask> tasks;
+
+            // Prefer server-side paged method; fall back to GetAll + client-side slice
+            try
+            {
+                (tasks, _taskTotalCount) = _repo.GetPagedTasks(
+                    _taskPage, TaskPageSize, filterUser, filterStatus, searchText, tagText, chkShowAll.Checked);
+            }
+            catch
+            {
+                // Fallback: load all, apply client-side filters, then slice
+                var all = _repo.GetAll(filterUser, filterStatus);
+
+                // Client-side stage filter for workflow-stage names
+                if (!string.IsNullOrEmpty(filterStage))
+                    all = all.Where(t => string.Equals(t.WorkflowCurrentStatus, filterStage,
+                        StringComparison.OrdinalIgnoreCase)).ToList();
+
+                if (filterOverdue)
+                    all = all.Where(t => t.Status != "Done" && t.DueDate.Date < DateTime.Today).ToList();
+
+                if (!chkShowAll.Checked)
+                    all = all.Where(t => t.Status != "Done" || t.CreatedAt >= DateTime.Now.AddDays(-30)).ToList();
+
+                if (tagText != null)
+                {
+                    var tag = tagText.ToLower();
+                    all = all.Where(t =>
+                        !string.IsNullOrEmpty(t.Tags) &&
+                        t.Tags.ToLower().Split(',').Select(s => s.Trim()).Any(s => s == tag || s.Contains(tag))
+                    ).ToList();
+                }
+
+                if (searchText != null)
+                {
+                    var q = searchText.ToLower();
+                    all = all.Where(t =>
+                        t.Title.ToLower().Contains(q) ||
+                        (t.Description ?? "").ToLower().Contains(q) ||
+                        (t.AssignedTo ?? "").ToLower().Contains(q) ||
+                        (t.Tags ?? "").ToLower().Contains(q)
+                    ).ToList();
+                }
+
+                _taskTotalCount = all.Count;
+                tasks = all.Skip((_taskPage - 1) * TaskPageSize).Take(TaskPageSize).ToList();
+            }
+
+            // When using server-side paging the stage/overdue client filters still apply if needed
+            if (tasks.Count > 0 && !string.IsNullOrEmpty(filterStage))
                 tasks = tasks.Where(t => string.Equals(t.WorkflowCurrentStatus, filterStage,
                     StringComparison.OrdinalIgnoreCase)).ToList();
 
-            if (filterOverdue)
+            if (tasks.Count > 0 && filterOverdue)
                 tasks = tasks.Where(t => t.Status != "Done" && t.DueDate.Date < DateTime.Today).ToList();
-
-            // ── Default filter: hide Done tasks older than 30 days ────────────────
-            if (!chkShowAll.Checked)
-            {
-                tasks = tasks.Where(t =>
-                    t.Status != "Done" ||
-                    t.CreatedAt >= DateTime.Now.AddDays(-30)
-                ).ToList();
-            }
-
-            // ── Tag filter ────────────────────────────────────────────────────────
-            if (!string.IsNullOrWhiteSpace(txtTagFilter.Text))
-            {
-                var tag = txtTagFilter.Text.Trim().ToLower();
-                tasks = tasks.Where(t =>
-                    !string.IsNullOrEmpty(t.Tags) &&
-                    t.Tags.ToLower().Split(',').Select(s => s.Trim()).Any(s => s == tag || s.Contains(tag))
-                ).ToList();
-            }
-
-            // ── Search filter ─────────────────────────────────────────────────────
-            if (!string.IsNullOrWhiteSpace(txtSearch.Text))
-            {
-                var q = txtSearch.Text.Trim().ToLower();
-                tasks = tasks.Where(t =>
-                    t.Title.ToLower().Contains(q) ||
-                    (t.Description ?? "").ToLower().Contains(q) ||
-                    (t.AssignedTo ?? "").ToLower().Contains(q) ||
-                    (t.Tags ?? "").ToLower().Contains(q)
-                ).ToList();
-            }
 
             dgvTasks.DataSource = tasks;
 
+            // ── Refresh pagination bar ────────────────────────────────────────────
+            _pnlTaskPager.Controls.Clear();
+            var pager = BuildPaginationBar(ref _taskPage, _taskTotalCount, TaskPageSize, () => LoadTasks());
+            pager.Dock = DockStyle.Fill;
+            _pnlTaskPager.Controls.Add(pager);
+
             // Refresh workload summary after every load
             LoadWorkloadSummary();
+        }
+
+        // ── Pagination helper ─────────────────────────────────────────────────────
+
+        private Panel BuildPaginationBar(
+            ref int currentPage, int totalCount, int pageSize,
+            Action reload)
+        {
+            var panel   = new Panel { Height = 36, Dock = DockStyle.Bottom };
+            var btnPrev = new Button { Text = "← Prev", Size = new Size(80, 28), Left = 8, Top = 4 };
+            var lblPage = new Label  { AutoSize = true, Top = 10, Left = 96 };
+            var btnNext = new Button { Text = "Next →", Size = new Size(80, 28), Left = 0, Top = 4 };
+
+            int totalPages = Math.Max(1, (int)Math.Ceiling(totalCount / (double)pageSize));
+            lblPage.Text    = $"Page {currentPage} of {totalPages}  ({totalCount:N0} records)";
+            btnPrev.Enabled = currentPage > 1;
+            btnNext.Enabled = currentPage < totalPages;
+            btnNext.Left    = lblPage.PreferredWidth + 96 + 8;
+
+            btnPrev.Click += (s, e) => { currentPage--; reload(); };
+            btnNext.Click += (s, e) => { currentPage++; reload(); };
+
+            panel.Controls.AddRange(new Control[] { btnPrev, lblPage, btnNext });
+            return panel;
         }
 
         /// <summary>Loads and displays the open task count per user in the workload panel.</summary>
@@ -747,39 +799,30 @@ namespace JaneERP
             MinimumSize   = new Size(760, 370);
             StartPosition = FormStartPosition.CenterParent;
 
-            Controls.Add(new Label
-            {
-                Text      = "Add Tasks",
-                Font      = new Font("Segoe UI", 12F, FontStyle.Bold),
-                ForeColor = Theme.Gold,
-                Location  = new Point(12, 12),
-                AutoSize  = true
-            });
-
-            Controls.Add(new Label { Text = "Default Assign To:", Location = new Point(12, 50), AutoSize = true });
-            cboDefaultUser.Location      = new Point(140, 47);
+            Controls.Add(new Label { Text = "Default Assign To:", Location = new Point(12, 65), AutoSize = true });
+            cboDefaultUser.Location      = new Point(140, 62);
             cboDefaultUser.Size          = new Size(160, 23);
             cboDefaultUser.DropDownStyle = ComboBoxStyle.DropDownList;
             try { foreach (var u in _repo.GetAllUsernames()) cboDefaultUser.Items.Add(u); } catch (Exception ex) { JaneERP.Logging.AppLogger.Info($"[FormAddTask.BuildUI]: {ex.Message}"); }
             if (cboDefaultUser.Items.Count > 0) cboDefaultUser.SelectedIndex = 0;
             Controls.Add(cboDefaultUser);
 
-            Controls.Add(new Label { Text = "Default Due:", Location = new Point(316, 50), AutoSize = true });
-            dtpDefaultDue.Location = new Point(394, 47);
+            Controls.Add(new Label { Text = "Default Due:", Location = new Point(316, 65), AutoSize = true });
+            dtpDefaultDue.Location = new Point(394, 62);
             dtpDefaultDue.Size     = new Size(120, 23);
             dtpDefaultDue.Value    = DateTime.Today.AddDays(7);
             Controls.Add(dtpDefaultDue);
 
-            Controls.Add(new Label { Text = "Priority:", Location = new Point(524, 50), AutoSize = true });
+            Controls.Add(new Label { Text = "Priority:", Location = new Point(524, 65), AutoSize = true });
             cboDefaultPriority.DropDownStyle = ComboBoxStyle.DropDownList;
-            cboDefaultPriority.Location      = new Point(572, 47);
+            cboDefaultPriority.Location      = new Point(572, 62);
             cboDefaultPriority.Size          = new Size(90, 23);
             cboDefaultPriority.Items.AddRange(new object[] { "Low", "Normal", "High", "Urgent" });
             cboDefaultPriority.SelectedIndex = 1;
             Controls.Add(cboDefaultPriority);
 
-            Controls.Add(new Label { Text = "Workflow:", Location = new Point(12, 78), AutoSize = true });
-            cboDefaultWorkflow.Location      = new Point(80, 75);
+            Controls.Add(new Label { Text = "Workflow:", Location = new Point(12, 93), AutoSize = true });
+            cboDefaultWorkflow.Location      = new Point(80, 90);
             cboDefaultWorkflow.Size          = new Size(200, 23);
             cboDefaultWorkflow.DropDownStyle = ComboBoxStyle.DropDownList;
             cboDefaultWorkflow.Items.Add("(none)");
@@ -793,11 +836,11 @@ namespace JaneERP
                 Text      = "Tasks will start on the first status of the selected workflow.",
                 Font      = new Font("Segoe UI", 7.5F),
                 ForeColor = Theme.TextMuted,
-                Location  = new Point(294, 79),
+                Location  = new Point(294, 94),
                 AutoSize  = true
             });
 
-            var btnFill = new Button { Text = "Apply Defaults", Size = new Size(120, 23), Location = new Point(670, 47) };
+            var btnFill = new Button { Text = "Apply Defaults", Size = new Size(120, 23), Location = new Point(670, 62) };
             btnFill.Click += (_, _) =>
             {
                 foreach (DataGridViewRow r in dgvTasks.Rows)
@@ -840,8 +883,8 @@ namespace JaneERP
             dgvTasks.AllowUserToAddRows    = true;
             dgvTasks.AllowUserToDeleteRows = true;
             dgvTasks.Anchor    = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
-            dgvTasks.Location  = new Point(12, 108);
-            dgvTasks.Size      = new Size(876, 270);
+            dgvTasks.Location  = new Point(12, 123);
+            dgvTasks.Size      = new Size(876, 255);
             dgvTasks.DataError += (s, e) => e.Cancel = true;
             Controls.Add(dgvTasks);
 
@@ -881,6 +924,8 @@ namespace JaneERP
                 dgvTasks.Rows[idx].Cells["colPriority"].Value = cboDefaultPriority.SelectedItem?.ToString() ?? "Normal";
             };
             Controls.Add(btnAddRow);
+
+            Theme.AddFormHeader(this, "✅  Add Tasks");
         }
 
         private void BtnSave_Click(object? sender, EventArgs e)
