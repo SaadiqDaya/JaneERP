@@ -54,11 +54,15 @@ namespace JaneERP
             dgvParts.SelectionMode   = DataGridViewSelectionMode.FullRowSelect;
             dgvParts.MultiSelect     = false;
             dgvParts.AutoGenerateColumns = false;
-            dgvParts.Columns.Add(new DataGridViewTextBoxColumn { Name = "cNum",   HeaderText = "Part #",  DataPropertyName = "PartNumber",  Width = 100 });
-            dgvParts.Columns.Add(new DataGridViewTextBoxColumn { Name = "cName",  HeaderText = "Name",    DataPropertyName = "PartName",    AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill });
-            dgvParts.Columns.Add(new DataGridViewTextBoxColumn { Name = "cCost",  HeaderText = "Cost",    DataPropertyName = "UnitCost",    Width = 70  });
-            dgvParts.Columns.Add(new DataGridViewTextBoxColumn { Name = "cStock", HeaderText = "Stock",   DataPropertyName = "CurrentStock",Width = 60  });
-            dgvParts.Columns.Add(new DataGridViewCheckBoxColumn { Name = "cAct",  HeaderText = "Active",  DataPropertyName = "IsActive",    Width = 55  });
+            // Grid is populated manually via PopulatePartsGrid() — DataPropertyName is intentionally
+            // omitted for colSourceType/colSourceNum (derived values, not direct Part properties).
+            dgvParts.Columns.Add(new DataGridViewTextBoxColumn  { Name = "cNum",          HeaderText = "Part #",   Width = 100 });
+            dgvParts.Columns.Add(new DataGridViewTextBoxColumn  { Name = "cName",         HeaderText = "Name",     AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill });
+            dgvParts.Columns.Add(new DataGridViewTextBoxColumn  { Name = "colSourceType", HeaderText = "Source",   Width = 75  });
+            dgvParts.Columns.Add(new DataGridViewTextBoxColumn  { Name = "colSourceNum",  HeaderText = "Source #", Width = 90  });
+            dgvParts.Columns.Add(new DataGridViewTextBoxColumn  { Name = "cCost",         HeaderText = "Cost",     Width = 70  });
+            dgvParts.Columns.Add(new DataGridViewTextBoxColumn  { Name = "cStock",        HeaderText = "Stock",    Width = 60  });
+            dgvParts.Columns.Add(new DataGridViewCheckBoxColumn { Name = "cAct",          HeaderText = "Active",   Width = 55  });
             dgvParts.SelectionChanged += DgvParts_SelectionChanged;
             Controls.Add(dgvParts);
 
@@ -195,9 +199,13 @@ namespace JaneERP
                 }
                 catch { /* non-fatal — table may not exist yet */ }
 
-                var parts = _repo.GetAll(includeInactive: true);
-                dgvParts.DataSource = parts.ToList();
-                lblCount.Text = $"{parts.Count()} part(s)";
+                // Load parts — populate grid manually so we can inject Source Type / Source Number
+                // (Part model has no SourceType property; we derive it from DefaultVendorName).
+                var parts = _repo.GetAll(includeInactive: true).ToList();
+                _allParts = parts;
+
+                PopulatePartsGrid(parts);
+                lblCount.Text = $"{parts.Count} part(s)";
             }
             catch (Exception ex)
             {
@@ -206,23 +214,83 @@ namespace JaneERP
             }
         }
 
+        private List<Part> _allParts = new();
+
+        /// <summary>
+        /// Fills dgvParts row-by-row so we can compute Source Type / Source Number
+        /// inline (Part model has no such property; we derive it from DefaultVendorName).
+        /// </summary>
+        private void PopulatePartsGrid(IEnumerable<Part> parts)
+        {
+            // Ensure no DataSource binding is active — we populate rows manually.
+            dgvParts.DataSource = null;
+            dgvParts.Rows.Clear();
+
+            foreach (var p in parts)
+            {
+                // Source type for a part is always "Part" (parts are atomic inventory items).
+                // Source # = the default vendor name — the supply chain source.
+                string sourceType = "Part";
+                string sourceNum  = string.IsNullOrWhiteSpace(p.DefaultVendorName)
+                    ? "—"
+                    : p.DefaultVendorName;
+
+                int idx = dgvParts.Rows.Add();
+                var row = dgvParts.Rows[idx];
+                row.Tag = p;  // store the Part object for selection lookup
+                row.Cells["cNum"].Value        = p.PartNumber;
+                row.Cells["cName"].Value       = p.PartName;
+                row.Cells["colSourceType"].Value = sourceType;
+                row.Cells["colSourceNum"].Value  = sourceNum;
+                row.Cells["cCost"].Value       = p.UnitCost;
+                row.Cells["cStock"].Value      = p.CurrentStock;
+                row.Cells["cAct"].Value        = p.IsActive;
+            }
+        }
+
         private void DgvParts_SelectionChanged(object? sender, EventArgs e)
         {
-            if (dgvParts.SelectedRows.Count == 0) { SetEditEnabled(false); return; }
-            if (dgvParts.SelectedRows[0].DataBoundItem is not Part part) return;
+            try
+            {
+                if (dgvParts.SelectedRows.Count == 0) { SetEditEnabled(false); return; }
 
-            _editing          = part;
-            lblEdit.Text      = part.PartName;
-            txtPartNum.Text   = part.PartNumber;
-            txtName.Text      = part.PartName;
-            txtDesc.Text      = part.Description ?? "";
-            txtCost.Text      = part.UnitCost.ToString("G");
-            nudStock.Value    = Math.Min(part.CurrentStock, (int)nudStock.Maximum);
-            cboVendor.SelectedValue = part.DefaultVendorID ?? 0;
-            cboUom.Text             = part.UnitOfMeasure ?? "";
-            txtDensity.Text         = part.Density.HasValue ? part.Density.Value.ToString("G") : "";
-            chkActive.Checked       = part.IsActive;
-            SetEditEnabled(true);
+                // Rows are populated manually (row.Tag = Part), not via DataSource binding.
+                var selectedRow = dgvParts.SelectedRows[0];
+                Part? part = selectedRow.Tag as Part;
+
+                // Fallback: DataBoundItem path (in case DataSource binding is ever used)
+                if (part == null && selectedRow.DataBoundItem is Part boundPart)
+                    part = boundPart;
+
+                if (part == null) return;
+
+                _editing        = part;
+                lblEdit.Text    = part.PartName;
+                txtPartNum.Text = part.PartNumber;
+                txtName.Text    = part.PartName;
+                txtDesc.Text    = part.Description ?? "";
+                txtCost.Text    = part.UnitCost.ToString("G");
+
+                // Guard against negative CurrentStock — NumericUpDown.Minimum defaults to 0
+                // and throws if you assign a value below it.  Negative stock is valid DB data
+                // (can result from manual adjustments or import mismatches); show it clamped.
+                var stock = part.CurrentStock;
+                nudStock.Value = Math.Max((int)nudStock.Minimum, Math.Min(stock, (int)nudStock.Maximum));
+
+                // Set vendor dropdown — look up by value; fall back to "(none)" if not found
+                cboVendor.SelectedValue = part.DefaultVendorID ?? 0;
+                if (cboVendor.SelectedIndex < 0) cboVendor.SelectedIndex = 0;
+
+                cboUom.Text       = part.UnitOfMeasure ?? "";
+                txtDensity.Text   = part.Density.HasValue ? part.Density.Value.ToString("G") : "";
+                chkActive.Checked = part.IsActive;
+                SetEditEnabled(true);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, $"Error loading part details: {ex.Message}", "Error",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
         }
 
         private void BtnSave_Click(object? sender, EventArgs e)
