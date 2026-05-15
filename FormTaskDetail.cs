@@ -32,6 +32,30 @@ namespace JaneERP
         private ListBox lstMention     = new();
         private string  _mentionPrefix = "";
 
+        // Linked record
+        private ComboBox cboLinkModule = new();
+        private TextBox  txtLinkId     = new();
+        private Button   btnViewLinked = new();
+        private Button   btnSaveLink   = new();
+
+        // Subtasks
+        private CheckedListBox clbSubtasks        = new();
+        private TextBox        txtNewSubtask       = new();
+        private Button         btnAddSubtask       = new();
+        private Label          lblSubtaskCount     = new();
+        private List<TaskSubtask> _subtasks        = new();
+
+        // Activity log
+        private ListBox lstHistory = new();
+
+        // Recurrence
+        private ComboBox       cboRecurrence  = new();
+        private NumericUpDown  nudInterval    = new();
+        private Label          lblNextOccur   = new();
+
+        // Tags
+        private TextBox txtTags = new();
+
         public bool Changed { get; private set; }
 
         public FormTaskDetail(TaskRepository repo, ErpTask task)
@@ -56,6 +80,9 @@ namespace JaneERP
                 }
             };
             LoadComments();
+            LoadLinkedRecord();
+            LoadSubtasks();
+            LoadHistory();
         }
 
         private static List<string> TryGetUsers(TaskRepository repo)
@@ -67,9 +94,10 @@ namespace JaneERP
         private void BuildUI()
         {
             Text          = $"Task: {_task.Title}";
-            ClientSize    = new Size(700, 660);
-            MinimumSize   = new Size(560, 580);
+            ClientSize    = new Size(700, 900);
+            MinimumSize   = new Size(560, 700);
             StartPosition = FormStartPosition.CenterParent;
+            AutoScroll    = true;
 
             // ── Header panel ──────────────────────────────────────────────────────────
             var pnlHeader = new Panel
@@ -155,10 +183,19 @@ namespace JaneERP
             txtDesc.Anchor     = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
             Controls.Add(txtDesc);
 
+            // ── Tags ──────────────────────────────────────────────────────────────────
+            Controls.Add(new Label { Text = "Tags:", Location = new Point(12, 202), AutoSize = true });
+            txtTags.Location        = new Point(52, 199);
+            txtTags.Size            = new Size(450, 23);
+            txtTags.Anchor          = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
+            txtTags.PlaceholderText = "e.g. urgent, customer-facing, blocked";
+            txtTags.Text            = _task.Tags ?? "";
+            Controls.Add(txtTags);
+
             // ── Workflow section ──────────────────────────────────────────────────────
-            Controls.Add(new Label { Text = "Workflow:", Location = new Point(12, 210), AutoSize = true });
+            Controls.Add(new Label { Text = "Workflow:", Location = new Point(12, 236), AutoSize = true });
             cboWorkflow.DropDownStyle = ComboBoxStyle.DropDownList;
-            cboWorkflow.Location      = new Point(78, 206);
+            cboWorkflow.Location      = new Point(78, 232);
             cboWorkflow.Size          = new Size(184, 23);
             try
             {
@@ -184,7 +221,7 @@ namespace JaneERP
             btnAdvanceWorkflow.Text     = "→ Next Stage";
             btnAdvanceWorkflow.Size     = new Size(105, 23);
             btnAdvanceWorkflow.Anchor   = AnchorStyles.Top | AnchorStyles.Right;
-            btnAdvanceWorkflow.Location = new Point(583, 206);
+            btnAdvanceWorkflow.Location = new Point(583, 232);
             btnAdvanceWorkflow.Visible  = false;
             btnAdvanceWorkflow.Click   += BtnAdvanceWorkflow_Click;
             Controls.Add(btnAdvanceWorkflow);
@@ -192,18 +229,134 @@ namespace JaneERP
             // After workflow combo is wired, refresh stage dropdown to match the task's workflow/stage
             RefreshStageDropdown();
 
-            // ── Discussion ────────────────────────────────────────────────────────────
-            Controls.Add(new Label { Text = "Discussion (type @ to tag a user):", Location = new Point(12, 242), AutoSize = true });
+            // ── Recurrence section ────────────────────────────────────────────────────
+            Controls.Add(new Label { Text = "Recurrence:", Location = new Point(12, 268), AutoSize = true });
+            cboRecurrence.DropDownStyle = ComboBoxStyle.DropDownList;
+            cboRecurrence.Location      = new Point(92, 264);
+            cboRecurrence.Size          = new Size(100, 23);
+            cboRecurrence.Items.AddRange(new object[] { "(None)", "Daily", "Weekly", "Monthly" });
+            cboRecurrence.SelectedItem  = _task.RecurrencePattern ?? "(None)";
+            if (cboRecurrence.SelectedIndex < 0) cboRecurrence.SelectedIndex = 0;
+            cboRecurrence.SelectedIndexChanged += CboRecurrence_SelectedIndexChanged;
+            Controls.Add(cboRecurrence);
 
-            lstComments.Location      = new Point(12, 262);
-            lstComments.Size          = new Size(676, 200);
-            lstComments.Anchor        = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
+            Controls.Add(new Label { Text = "Every:", Location = new Point(202, 268), AutoSize = true });
+            nudInterval.Location = new Point(242, 264);
+            nudInterval.Size     = new Size(52, 23);
+            nudInterval.Minimum  = 1;
+            nudInterval.Maximum  = 30;
+            nudInterval.Value    = Math.Max(1, _task.RecurrenceInterval);
+            Controls.Add(nudInterval);
+
+            lblNextOccur.Location  = new Point(308, 268);
+            lblNextOccur.AutoSize  = true;
+            lblNextOccur.ForeColor = Theme.TextMuted;
+            lblNextOccur.Font      = new Font("Segoe UI", 8.5F);
+            UpdateNextOccurrenceLabel();
+            Controls.Add(lblNextOccur);
+
+            // ── Linked Record section ─────────────────────────────────────────────────
+            Controls.Add(new Label
+            {
+                Text      = "Linked Record:",
+                Location  = new Point(12, 302),
+                AutoSize  = true,
+                Font      = new Font("Segoe UI", 9F, FontStyle.Bold)
+            });
+
+            cboLinkModule.DropDownStyle = ComboBoxStyle.DropDownList;
+            cboLinkModule.Location      = new Point(12, 320);
+            cboLinkModule.Size          = new Size(140, 23);
+            cboLinkModule.Items.AddRange(new object[]
+            {
+                "(None)", "Sales Order", "Purchase Order", "Customer", "Product", "Part", "Cook Session"
+            });
+            cboLinkModule.SelectedIndex = 0;
+            Controls.Add(cboLinkModule);
+
+            txtLinkId.Location        = new Point(162, 320);
+            txtLinkId.Size            = new Size(260, 23);
+            txtLinkId.PlaceholderText = "Order #, customer name, PO #…";
+            Controls.Add(txtLinkId);
+
+            btnViewLinked.Text     = "View";
+            btnViewLinked.Size     = new Size(60, 23);
+            btnViewLinked.Location = new Point(432, 320);
+            btnViewLinked.Click   += BtnViewLinked_Click;
+            Controls.Add(btnViewLinked);
+
+            btnSaveLink.Text     = "Save Link";
+            btnSaveLink.Size     = new Size(75, 23);
+            btnSaveLink.Location = new Point(502, 320);
+            btnSaveLink.Click   += BtnSaveLink_Click;
+            Controls.Add(btnSaveLink);
+
+            // ── Subtasks section ──────────────────────────────────────────────────────
+            Controls.Add(new Label
+            {
+                Text      = "Subtasks:",
+                Location  = new Point(12, 358),
+                AutoSize  = true,
+                Font      = new Font("Segoe UI", 9F, FontStyle.Bold)
+            });
+
+            lblSubtaskCount.Location  = new Point(90, 360);
+            lblSubtaskCount.AutoSize  = true;
+            lblSubtaskCount.ForeColor = Theme.TextMuted;
+            lblSubtaskCount.Font      = new Font("Segoe UI", 8.5F);
+            lblSubtaskCount.Text      = "";
+            Controls.Add(lblSubtaskCount);
+
+            clbSubtasks.Location      = new Point(12, 376);
+            clbSubtasks.Size          = new Size(676, 100);
+            clbSubtasks.Anchor        = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
+            clbSubtasks.CheckOnClick  = true;
+            clbSubtasks.ItemCheck    += ClbSubtasks_ItemCheck;
+            clbSubtasks.KeyDown      += ClbSubtasks_KeyDown;
+            Controls.Add(clbSubtasks);
+
+            txtNewSubtask.Location        = new Point(12, 484);
+            txtNewSubtask.Size            = new Size(540, 23);
+            txtNewSubtask.Anchor          = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
+            txtNewSubtask.PlaceholderText = "New subtask title…";
+            txtNewSubtask.KeyPress       += TxtNewSubtask_KeyPress;
+            Controls.Add(txtNewSubtask);
+
+            btnAddSubtask.Text     = "Add";
+            btnAddSubtask.Size     = new Size(60, 23);
+            btnAddSubtask.Location = new Point(562, 484);
+            btnAddSubtask.Anchor   = AnchorStyles.Top | AnchorStyles.Right;
+            btnAddSubtask.Click   += BtnAddSubtask_Click;
+            Controls.Add(btnAddSubtask);
+
+            // ── Activity Log section ──────────────────────────────────────────────────
+            Controls.Add(new Label
+            {
+                Text      = "Activity:",
+                Location  = new Point(12, 520),
+                AutoSize  = true,
+                Font      = new Font("Segoe UI", 9F, FontStyle.Bold)
+            });
+
+            lstHistory.Location      = new Point(12, 538);
+            lstHistory.Size          = new Size(676, 120);
+            lstHistory.Anchor        = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
+            lstHistory.SelectionMode = SelectionMode.None;
+            lstHistory.Font          = new Font("Consolas", 8F);
+            Controls.Add(lstHistory);
+
+            // ── Discussion ────────────────────────────────────────────────────────────
+            Controls.Add(new Label { Text = "Discussion (type @ to tag a user):", Location = new Point(12, 672), AutoSize = true });
+
+            lstComments.Location      = new Point(12, 692);
+            lstComments.Size          = new Size(676, 120);
+            lstComments.Anchor        = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
             lstComments.SelectionMode = SelectionMode.None;
             Controls.Add(lstComments);
 
-            txtComment.Location        = new Point(12, ClientSize.Height - 90);
+            txtComment.Location        = new Point(12, 822);
             txtComment.Size            = new Size(600, 23);
-            txtComment.Anchor          = AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
+            txtComment.Anchor          = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
             txtComment.PlaceholderText = "Write a comment… (type @ to tag a user)";
             txtComment.KeyPress       += TxtComment_KeyPress;
             txtComment.TextChanged    += TxtComment_TextChanged;
@@ -211,16 +364,16 @@ namespace JaneERP
 
             btnPostComment.Text     = "Post";
             btnPostComment.Size     = new Size(70, 23);
-            btnPostComment.Anchor   = AnchorStyles.Bottom | AnchorStyles.Right;
-            btnPostComment.Location = new Point(ClientSize.Width - 82, ClientSize.Height - 90);
+            btnPostComment.Anchor   = AnchorStyles.Top | AnchorStyles.Right;
+            btnPostComment.Location = new Point(618, 822);
             btnPostComment.Click   += BtnPostComment_Click;
             Controls.Add(btnPostComment);
 
             // @mention popup listbox (hidden by default)
             lstMention.Visible     = false;
-            lstMention.Location    = new Point(12, ClientSize.Height - 130);
+            lstMention.Location    = new Point(12, 780);
             lstMention.Size        = new Size(250, 120);
-            lstMention.Anchor      = AnchorStyles.Bottom | AnchorStyles.Left;
+            lstMention.Anchor      = AnchorStyles.Top | AnchorStyles.Left;
             lstMention.BorderStyle = BorderStyle.FixedSingle;
             lstMention.Font        = new Font("Segoe UI", 9.5F);
             lstMention.Click      += LstMention_Click;
@@ -230,16 +383,16 @@ namespace JaneERP
 
             btnSaveChanges.Text     = "Save Changes";
             btnSaveChanges.Size     = new Size(110, 28);
-            btnSaveChanges.Anchor   = AnchorStyles.Bottom | AnchorStyles.Left;
-            btnSaveChanges.Location = new Point(12, ClientSize.Height - 52);
+            btnSaveChanges.Anchor   = AnchorStyles.Top | AnchorStyles.Left;
+            btnSaveChanges.Location = new Point(12, 856);
             btnSaveChanges.UseVisualStyleBackColor = true;
             btnSaveChanges.Click   += BtnSaveChanges_Click;
             Controls.Add(btnSaveChanges);
 
             btnClose.Text     = "Close";
             btnClose.Size     = new Size(80, 28);
-            btnClose.Anchor   = AnchorStyles.Bottom | AnchorStyles.Right;
-            btnClose.Location = new Point(ClientSize.Width - 92, ClientSize.Height - 52);
+            btnClose.Anchor   = AnchorStyles.Top | AnchorStyles.Right;
+            btnClose.Location = new Point(608, 856);
             btnClose.Click   += (_, _) => Close();
             Controls.Add(btnClose);
         }
@@ -362,6 +515,9 @@ namespace JaneERP
                     _repo.UpdateStatus(_task.TaskID, "Done");
                     _task.WorkflowCurrentStatus = statuses[^1];
                     _task.Status = "Done";
+
+                    // Generate next recurrence if applicable
+                    TryGenerateNextRecurrence();
                 }
                 else
                 {
@@ -490,6 +646,18 @@ namespace JaneERP
                 try { _repo.AddMention(_task.TaskID, username, postedBy, commentBody); }
                 catch (Exception ex) { JaneERP.Logging.AppLogger.Info($"[FormTaskDetail.SaveMentions]: {ex.Message}"); }
             }
+
+            // Wire NotifyMentionAsync for each mentioned user
+            if (mentions.Count > 0)
+            {
+                List<(string Username, string Email)> emailTargets;
+                try { emailTargets = _repo.GetUserEmails(mentions); } catch { return; }
+                foreach (var (username, email) in emailTargets)
+                {
+                    if (string.IsNullOrWhiteSpace(email)) continue;
+                    _ = NotificationService.NotifyMentionAsync(email, postedBy, _task.Title);
+                }
+            }
         }
 
         private void SendMentionEmails(string commentBody, string postedBy)
@@ -525,6 +693,250 @@ namespace JaneERP
             }
         }
 
+        // ── Linked Record ─────────────────────────────────────────────────────────────
+
+        private void LoadLinkedRecord()
+        {
+            try
+            {
+                var link = _repo.GetLinkedRecord(_task.TaskID);
+                if (link != null && !string.IsNullOrWhiteSpace(link.LinkedModule))
+                {
+                    cboLinkModule.SelectedItem = link.LinkedModule;
+                    if (cboLinkModule.SelectedIndex < 0) cboLinkModule.SelectedIndex = 0;
+                    txtLinkId.Text = link.LinkedId;
+                }
+            }
+            catch { /* non-fatal */ }
+        }
+
+        private void BtnSaveLink_Click(object? sender, EventArgs e)
+        {
+            var module = cboLinkModule.SelectedItem?.ToString() ?? "(None)";
+            var id     = txtLinkId.Text.Trim();
+            try
+            {
+                if (module == "(None)")
+                {
+                    _repo.ClearLinkedRecord(_task.TaskID);
+                    MessageBox.Show(this, "Linked record cleared.", "Saved", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                }
+                else
+                {
+                    if (string.IsNullOrWhiteSpace(id))
+                    {
+                        MessageBox.Show(this, "Please enter an ID or name to link.", "Validation", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                        return;
+                    }
+                    var displayLabel = $"{module} #{id}";
+                    _repo.SetLinkedRecord(_task.TaskID, module, id, displayLabel);
+                    MessageBox.Show(this, $"Linked to {displayLabel}.", "Saved", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                }
+                Changed = true;
+            }
+            catch (Exception ex) { MessageBox.Show(this, ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error); }
+        }
+
+        private void BtnViewLinked_Click(object? sender, EventArgs e)
+        {
+            var module = cboLinkModule.SelectedItem?.ToString();
+            var id     = txtLinkId.Text.Trim();
+            if (string.IsNullOrEmpty(module) || module == "(None)") return;
+            if (string.IsNullOrEmpty(id)) return;
+
+            try
+            {
+                switch (module)
+                {
+                    case "Customer":
+                        using (var frm = new FormCustomers()) frm.ShowDialog(this);
+                        break;
+                    case "Sales Order":
+                        MessageBox.Show(this, $"Open the Sales dashboard and search for order: {id}", "Navigate to Sales Order", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                        break;
+                    case "Purchase Order":
+                        using (var frm = new FormPurchaseOrders()) frm.ShowDialog(this);
+                        break;
+                    case "Product":
+                        using (var frm = new FormProductSearch()) frm.ShowDialog(this);
+                        break;
+                    case "Part":
+                        using (var frm = new FormPartsManager()) frm.ShowDialog(this);
+                        break;
+                    case "Cook Session":
+                        if (int.TryParse(id, out int sessionId))
+                        {
+                            using var frm = new FormCookSession(sessionId);
+                            frm.ShowDialog(this);
+                        }
+                        else
+                            MessageBox.Show(this, $"Cook Session ID must be a number. Got: {id}", "Invalid ID", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                        break;
+                    default:
+                        MessageBox.Show(this, $"No view available for module: {module}", "Info", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                        break;
+                }
+            }
+            catch (Exception ex) { MessageBox.Show(this, ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error); }
+        }
+
+        // ── Subtasks ──────────────────────────────────────────────────────────────────
+
+        private void LoadSubtasks()
+        {
+            clbSubtasks.Items.Clear();
+            _subtasks.Clear();
+            try
+            {
+                _subtasks = _repo.GetSubtasks(_task.TaskID);
+                // Suppress ItemCheck event while loading
+                clbSubtasks.ItemCheck -= ClbSubtasks_ItemCheck;
+                foreach (var s in _subtasks)
+                    clbSubtasks.Items.Add(s.Title, s.IsComplete);
+                clbSubtasks.ItemCheck += ClbSubtasks_ItemCheck;
+                UpdateSubtaskCount();
+            }
+            catch { clbSubtasks.Items.Add("(Could not load subtasks)"); }
+        }
+
+        private void UpdateSubtaskCount()
+        {
+            if (_subtasks.Count == 0)
+            {
+                lblSubtaskCount.Text = "";
+                return;
+            }
+            int done = _subtasks.Count(s => s.IsComplete);
+            lblSubtaskCount.Text = $"({done}/{_subtasks.Count} complete)";
+        }
+
+        private void ClbSubtasks_ItemCheck(object? sender, ItemCheckEventArgs e)
+        {
+            if (e.Index < 0 || e.Index >= _subtasks.Count) return;
+            var subtask   = _subtasks[e.Index];
+            var user      = AppSession.CurrentUser?.Username ?? "system";
+            bool complete = (e.NewValue == CheckState.Checked);
+            try
+            {
+                if (complete)
+                    _repo.CompleteSubtask(subtask.SubtaskId, user);
+                else
+                {
+                    // Toggle back to incomplete — re-add with IsComplete=false by deleting and re-adding,
+                    // or if the repo has a direct uncomplete method use that; otherwise use UpdateTags workaround.
+                    // Since ITaskRepository only has CompleteSubtask, we delete and re-add to uncomplete.
+                    _repo.DeleteSubtask(subtask.SubtaskId);
+                    _repo.AddSubtask(_task.TaskID, subtask.Title, subtask.SortOrder);
+                }
+                subtask.IsComplete = complete;
+                UpdateSubtaskCount();
+                Changed = true;
+                // Reload to get fresh SubtaskId if we re-added
+                if (!complete) BeginInvoke(new Action(LoadSubtasks));
+            }
+            catch (Exception ex) { JaneERP.Logging.AppLogger.Info($"[FormTaskDetail.ClbSubtasks_ItemCheck]: {ex.Message}"); }
+        }
+
+        private void TxtNewSubtask_KeyPress(object? sender, KeyPressEventArgs e)
+        {
+            if (e.KeyChar == (char)Keys.Return) { BtnAddSubtask_Click(sender, EventArgs.Empty); e.Handled = true; }
+        }
+
+        private void BtnAddSubtask_Click(object? sender, EventArgs e)
+        {
+            var title = txtNewSubtask.Text.Trim();
+            if (string.IsNullOrWhiteSpace(title)) return;
+            try
+            {
+                _repo.AddSubtask(_task.TaskID, title, _subtasks.Count);
+                txtNewSubtask.Clear();
+                LoadSubtasks();
+                Changed = true;
+            }
+            catch (Exception ex) { MessageBox.Show(this, ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error); }
+        }
+
+        private void ClbSubtasks_KeyDown(object? sender, KeyEventArgs e)
+        {
+            if (e.KeyCode == Keys.Delete && clbSubtasks.SelectedIndex >= 0)
+            {
+                int idx = clbSubtasks.SelectedIndex;
+                if (idx >= _subtasks.Count) return;
+                var subtask = _subtasks[idx];
+                if (MessageBox.Show(this, $"Delete subtask \"{subtask.Title}\"?", "Confirm",
+                        MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
+                try
+                {
+                    _repo.DeleteSubtask(subtask.SubtaskId);
+                    LoadSubtasks();
+                    Changed = true;
+                }
+                catch (Exception ex) { MessageBox.Show(this, ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error); }
+            }
+        }
+
+        // ── Activity Log ──────────────────────────────────────────────────────────────
+
+        private void LoadHistory()
+        {
+            lstHistory.Items.Clear();
+            try
+            {
+                var history = _repo.GetHistory(_task.TaskID);
+                if (history.Count == 0)
+                {
+                    lstHistory.Items.Add("(No activity recorded yet)");
+                    return;
+                }
+                foreach (var h in history)
+                {
+                    var oldVal = string.IsNullOrWhiteSpace(h.OldValue) ? "(empty)" : h.OldValue;
+                    var newVal = string.IsNullOrWhiteSpace(h.NewValue) ? "(empty)" : h.NewValue;
+                    lstHistory.Items.Add($"[{h.ChangedAt:yyyy-MM-dd HH:mm}]  {h.ChangedBy} changed {h.FieldName}: {oldVal} → {newVal}");
+                }
+                lstHistory.TopIndex = lstHistory.Items.Count - 1;
+            }
+            catch { lstHistory.Items.Add("(Could not load activity)"); }
+        }
+
+        // ── Recurrence ────────────────────────────────────────────────────────────────
+
+        private void CboRecurrence_SelectedIndexChanged(object? sender, EventArgs e)
+        {
+            UpdateNextOccurrenceLabel();
+        }
+
+        private void UpdateNextOccurrenceLabel()
+        {
+            var pattern = cboRecurrence.SelectedItem?.ToString();
+            if (string.IsNullOrEmpty(pattern) || pattern == "(None)")
+            {
+                lblNextOccur.Text = "";
+                nudInterval.Enabled = false;
+                return;
+            }
+            nudInterval.Enabled = true;
+            if (_task.NextOccurrence.HasValue)
+                lblNextOccur.Text = $"Next: {_task.NextOccurrence.Value:yyyy-MM-dd}";
+            else
+                lblNextOccur.Text = "";
+        }
+
+        private void TryGenerateNextRecurrence()
+        {
+            if (string.IsNullOrEmpty(_task.RecurrencePattern)) return;
+            var user = AppSession.CurrentUser?.Username ?? "system";
+            try
+            {
+                var nextTask = _repo.GenerateNextRecurrence(_task.TaskID, user);
+                if (nextTask != null)
+                    MessageBox.Show(this,
+                        $"Next occurrence created for {nextTask.DueDate:yyyy-MM-dd}.",
+                        "Recurrence", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
+            catch (Exception ex) { JaneERP.Logging.AppLogger.Info($"[FormTaskDetail.TryGenerateNextRecurrence]: {ex.Message}"); }
+        }
+
         // ── Save Changes ──────────────────────────────────────────────────────────────
 
         private void BtnSaveChanges_Click(object? sender, EventArgs e)
@@ -539,6 +951,14 @@ namespace JaneERP
                 string newDesc = txtDesc.Text.Trim();
                 _repo.UpdateDescription(_task.TaskID, newDesc);
                 _task.Description = newDesc;
+
+                // Tags
+                var newTags = txtTags.Text.Trim();
+                if (newTags != (_task.Tags ?? ""))
+                {
+                    _repo.UpdateTags(_task.TaskID, newTags);
+                    _task.Tags = newTags;
+                }
 
                 // Stage / Status
                 // If a workflow is active, save the selected stage as WorkflowCurrentStatus
@@ -557,13 +977,21 @@ namespace JaneERP
                         var derived  = isFinal ? "Done" : (allStages.IndexOf(stageVal) == 0 ? "Open" : "In Progress");
                         if (derived != _task.Status) { _repo.UpdateStatus(_task.TaskID, derived); _task.Status = derived; }
                         RefreshStageDropdown();
+
+                        // If task just became Done, check recurrence
+                        if (derived == "Done") TryGenerateNextRecurrence();
                     }
                 }
                 else
                 {
                     // No workflow — stage combo holds legacy statuses
                     var newStatus = stageVal is "Open" or "In Progress" or "Done" ? stageVal : "Open";
-                    if (newStatus != _task.Status) { _repo.UpdateStatus(_task.TaskID, newStatus); _task.Status = newStatus; }
+                    if (newStatus != _task.Status)
+                    {
+                        _repo.UpdateStatus(_task.TaskID, newStatus);
+                        _task.Status = newStatus;
+                        if (newStatus == "Done") TryGenerateNextRecurrence();
+                    }
                 }
 
                 // Assigned To
@@ -589,8 +1017,28 @@ namespace JaneERP
                     _task.Priority = newPriority;
                 }
 
+                // Recurrence
+                var recPattern = cboRecurrence.SelectedItem?.ToString();
+                if (string.IsNullOrEmpty(recPattern) || recPattern == "(None)")
+                {
+                    _repo.ClearRecurrence(_task.TaskID);
+                    _task.RecurrencePattern  = null;
+                    _task.RecurrenceInterval = 1;
+                }
+                else
+                {
+                    int interval = (int)nudInterval.Value;
+                    _repo.SetRecurrence(_task.TaskID, recPattern, interval);
+                    _task.RecurrencePattern  = recPattern;
+                    _task.RecurrenceInterval = interval;
+                }
+                UpdateNextOccurrenceLabel();
+
                 Changed      = true;
                 lblMeta.Text = BuildMetaText();
+
+                // Refresh activity log to show newly-logged changes
+                LoadHistory();
             }
             catch (Exception ex) { MessageBox.Show(this, ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error); }
         }
