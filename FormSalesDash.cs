@@ -370,7 +370,7 @@ namespace JaneERP
                         .ToDictionary(o => o.Id,
                                       o => (o.ErpSalesOrderID!.Value, o.ErpStatus ?? ""));
                 }
-                catch { syncedIds = new HashSet<long>(); erpInfo = new(); }
+                catch (Exception syncEx) { AppLogger.Info($"[FormSalesDash.LoadCachedOrders sync lookup] {syncEx.Message}"); syncedIds = new HashSet<long>(); erpInfo = new(); }
 
                 foreach (var order in cached)
                 {
@@ -480,7 +480,7 @@ namespace JaneERP
                     _pnlSetupNotice.Visible = false;
                 }
             }
-            catch { _pnlSetupNotice.Visible = false; }
+            catch (Exception ex) { AppLogger.Info($"[FormSalesDash.RefreshSetupNotice] {ex.Message}"); _pnlSetupNotice.Visible = false; }
         }
 
         private void StartBackgroundSync(string store, string token)
@@ -952,7 +952,7 @@ namespace JaneERP
                                 if (cached?.LineItems?.Count > 0) { detailsList.Add(cached); continue; }
                             }
                         }
-                        catch { }
+                        catch (Exception cacheEx) { AppLogger.Info($"[FormSalesDash.ShowMultiOrderDetailsForOrdersAsync cache] OrderId={order.Id}: {cacheEx.Message}"); }
                         uncachedOrders.Add(order);
                     }
                 }
@@ -1677,7 +1677,7 @@ namespace JaneERP
 
                 lblTotal.Text = $"Total:   {_order.TotalPrice:N2} {cur}";
             }
-            catch { /* non-fatal — form still useful for status changes */ }
+            catch (Exception ex) { AppLogger.Info($"[FormErpOrderDetail.LoadItems] OrderId={_order.ErpSalesOrderID}: {ex.Message}"); /* non-fatal — form still useful for status changes */ }
         }
 
         private static bool IsValidStatusTransition(string current, string next)
