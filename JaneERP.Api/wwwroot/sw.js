@@ -1,6 +1,6 @@
 // ⚠️ IMPORTANT: Bump this version on every deployment to invalidate cached pages.
 // Format: janeerp-vYYYYMMDD (or add a letter suffix for same-day deploys: v20260513b)
-const CACHE = 'janeerp-v20260513b';
+const CACHE = 'janeerp-v20260515';
 const STATIC = [
   '/',
   '/index.html',
@@ -17,6 +17,7 @@ const STATIC = [
   '/js/pages/workorders.js',
   '/js/pages/cooking.js',
   '/js/pages/accounting.js',
+  '/js/pages/tasks.js',
 ];
 
 self.addEventListener('install', e => {

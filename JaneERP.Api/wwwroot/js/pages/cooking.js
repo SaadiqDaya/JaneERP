@@ -12,13 +12,50 @@ const CookingPage = (() => {
             </button>
           </div>
         </div>
-        <div class="content" id="cooking-content">
-          ${App.skeletonCards(3)}
+        <div class="content">
+          <!-- Live + InProgress work orders available for a cook session -->
+          <div id="cooking-wo-section" style="margin-bottom:4px;">
+            <div style="font-size:12px;font-weight:700;text-transform:uppercase;color:var(--text-2);letter-spacing:.5px;margin-bottom:8px;">Live &amp; In-Progress Work Orders</div>
+            <div id="cooking-wo-list">${App.skeletonCards(2)}</div>
+          </div>
+          <div style="font-size:12px;font-weight:700;text-transform:uppercase;color:var(--text-2);letter-spacing:.5px;margin:12px 0 8px;">Active Sessions</div>
+          <div id="cooking-content">${App.skeletonCards(2)}</div>
         </div>
       </div>`;
 
     document.getElementById('cooking-new-btn').addEventListener('click', showCreatePanel);
-    await loadSessions();
+    await Promise.all([loadReadyWOs(), loadSessions()]);
+  }
+
+  async function loadReadyWOs() {
+    const el = document.getElementById('cooking-wo-list');
+    if (!el) return;
+    try {
+      const wos = await Api.get('/api/cooking/work-orders');
+      if (wos.length === 0) {
+        el.innerHTML = `<div class="text-muted text-small" style="padding:4px 0 8px;">No live or in-progress work orders. Go Live on a work order to see it here.</div>`;
+        return;
+      }
+      el.innerHTML = `<div class="list-card" style="margin-bottom:4px;">
+        ${wos.map(wo => `
+          <div class="list-item" data-id="${wo.workOrderID}">
+            <div class="li-main">
+              <div class="li-title">${wo.productName}</div>
+              <div class="li-sub">${wo.moNumber} · Qty ${wo.quantity}${wo.assignedTo ? ' · ' + wo.assignedTo : ''}</div>
+            </div>
+            <div class="li-right">
+              ${App.statusBadge(wo.status)}
+            </div>
+            <div class="chevron">${App.chevronSvg()}</div>
+          </div>`).join('')}
+      </div>`;
+      // Clicking a WO opens the new-session panel with it pre-checked
+      el.querySelectorAll('.list-item').forEach(item =>
+        item.addEventListener('click', () => showCreatePanel(parseInt(item.dataset.id, 10)))
+      );
+    } catch {
+      el.innerHTML = '';  // non-fatal — hide section on error
+    }
   }
 
   async function loadSessions() {
@@ -69,7 +106,7 @@ const CookingPage = (() => {
     }
   }
 
-  async function showCreatePanel() {
+  async function showCreatePanel(preSelectWoId = null) {
     const el = document.getElementById('cooking-content');
     if (!el) return;
     el.innerHTML = `<div class="card"><p class="text-muted text-small" style="text-align:center;padding:16px 0;">Loading…</p></div>`;
@@ -120,7 +157,9 @@ const CookingPage = (() => {
             : `<div style="border:1px solid var(--border);border-radius:10px;overflow:hidden;max-height:320px;overflow-y:auto;">
                 ${wos.map(wo => `
                   <label style="display:flex;align-items:center;gap:12px;padding:12px 14px;border-bottom:1px solid var(--bg);cursor:pointer;">
-                    <input type="checkbox" class="cook-wo-check" value="${wo.workOrderID}" style="width:18px;height:18px;flex-shrink:0;">
+                    <input type="checkbox" class="cook-wo-check" value="${wo.workOrderID}"
+                      ${preSelectWoId === wo.workOrderID ? 'checked' : ''}
+                      style="width:18px;height:18px;flex-shrink:0;">
                     <div style="flex:1;min-width:0;">
                       <div style="font-weight:700;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${wo.productName}</div>
                       <div class="text-small text-muted">${wo.moNumber} · Qty ${wo.quantity}${wo.assignedTo ? ' · ' + wo.assignedTo : ''}</div>

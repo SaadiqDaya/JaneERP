@@ -71,6 +71,45 @@ namespace JaneERP.Data
                 ) inv ON inv.ProductID = p.ProductID
                 WHERE  p.IsActive = 1");
 
+            kpi.PendingPOs = Safe<int>(db,
+                "SELECT COUNT(*) FROM PurchaseOrders WHERE Status NOT IN ('Received','Cancelled')");
+
+            kpi.OutstandingPOAmount = Safe<decimal>(db,
+                "SELECT ISNULL(SUM(ISNULL(TotalCost,0)+ISNULL(ShippingCost,0)+ISNULL(TaxAmount,0)),0) FROM PurchaseOrders WHERE Status NOT IN ('Received','Cancelled')");
+
+            kpi.TasksOpenTotal = Safe<int>(db,
+                "SELECT COUNT(*) FROM Tasks WHERE Status != 'Done'");
+
+            kpi.TasksDueThisWeek = Safe<int>(db,
+                "SELECT COUNT(*) FROM Tasks WHERE Status != 'Done' AND DueDate >= GETDATE() AND DueDate <= DATEADD(day,7,GETDATE())");
+
+            kpi.ActiveUsers = Safe<int>(db,
+                "SELECT COUNT(*) FROM Users WHERE IsActive = 1");
+
+            kpi.TotalProducts = Safe<int>(db,
+                "SELECT COUNT(*) FROM Products WHERE IsActive = 1");
+
+            kpi.TotalParts = Safe<int>(db,
+                "SELECT COUNT(*) FROM Parts WHERE IsActive = 1");
+
+            kpi.ExpensesLast7Days = Safe<decimal>(db,
+                "SELECT ISNULL(SUM(Amount),0) FROM Expenses WHERE ExpenseDate >= DATEADD(day,-7,GETDATE())");
+
+            kpi.ExpensesLast30Days = Safe<decimal>(db,
+                "SELECT ISNULL(SUM(Amount),0) FROM Expenses WHERE ExpenseDate >= DATEADD(day,-30,GETDATE())");
+
+            kpi.RevenueLast7Days = Safe<decimal>(db,
+                "SELECT ISNULL(SUM(TotalPrice),0) FROM SalesOrders WHERE OrderDate >= DATEADD(day,-7,GETDATE())");
+
+            kpi.RevenueLast30Days = Safe<decimal>(db,
+                "SELECT ISNULL(SUM(TotalPrice),0) FROM SalesOrders WHERE OrderDate >= DATEADD(day,-30,GETDATE())");
+
+            kpi.OrdersLast7Days = Safe<int>(db,
+                "SELECT COUNT(*) FROM SalesOrders WHERE OrderDate >= DATEADD(day,-7,GETDATE())");
+
+            kpi.OrdersLast30Days = Safe<int>(db,
+                "SELECT COUNT(*) FROM SalesOrders WHERE OrderDate >= DATEADD(day,-30,GETDATE())");
+
             return kpi;
         }
 

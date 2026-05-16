@@ -131,8 +131,35 @@ namespace JaneERP.Data
                 // ── Auto-mark paid when total collected covers 99%+ of order ─
                 if (existingPayments + amount >= orderTotal * 0.99m)
                     db.Execute(
-                        "UPDATE SalesOrders SET IsPaid = 1, PaidDate = @now WHERE SalesOrderID = @orderId",
+                        "UPDATE SalesOrders SET IsPaid = 1, PaidAt = @now WHERE SalesOrderID = @orderId",
                         new { now = DateTime.UtcNow, orderId = salesOrderId }, tx);
+
+                // ── Mark customer credits as redeemed (FIFO) when Store Credit is used ─
+                if (string.Equals(paymentMethod, "Store Credit", StringComparison.OrdinalIgnoreCase))
+                {
+                    var credits = db.Query<(int CreditID, decimal Amount)>(@"
+                        SELECT CreditID, Amount
+                        FROM   CustomerCredits
+                        WHERE  CustomerID = @customerId AND IsRedeemed = 0
+                        ORDER  BY CreatedAt ASC",
+                        new { customerId }, tx).ToList();
+
+                    decimal remaining = amount;
+                    foreach (var (creditId, creditAmt) in credits)
+                    {
+                        if (remaining <= 0) break;
+                        db.Execute(@"
+                            UPDATE CustomerCredits
+                            SET    IsRedeemed = 1, RedeemedAt = GETDATE(), RedeemedOnOrderID = @salesOrderId
+                            WHERE  CreditID = @creditId",
+                            new { salesOrderId, creditId }, tx);
+                        remaining -= creditAmt;
+                    }
+                    Logging.AppLogger.Audit(
+                        JaneERP.Security.AppSession.CurrentUser?.Username ?? "system",
+                        "StoreCredit_Redeemed",
+                        $"CustomerID={customerId} OrderID={salesOrderId} Amount={amount:N2}");
+                }
 
                 tx.Commit();
             }
@@ -169,20 +196,29 @@ namespace JaneERP.Data
             {
                 int offset = (page - 1) * pageSize;
 
-                // Count total rows across both invoices and payments
+                // Count total rows: invoices + explicit payments + synthesized payments for
+                // paid orders that have no CustomerPayments record (e.g. Shopify-synced orders).
                 int totalCount = db.ExecuteScalar<int>(@"
                     SELECT COUNT(*) FROM (
-                        SELECT SalesOrderId AS RefId
-                        FROM SalesOrders WHERE CustomerID = @customerId
+                        SELECT SalesOrderID AS RefId
+                        FROM   SalesOrders WHERE CustomerID = @customerId
                         UNION ALL
                         SELECT PaymentID AS RefId
-                        FROM CustomerPayments WHERE CustomerID = @customerId
+                        FROM   CustomerPayments WHERE CustomerID = @customerId
+                        UNION ALL
+                        SELECT SalesOrderID AS RefId
+                        FROM   SalesOrders
+                        WHERE  CustomerID = @customerId
+                          AND  IsPaid = 1 AND PaidAt IS NOT NULL
+                          AND  NOT EXISTS (
+                                   SELECT 1 FROM CustomerPayments cp
+                                   WHERE  cp.SalesOrderID = SalesOrders.SalesOrderID)
                     ) t",
                     new { customerId });
 
                 var rows = db.Query<CustomerTransactionRow>(@"
                     SELECT * FROM (
-                        SELECT 'Invoice'                                                      AS Type,
+                        SELECT 'Invoice'                                                     AS Type,
                                SalesOrderID                                                  AS RefId,
                                CAST(OrderNumber AS NVARCHAR(50))                             AS Reference,
                                TotalPrice                                                    AS Amount,
@@ -199,6 +235,21 @@ namespace JaneERP.Data
                                'Received'                                                    AS Status
                         FROM   CustomerPayments
                         WHERE  CustomerID = @customerId
+                        UNION ALL
+                        -- Synthesize payment rows for paid orders with no CustomerPayments record
+                        -- (Shopify orders synced as already-paid, or legacy manual orders).
+                        SELECT 'Payment'                                                     AS Type,
+                               SalesOrderID                                                  AS RefId,
+                               ISNULL(PaymentGateway, 'Shopify')                            AS Reference,
+                               TotalPrice                                                    AS Amount,
+                               PaidAt                                                        AS TransDate,
+                               'Received'                                                    AS Status
+                        FROM   SalesOrders
+                        WHERE  CustomerID = @customerId
+                          AND  IsPaid = 1 AND PaidAt IS NOT NULL
+                          AND  NOT EXISTS (
+                                   SELECT 1 FROM CustomerPayments cp
+                                   WHERE  cp.SalesOrderID = SalesOrders.SalesOrderID)
                     ) t
                     ORDER BY TransDate DESC
                     OFFSET @offset ROWS FETCH NEXT @pageSize ROWS ONLY",

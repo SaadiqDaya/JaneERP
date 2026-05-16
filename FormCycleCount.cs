@@ -44,27 +44,17 @@ namespace JaneERP
             MinimumSize   = new Size(740, 480);
             StartPosition = FormStartPosition.CenterParent;
 
-            var lblTitle = new Label
-            {
-                Text     = "Cycle Count",
-                Font     = new Font("Segoe UI", 14F, FontStyle.Bold),
-                ForeColor = Theme.Gold,
-                Location = new Point(12, 12),
-                AutoSize = true
-            };
-            Controls.Add(lblTitle);
-
             // Uncounted count status label
-            lblUncounted.Location  = new Point(220, 14);
+            lblUncounted.Location  = new Point(440, 62);
             lblUncounted.AutoSize  = true;
             lblUncounted.Font      = new Font("Segoe UI", 9F, FontStyle.Italic);
             lblUncounted.ForeColor = Color.Orange;
             lblUncounted.Text      = "";
             Controls.Add(lblUncounted);
 
-            Controls.Add(new Label { Text = "Location:", Location = new Point(12, 52), AutoSize = true });
+            Controls.Add(new Label { Text = "Location:", Location = new Point(12, 64), AutoSize = true });
             cboLocation.DropDownStyle = ComboBoxStyle.DropDownList;
-            cboLocation.Location      = new Point(80, 48);
+            cboLocation.Location      = new Point(80, 60);
             cboLocation.Size          = new Size(220, 23);
             cboLocation.SelectedIndexChanged += (_, _) => LoadItems();
             Controls.Add(cboLocation);
@@ -72,7 +62,7 @@ namespace JaneERP
             // Filter: uncounted only checkbox
             chkUncountedOnly.Text     = "Filter: Show Uncounted Only";
             chkUncountedOnly.AutoSize = true;
-            chkUncountedOnly.Location = new Point(320, 51);
+            chkUncountedOnly.Location = new Point(320, 62);
             chkUncountedOnly.CheckedChanged += (_, _) => ApplyFilter();
             Controls.Add(chkUncountedOnly);
 
@@ -143,6 +133,7 @@ namespace JaneERP
             btnClose.Location = new Point(776, 500);
             btnClose.Click   += (_, _) => Close();
             Controls.Add(btnClose);
+            Theme.AddFormHeader(this, "🔄  Cycle Count");
         }
 
         private void LoadLocations()
@@ -177,6 +168,7 @@ namespace JaneERP
 
             try
             {
+                Cursor = Cursors.WaitCursor;
                 _allEntries = _ccRepo.GetEntries(locId);
                 ApplyFilter();
                 RefreshUncountedLabel();
@@ -185,6 +177,10 @@ namespace JaneERP
             {
                 MessageBox.Show(this, "Could not load items: " + ex.Message, "Error",
                     MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+            finally
+            {
+                Cursor = Cursors.Default;
             }
         }
 

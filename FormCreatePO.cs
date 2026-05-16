@@ -89,21 +89,7 @@ namespace JaneERP
             MinimumSize   = new Size(760, 560);
             StartPosition = FormStartPosition.CenterParent;
 
-            int y = 12, x = 12, cx = x + 120;
-
-            // ── Title ─────────────────────────────────────────────────────────────
-            Controls.Add(new Label
-            {
-                Text      = _editDraft ? $"Edit Draft PO: {_viewOnly!.PONumber}"
-                          : readOnly   ? $"PO: {_viewOnly!.PONumber}"
-                          :              "Create Purchase Order",
-                Font      = new Font("Segoe UI", 13F, FontStyle.Bold),
-                ForeColor = Theme.Gold,
-                AutoSize  = false,
-                Location  = new Point(x, y),
-                Size      = new Size(600, 28)
-            });
-            y += 40;
+            int y = 64, x = 12, cx = x + 120;
 
             // ── Supplier dropdown ─────────────────────────────────────────────────
             AddLabel("Supplier:", x, y);
@@ -282,6 +268,8 @@ namespace JaneERP
 
             SizeChanged += (_, _) => PositionBottomControls();
             Load        += (_, _) => PositionBottomControls();
+
+            Theme.AddFormHeader(this, "🛒  Purchase Order");
         }
 
         // Tracks supplier selected via the ComboBox
@@ -672,17 +660,8 @@ namespace JaneERP
             MinimumSize   = new Size(400, 300);
             StartPosition = FormStartPosition.CenterParent;
 
-            Controls.Add(new Label
-            {
-                Text      = "Select Supplier",
-                Font      = new Font("Segoe UI", 12F, FontStyle.Bold),
-                ForeColor = Theme.Gold,
-                Location  = new Point(12, 12),
-                AutoSize  = true
-            });
-
-            Controls.Add(new Label { Text = "Search:", Location = new Point(12, 52), AutoSize = true });
-            txtSearch.Location        = new Point(70, 49);
+            Controls.Add(new Label { Text = "Search:", Location = new Point(12, 62), AutoSize = true });
+            txtSearch.Location        = new Point(70, 60);
             txtSearch.Size            = new Size(260, 23);
             txtSearch.PlaceholderText = "Supplier name…";
             txtSearch.TextChanged    += (_, _) => ApplyFilter();
@@ -713,6 +692,8 @@ namespace JaneERP
 
             SizeChanged += (_, _) =>
                 btnPick.Location = new Point(ClientSize.Width - btnPick.Width - 12, ClientSize.Height - btnPick.Height - 10);
+
+            Theme.AddFormHeader(this, "🏢  Select Supplier");
         }
 
         private void ApplyFilter()
@@ -784,24 +765,15 @@ namespace JaneERP
             MinimumSize   = new Size(700, 380);
             StartPosition = FormStartPosition.CenterParent;
 
-            Controls.Add(new Label
-            {
-                Text      = "Select Parts / Products",
-                Font      = new Font("Segoe UI", 12F, FontStyle.Bold),
-                ForeColor = Theme.Gold,
-                Location  = new Point(12, 12),
-                AutoSize  = true
-            });
-
-            Controls.Add(new Label { Text = "Search:", Location = new Point(12, 52), AutoSize = true });
-            txtSearch.Location        = new Point(70, 49);
+            Controls.Add(new Label { Text = "Search:", Location = new Point(12, 62), AutoSize = true });
+            txtSearch.Location        = new Point(70, 60);
             txtSearch.Size            = new Size(200, 23);
             txtSearch.PlaceholderText = "Number or name…";
             txtSearch.TextChanged    += (_, _) => ApplyFilter();
             Controls.Add(txtSearch);
 
-            Controls.Add(new Label { Text = "Category:", Location = new Point(284, 52), AutoSize = true });
-            cboCategory.Location      = new Point(350, 49);
+            Controls.Add(new Label { Text = "Category:", Location = new Point(284, 62), AutoSize = true });
+            cboCategory.Location      = new Point(350, 60);
             cboCategory.Size          = new Size(110, 23);
             cboCategory.DropDownStyle = ComboBoxStyle.DropDownList;
             cboCategory.Items.AddRange(new object[] { "All", "Parts", "Products" });
@@ -812,7 +784,7 @@ namespace JaneERP
             var btnNewPart = new Button
             {
                 Text     = "+ New Part",
-                Location = new Point(472, 48),
+                Location = new Point(472, 59),
                 Size     = new Size(90, 26),
                 UseVisualStyleBackColor = true
             };
@@ -828,7 +800,7 @@ namespace JaneERP
             var btnNewProduct = new Button
             {
                 Text     = "+ New Product",
-                Location = new Point(570, 48),
+                Location = new Point(570, 59),
                 Size     = new Size(100, 26),
                 UseVisualStyleBackColor = true
             };
@@ -866,6 +838,8 @@ namespace JaneERP
 
             SizeChanged += (_, _) =>
                 btnAdd.Location = new Point(ClientSize.Width - btnAdd.Width - 12, ClientSize.Height - btnAdd.Height - 10);
+
+            Theme.AddFormHeader(this, "📦  Add PO Items");
         }
 
         private void ApplyFilter()

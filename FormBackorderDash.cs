@@ -35,19 +35,10 @@ namespace JaneERP
 
             Controls.Add(new Label
             {
-                Text      = "Backorders",
-                Font      = new Font("Segoe UI", 14F, FontStyle.Bold),
-                ForeColor = Theme.Gold,
-                Location  = new Point(12, 12),
-                AutoSize  = true
-            });
-
-            Controls.Add(new Label
-            {
                 Text      = "Open and partially-filled backorder lines. Fulfill when stock becomes available.",
                 Font      = new Font("Segoe UI", 9F),
                 ForeColor = Theme.TextSecondary,
-                Location  = new Point(12, 44),
+                Location  = new Point(12, 56),
                 AutoSize  = true
             });
 
@@ -113,6 +104,7 @@ namespace JaneERP
             _lblStatus.AutoSize = true;
             Controls.Add(_lblStatus);
             SizeChanged += (_, _) => _lblStatus.Location = new Point(12, ClientSize.Height - 22);
+            Theme.AddFormHeader(this, "📋  Backorders");
         }
 
         private void LoadData()

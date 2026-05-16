@@ -19,9 +19,6 @@ namespace JaneERP
         private void FormAppLogin_Load(object sender, EventArgs e)
         {
             Theme.Apply(this);
-            Theme.MakeBorderless(this);
-            Theme.AddCloseButton(this);
-            Theme.MakeDraggable(this, pnlRight);
 
             // Pre-fill last username if the setting is on
             var cfg = AppSettings.Current;

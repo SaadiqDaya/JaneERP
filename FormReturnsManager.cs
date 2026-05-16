@@ -170,6 +170,7 @@ namespace JaneERP
         {
             try
             {
+                Cursor = Cursors.WaitCursor;
                 _allReturns = _repo.GetReturns();
                 ApplyFilter();
             }
@@ -177,6 +178,10 @@ namespace JaneERP
             {
                 MessageBox.Show(this, "Could not load returns: " + ex.Message, "Error",
                     MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+            finally
+            {
+                Cursor = Cursors.Default;
             }
         }
 

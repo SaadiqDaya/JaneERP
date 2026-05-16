@@ -23,7 +23,7 @@ namespace JaneERP
         public FormStoreDashboard()
         {
             Text            = "Shopify Stores";
-            ClientSize      = new Size(720, 360);
+            ClientSize      = new Size(720, 420);
             FormBorderStyle = FormBorderStyle.FixedSingle;
             MaximizeBox     = false;
             StartPosition   = FormStartPosition.CenterParent;
@@ -40,8 +40,8 @@ namespace JaneERP
             // ── Left: store list ──────────────────────────────────────────────
             grid = new DataGridView
             {
-                Location              = new Point(12, 12),
-                Size                  = new Size(380, 280),
+                Location              = new Point(12, 64),
+                Size                  = new Size(380, 228),
                 ReadOnly              = true,
                 AllowUserToAddRows    = false,
                 AutoSizeColumnsMode   = DataGridViewAutoSizeColumnsMode.Fill,
@@ -52,14 +52,14 @@ namespace JaneERP
             };
             grid.SelectionChanged += Grid_SelectionChanged;
 
-            btnRemove = new Button { Text = "Remove Store", Location = new Point(12, 300), Size = new Size(120, 28), Enabled = false };
+            btnRemove = new Button { Text = "Remove Store", Location = new Point(12, 302), Size = new Size(120, 28), Enabled = false };
             btnRemove.Click += BtnRemove_Click;
 
-            btnOpen = new Button { Text = "Open Sales Dashboard", Location = new Point(272, 300), Size = new Size(120, 28), Enabled = false };
+            btnOpen = new Button { Text = "Open Sales Dashboard", Location = new Point(272, 302), Size = new Size(120, 28), Enabled = false };
             btnOpen.Click += BtnOpen_Click;
 
             // ── Right: add/edit panel ─────────────────────────────────────────
-            var pnl = new Panel { Location = new Point(408, 12), Size = new Size(296, 336), BorderStyle = BorderStyle.FixedSingle };
+            var pnl = new Panel { Location = new Point(408, 64), Size = new Size(296, 336), BorderStyle = BorderStyle.FixedSingle };
 
             lblFormTitle = new Label { Text = "Add Store", Font = new Font("Segoe UI", 10F, FontStyle.Bold), Location = new Point(8, 10), AutoSize = true };
 
@@ -86,6 +86,7 @@ namespace JaneERP
             Controls.Add(btnRemove);
             Controls.Add(btnOpen);
             Controls.Add(pnl);
+            Theme.AddFormHeader(this, "🛒  Shopify Stores");
         }
 
         private void LoadStores()

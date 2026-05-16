@@ -19,8 +19,8 @@ namespace JaneERP
 
             grid = new DataGridView
             {
-                Location          = new Point(12, 12),
-                Size              = new Size(596, 370),
+                Location          = new Point(12, 64),
+                Size              = new Size(596, 318),
                 ReadOnly          = true,
                 AllowUserToAddRows = false,
                 AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill,
@@ -49,6 +49,7 @@ namespace JaneERP
             Controls.Add(grid);
             Controls.Add(btnRefresh);
             Controls.Add(btnClose);
+            Theme.AddFormHeader(this, "📋  Login Log");
 
             Theme.Apply(this);
             Theme.MakeBorderless(this);

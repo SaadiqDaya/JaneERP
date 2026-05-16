@@ -37,23 +37,13 @@ namespace JaneERP
             MinimumSize   = new Size(700, 600);
             StartPosition = FormStartPosition.CenterParent;
 
-            var lblTitle = new Label
-            {
-                Text      = "Inventory Snapshot",
-                Font      = new Font("Segoe UI", 14F, FontStyle.Bold),
-                ForeColor = Theme.Gold,
-                Location  = new Point(12, 12),
-                AutoSize  = true
-            };
-            Controls.Add(lblTitle);
-
-            txtSearch.Location        = new Point(12, 50);
+            txtSearch.Location        = new Point(12, 62);
             txtSearch.Size            = new Size(300, 23);
             txtSearch.PlaceholderText = "Search SKU or Name\u2026";
             txtSearch.TextChanged    += (_, _) => ApplyFilter();
             Controls.Add(txtSearch);
 
-            var btnRefresh = new Button { Text = "Refresh", Size = new Size(80, 23), Location = new Point(322, 50) };
+            var btnRefresh = new Button { Text = "Refresh", Size = new Size(80, 23), Location = new Point(322, 62) };
             btnRefresh.Click += (_, _) => LoadData();
             Controls.Add(btnRefresh);
 
@@ -69,7 +59,7 @@ namespace JaneERP
                     FlatStyle = FlatStyle.Flat,
                     Size      = new Size(TextRenderer.MeasureText(label, new Font("Segoe UI", 9F)).Width + 16, 24),
                     Padding   = new Padding(4, 1, 4, 1),
-                    Location  = new Point(x, 47),
+                    Location  = new Point(x, 62),
                     Cursor    = Cursors.Hand,
                     Tag       = filterKey
                 };
@@ -136,6 +126,7 @@ namespace JaneERP
             dgvExpiry.Location = new Point(12, 485);
             dgvExpiry.Size     = new Size(876, 250);
             Controls.Add(dgvExpiry);
+            Theme.AddFormHeader(this, "📦  Inventory Snapshot");
         }
 
         private void Dgv_CellFormatting(object? sender, DataGridViewCellFormattingEventArgs e)

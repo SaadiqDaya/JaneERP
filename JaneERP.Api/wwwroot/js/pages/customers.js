@@ -106,7 +106,10 @@ const CustomerDetailPage = (() => {
   async function loadDetail(customerId) {
     const content = document.getElementById('cust-detail-content');
     try {
-      const c = await Api.get(`/api/customers/${customerId}`);
+      const [c, tasks] = await Promise.all([
+        Api.get(`/api/customers/${customerId}`),
+        Api.get(`/api/tasks?linkedModule=Customer&linkedId=${customerId}`).catch(() => [])
+      ]);
 
       content.innerHTML = `
         <!-- Customer info -->
@@ -163,14 +166,48 @@ const CustomerDetailPage = (() => {
                   </div>
                   <div class="chevron">${App.chevronSvg()}</div>
                 </div>`).join('')}
+            </div>`}
+
+        <!-- Linked Tasks -->
+        <div class="section-header" style="margin-top:16px;">
+          <h2>Linked Tasks (${tasks.length})</h2>
+        </div>
+        ${tasks.length === 0
+          ? `<div class="empty-state" style="padding:16px;"><p>No linked tasks</p></div>`
+          : `<div class="list-card">
+              ${tasks.map(t => {
+                const today     = new Date(); today.setHours(0,0,0,0);
+                const due       = new Date(t.dueDate);
+                const isOverdue = due < today && t.status !== 'Done';
+                const stage     = t.workflowCurrentStatus || t.status;
+                return `
+                <div class="list-item" data-taskid="${t.taskID}">
+                  <div class="li-main">
+                    <div class="li-title">${t.title}</div>
+                    <div class="li-sub">
+                      ${t.assignedTo} · Due ${App.fmtDateShort(t.dueDate)}
+                      ${isOverdue ? '<span style="color:var(--danger);font-weight:700;"> OVERDUE</span>' : ''}
+                    </div>
+                  </div>
+                  <div class="li-right">
+                    ${App.statusBadge(stage === 'In Progress' ? 'WIP' : stage === 'Done' ? 'Complete' : stage)}
+                  </div>
+                  <div class="chevron">${App.chevronSvg()}</div>
+                </div>`;
+              }).join('')}
             </div>`}`;
 
       document.getElementById('new-order-for-cust')?.addEventListener('click', () => {
+        window._newOrderCustomer = { customerID: c.customerID, email: c.email, fullName: c.fullName };
         App.navigate('orders/new');
       });
 
       content.querySelectorAll('.list-item[data-id]').forEach(el => {
         el.addEventListener('click', () => App.navigate(`orders/${el.dataset.id}`));
+      });
+
+      content.querySelectorAll('.list-item[data-taskid]').forEach(el => {
+        el.addEventListener('click', () => App.navigate(`tasks/${el.dataset.taskid}`));
       });
     } catch (err) {
       content.innerHTML = `<div class="empty-state"><p>${err.message}</p></div>`;

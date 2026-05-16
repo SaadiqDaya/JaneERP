@@ -25,6 +25,8 @@ const App = (() => {
     'cooking':             CookingPage,
     'cooking/detail':      CookSessionDetailPage,
     'accounting':          AccountingPage,
+    'tasks':               TasksPage,
+    'tasks/detail':        TaskDetailPage,
   };
 
   // ── Nav items ───────────────────────────────────────────────────────────────
@@ -70,6 +72,10 @@ const App = (() => {
       hash: 'accounting',  label: 'Finance',  roles: ['admin', 'finance'],
       icon: `<svg viewBox="0 0 24 24"><path d="M11.8 10.9c-2.27-.59-3-1.2-3-2.15 0-1.09 1.01-1.85 2.7-1.85 1.78 0 2.44.85 2.5 2.1h2.21c-.07-1.72-1.12-3.3-3.21-3.81V3h-3v2.16c-1.94.42-3.5 1.68-3.5 3.61 0 2.31 1.91 3.46 4.7 4.13 2.5.6 3 1.48 3 2.41 0 .69-.49 1.79-2.7 1.79-2.06 0-2.87-.92-2.98-2.1h-2.2c.12 2.19 1.76 3.42 3.68 3.83V21h3v-2.15c1.95-.37 3.5-1.5 3.5-3.55 0-2.84-2.43-3.81-4.7-4.4z"/></svg>`,
     },
+    {
+      hash: 'tasks',       label: 'Tasks',    roles: ['*'],
+      icon: `<svg viewBox="0 0 24 24"><path d="M19 3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.11-.9-2-2-2zm-9 14l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>`,
+    },
   ];
 
   let navBuilt = false;
@@ -114,6 +120,9 @@ const App = (() => {
       param   = parseInt(hash.split('/')[1], 10);
     } else if (hash.startsWith('cooking/') && hash !== 'cooking') {
       pageKey = 'cooking/detail';
+      param   = parseInt(hash.split('/')[1], 10);
+    } else if (hash.startsWith('tasks/') && hash !== 'tasks') {
+      pageKey = 'tasks/detail';
       param   = parseInt(hash.split('/')[1], 10);
     } else if (hash.startsWith('inventory/history/')) {
       pageKey = 'inventory/history';

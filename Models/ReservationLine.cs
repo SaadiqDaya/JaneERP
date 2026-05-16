@@ -24,5 +24,11 @@ namespace JaneERP.Models
         public int    Available       => Math.Max(0, OnHand - AlreadyReserved);
         /// <summary>User-selected quantity to lock. Pre-populated to min(Required, Available).</summary>
         public int    ToLock          { get; set; }
+
+        // ── Lot tracking (Phase 2) ────────────────────────────────────────────
+        /// <summary>0 = unlotted/backward compat. Set to PartLots.LotID when lot selection is active.</summary>
+        public int       LotID          { get; set; }
+        public string?   LotNumber      { get; set; }
+        public DateTime? ExpirationDate { get; set; }
     }
 }

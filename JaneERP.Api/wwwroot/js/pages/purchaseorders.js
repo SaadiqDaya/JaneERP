@@ -9,8 +9,10 @@ const PurchaseOrdersPage = (() => {
       <div class="page">
         <div class="page-header">
           <h1>Purchase Orders</h1>
+          <button class="btn btn-primary" id="po-new-btn" style="padding:8px 14px;font-size:14px;">+ New PO</button>
         </div>
         <div class="content">
+          <div id="po-create-panel" class="hidden"></div>
           <div class="search-bar">
             <div class="search-icon">
               <svg viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27A6.47 6.47 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
@@ -25,6 +27,7 @@ const PurchaseOrdersPage = (() => {
         </div>
       </div>`;
 
+    document.getElementById('po-new-btn').addEventListener('click', () => showCreatePanel());
     document.getElementById('po-search').addEventListener('input', e => {
       clearTimeout(searchTimer);
       searchQ = e.target.value.trim();
@@ -85,6 +88,134 @@ const PurchaseOrdersPage = (() => {
     } catch (err) {
       listEl.innerHTML = `<div class="empty-state"><p>${err.message}</p></div>`;
     }
+  }
+
+  async function showCreatePanel() {
+    const panelEl = document.getElementById('po-create-panel');
+    if (!panelEl.classList.contains('hidden')) { panelEl.classList.add('hidden'); panelEl.innerHTML = ''; return; }
+
+    panelEl.innerHTML = `<div class="card" style="margin-bottom:12px;"><p class="text-muted text-small" style="text-align:center;padding:8px 0;">Loading suppliers…</p></div>`;
+    panelEl.classList.remove('hidden');
+
+    let suppliers = [];
+    try { suppliers = await Api.get('/api/purchase-orders/suppliers'); }
+    catch (err) { panelEl.innerHTML = `<div class="card" style="margin-bottom:12px;"><p style="color:var(--danger);">${err.message}</p></div>`; return; }
+
+    if (suppliers.length === 0) {
+      panelEl.innerHTML = `<div class="card" style="margin-bottom:12px;"><p class="text-muted text-small">No suppliers found. Add suppliers in the desktop app first.</p></div>`;
+      return;
+    }
+
+    panelEl.innerHTML = `
+      <div class="card" style="margin-bottom:12px;">
+        <div style="font-weight:700;margin-bottom:12px;">New Purchase Order</div>
+
+        <div style="margin-bottom:10px;">
+          <div style="font-size:12px;color:var(--text-2);margin-bottom:4px;">Supplier *</div>
+          <select id="pc-supplier" style="width:100%;padding:9px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;">
+            <option value="">— Select —</option>
+            ${suppliers.map(s => `<option value="${s.supplierID}">${s.supplierName}</option>`).join('')}
+          </select>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px;">
+          <div>
+            <div style="font-size:12px;color:var(--text-2);margin-bottom:4px;">Expected Date</div>
+            <input id="pc-expected" type="date" style="width:100%;padding:9px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;box-sizing:border-box;">
+          </div>
+          <div>
+            <div style="font-size:12px;color:var(--text-2);margin-bottom:4px;">Shipping Cost</div>
+            <input id="pc-shipping" type="number" min="0" step="0.01" value="0"
+              style="width:100%;padding:9px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;box-sizing:border-box;">
+          </div>
+        </div>
+
+        <div style="margin-bottom:12px;">
+          <div style="font-size:12px;color:var(--text-2);margin-bottom:4px;">Notes</div>
+          <textarea id="pc-notes" rows="2" style="width:100%;padding:9px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;resize:none;box-sizing:border-box;"></textarea>
+        </div>
+
+        <div style="font-weight:600;font-size:13px;margin-bottom:8px;">
+          Line Items
+          <button class="btn btn-outline" id="pc-add-row" style="margin-left:10px;padding:4px 10px;font-size:12px;">+ Add Item</button>
+        </div>
+        <div id="pc-items-list" style="margin-bottom:12px;"></div>
+
+        <div style="display:flex;gap:8px;">
+          <button class="btn btn-primary" id="pc-save-btn" style="flex:1;">Create PO</button>
+          <button class="btn btn-outline" id="pc-cancel-btn">Cancel</button>
+        </div>
+      </div>`;
+
+    let rowCount = 0;
+
+    function addRow() {
+      rowCount++;
+      const id = `pc-row-${rowCount}`;
+      const div = document.createElement('div');
+      div.id  = id;
+      div.className = 'qty-input-row';
+      div.style.cssText = 'display:flex;align-items:center;gap:6px;margin-bottom:6px;';
+      div.innerHTML = `
+        <input type="text" placeholder="Item name *" class="pc-item-name"
+          style="flex:2;padding:8px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;">
+        <input type="number" placeholder="Qty" class="pc-item-qty" min="1" value="1"
+          style="flex:1;padding:8px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;text-align:center;">
+        <input type="number" placeholder="Cost" class="pc-item-cost" min="0" step="0.01" value="0"
+          style="flex:1;padding:8px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;text-align:center;">
+        <button class="btn btn-outline pc-remove-row" data-row="${id}"
+          style="padding:7px 10px;font-size:13px;flex-shrink:0;">✕</button>`;
+      document.getElementById('pc-items-list').appendChild(div);
+    }
+
+    addRow();  // start with one empty row
+
+    document.getElementById('pc-add-row').addEventListener('click', addRow);
+    document.getElementById('pc-items-list').addEventListener('click', e => {
+      const btn = e.target.closest('.pc-remove-row');
+      if (btn) document.getElementById(btn.dataset.row)?.remove();
+    });
+
+    document.getElementById('pc-cancel-btn').addEventListener('click', () => {
+      panelEl.classList.add('hidden');
+      panelEl.innerHTML = '';
+    });
+
+    document.getElementById('pc-save-btn').addEventListener('click', async () => {
+      const supplierID = parseInt(document.getElementById('pc-supplier').value, 10);
+      if (!supplierID) { App.toast('Select a supplier', 'error'); return; }
+
+      const rows = [...document.querySelectorAll('#pc-items-list .qty-input-row')];
+      const items = rows.map(row => ({
+        itemName:        row.querySelector('.pc-item-name').value.trim(),
+        quantityOrdered: parseInt(row.querySelector('.pc-item-qty').value, 10) || 1,
+        unitCost:        parseFloat(row.querySelector('.pc-item-cost').value) || 0,
+        sku:             '',
+      })).filter(i => i.itemName);
+
+      if (items.length === 0) { App.toast('Add at least one line item', 'error'); return; }
+
+      const expectedVal = document.getElementById('pc-expected').value;
+      const btn = document.getElementById('pc-save-btn');
+      btn.disabled = true; btn.textContent = 'Saving…';
+
+      try {
+        const res = await Api.post('/api/purchase-orders', {
+          supplierID,
+          expectedDate: expectedVal ? new Date(expectedVal).toISOString() : null,
+          notes:        document.getElementById('pc-notes').value.trim() || null,
+          shippingCost: parseFloat(document.getElementById('pc-shipping').value) || 0,
+          items,
+        });
+        App.toast('Purchase order created!', 'success');
+        panelEl.classList.add('hidden');
+        panelEl.innerHTML = '';
+        App.navigate(`po/${res.poid}`);
+      } catch (err) {
+        App.toast(err.message, 'error');
+        btn.disabled = false; btn.textContent = 'Create PO';
+      }
+    });
   }
 
   return { render };

@@ -1,5 +1,6 @@
 using Dapper;
 using JaneERP.Api.Middleware;
+using JaneERP.Core.Services;
 using Microsoft.Data.SqlClient;
 
 namespace JaneERP.Api.Data;
@@ -65,6 +66,54 @@ public static class ApiSchemaBootstrap
 
                     // CookSessionSteps — pre-computed loss-adjusted required quantity
                     "IF EXISTS (SELECT 1 FROM sysobjects WHERE name='CookSessionSteps' AND xtype='U') AND NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('CookSessionSteps') AND name='RequiredQtyML') ALTER TABLE CookSessionSteps ADD RequiredQtyML DECIMAL(12,3) NULL",
+
+                    // Tasks — shared with desktop app; create if not yet present
+                    @"IF NOT EXISTS (SELECT 1 FROM sysobjects WHERE name='Tasks' AND xtype='U')
+                      CREATE TABLE Tasks (
+                          TaskID      INT            IDENTITY(1,1) PRIMARY KEY,
+                          Title       NVARCHAR(200)  NOT NULL,
+                          Description NVARCHAR(2000) NULL,
+                          AssignedTo  NVARCHAR(100)  NOT NULL,
+                          CreatedBy   NVARCHAR(100)  NOT NULL,
+                          DueDate     DATETIME       NOT NULL,
+                          Status      NVARCHAR(50)   NOT NULL DEFAULT 'Open',
+                          Priority    NVARCHAR(50)   NOT NULL DEFAULT 'Normal',
+                          CreatedAt   DATETIME       NOT NULL DEFAULT GETDATE()
+                      )",
+
+                    @"IF NOT EXISTS (SELECT 1 FROM sysobjects WHERE name='TaskComments' AND xtype='U')
+                      CREATE TABLE TaskComments (
+                          CommentID  INT            IDENTITY(1,1) PRIMARY KEY,
+                          TaskID     INT            NOT NULL REFERENCES Tasks(TaskID) ON DELETE CASCADE,
+                          Username   NVARCHAR(100)  NOT NULL,
+                          Body       NVARCHAR(2000) NOT NULL,
+                          CreatedAt  DATETIME       NOT NULL DEFAULT GETDATE()
+                      )",
+
+                    // Add Priority to existing Tasks tables created before this column existed
+                    "IF EXISTS (SELECT 1 FROM sysobjects WHERE name='Tasks' AND xtype='U') AND NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('Tasks') AND name='Priority') ALTER TABLE Tasks ADD Priority NVARCHAR(50) NOT NULL DEFAULT 'Normal'",
+
+                    // ── PartLots (Phase 2 lot tracking — FEFO support) ──────────────────
+                    @"IF NOT EXISTS (SELECT 1 FROM sysobjects WHERE name='PartLots' AND xtype='U')
+                      CREATE TABLE PartLots (
+                          LotID          INT IDENTITY(1,1) PRIMARY KEY,
+                          PartID         INT           NOT NULL REFERENCES Parts(PartID),
+                          LocationID     INT           NULL,
+                          LotNumber      NVARCHAR(100) NULL,
+                          ExpirationDate DATETIME      NULL,
+                          Quantity       INT           NOT NULL DEFAULT 0,
+                          ReceivedAt     DATETIME      NOT NULL DEFAULT GETDATE(),
+                          Notes          NVARCHAR(500) NULL
+                      )",
+
+                    // PartsReservations — link each reservation to a specific lot
+                    "IF EXISTS (SELECT 1 FROM sysobjects WHERE name='PartsReservations' AND xtype='U') AND NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('PartsReservations') AND name='LotID') ALTER TABLE PartsReservations ADD LotID INT NULL",
+
+                    // WorkOrders — timestamp for when the WO went Live
+                    "IF EXISTS (SELECT 1 FROM sysobjects WHERE name='WorkOrders' AND xtype='U') AND NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('WorkOrders') AND name='LiveAt') ALTER TABLE WorkOrders ADD LiveAt DATETIME NULL",
+
+                    // WorkOrders — finished-goods output location
+                    "IF EXISTS (SELECT 1 FROM sysobjects WHERE name='WorkOrders' AND xtype='U') AND NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('WorkOrders') AND name='OutputLocationID') ALTER TABLE WorkOrders ADD OutputLocationID INT NULL",
                 };
 
                 foreach (var sql in migrations)
@@ -73,10 +122,13 @@ public static class ApiSchemaBootstrap
                     catch (Exception migEx)
                     {
                         // Column already exists, table missing, or permission denied — skip.
-                        // Logged at Debug level so it doesn't flood logs on every startup.
                         System.Diagnostics.Debug.WriteLine($"[ApiSchemaBootstrap] Migration skipped: {migEx.Message}");
                     }
                 }
+
+                // WorkOrderService owns its own DDL (PartLots, LiveAt, OutputLocationID)
+                try { WorkOrderService.EnsureSchema(company.ConnectionString); }
+                catch (Exception wsEx) { System.Diagnostics.Debug.WriteLine($"[ApiSchemaBootstrap] WorkOrderService schema: {wsEx.Message}"); }
             }
             catch (Exception dbEx)
             {

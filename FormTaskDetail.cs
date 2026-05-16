@@ -34,13 +34,11 @@ namespace JaneERP
         private ListBox lstMention     = new();
         private string  _mentionPrefix = "";
 
-        // Linked record
-        private ComboBox cboLinkModule   = new();
-        private TextBox  txtLinkId       = new();
-        private Button   btnSearchLinked = new();
-        private Button   btnViewLinked   = new();
-        private Button   btnClearLink    = new();
-        private Label    lblLinkStatus   = new();
+        // Linked records (multi)
+        private DataGridView dgvLinks     = new();
+        private Button       btnAddLink   = new();
+        private Button       btnViewLink  = new();
+        private Button       btnRemoveLink= new();
 
         // Subtasks
         private CheckedListBox clbSubtasks        = new();
@@ -84,7 +82,7 @@ namespace JaneERP
                 }
             };
             LoadComments();
-            LoadLinkedRecord();
+            LoadLinkedRecords();
             LoadSubtasks();
             LoadHistory();
         }
@@ -254,74 +252,64 @@ namespace JaneERP
             UpdateNextOccurrenceLabel();
             Controls.Add(lblNextOccur);
 
-            // ── Linked Record section — y=355–400 ─────────────────────────────────────
+            // ── Linked Records section — y=355–430 ────────────────────────────────────
             Controls.Add(new Label
             {
-                Text      = "Linked Record:",
+                Text      = "Linked Records:",
                 Location  = new Point(12, 355),
                 AutoSize  = true,
                 Font      = new Font("Segoe UI", 9F, FontStyle.Bold)
             });
 
-            cboLinkModule.DropDownStyle = ComboBoxStyle.DropDownList;
-            cboLinkModule.Location      = new Point(12, 375);
-            cboLinkModule.Size          = new Size(130, 23);
-            cboLinkModule.Items.AddRange(new object[]
-            {
-                "(None)", "Sales Order", "Purchase Order", "Customer", "Product", "Part", "Cook Session"
-            });
-            cboLinkModule.SelectedIndex = 0;
-            Controls.Add(cboLinkModule);
+            dgvLinks.AutoGenerateColumns = false;
+            dgvLinks.Columns.Add(new DataGridViewTextBoxColumn { Name = "colLinkId",   HeaderText = "ID",        Width = 0,   Visible = false });
+            dgvLinks.Columns.Add(new DataGridViewTextBoxColumn { Name = "colModule",   HeaderText = "Module",    Width = 100 });
+            dgvLinks.Columns.Add(new DataGridViewTextBoxColumn { Name = "colDisplay",  HeaderText = "Reference", AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill });
+            dgvLinks.ReadOnly              = true;
+            dgvLinks.AllowUserToAddRows    = false;
+            dgvLinks.AllowUserToDeleteRows = false;
+            dgvLinks.SelectionMode         = DataGridViewSelectionMode.FullRowSelect;
+            dgvLinks.RowHeadersVisible     = false;
+            dgvLinks.Location              = new Point(12, 373);
+            dgvLinks.Size                  = new Size(676, 70);
+            dgvLinks.Anchor                = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
+            Controls.Add(dgvLinks);
 
-            txtLinkId.Location        = new Point(150, 375);
-            txtLinkId.Size            = new Size(200, 23);
-            txtLinkId.PlaceholderText = "Order #, customer name, PO #…";
-            Controls.Add(txtLinkId);
+            btnAddLink.Text     = "Add Link...";
+            btnAddLink.Size     = new Size(90, 23);
+            btnAddLink.Location = new Point(12, 449);
+            btnAddLink.Click   += BtnAddLink_Click;
+            Controls.Add(btnAddLink);
 
-            btnSearchLinked.Text     = "Search…";
-            btnSearchLinked.Size     = new Size(72, 23);
-            btnSearchLinked.Location = new Point(358, 375);
-            btnSearchLinked.Click   += BtnSearchLinked_Click;
-            Controls.Add(btnSearchLinked);
+            btnViewLink.Text     = "View";
+            btnViewLink.Size     = new Size(55, 23);
+            btnViewLink.Location = new Point(110, 449);
+            btnViewLink.Click   += BtnViewLink_Click;
+            Controls.Add(btnViewLink);
 
-            btnViewLinked.Text     = "View";
-            btnViewLinked.Size     = new Size(52, 23);
-            btnViewLinked.Location = new Point(438, 375);
-            btnViewLinked.Click   += BtnViewLinked_Click;
-            Controls.Add(btnViewLinked);
+            btnRemoveLink.Text     = "Remove";
+            btnRemoveLink.Size     = new Size(70, 23);
+            btnRemoveLink.Location = new Point(173, 449);
+            btnRemoveLink.Click   += BtnRemoveLink_Click;
+            Controls.Add(btnRemoveLink);
 
-            btnClearLink.Text     = "Clear";
-            btnClearLink.Size     = new Size(52, 23);
-            btnClearLink.Location = new Point(498, 375);
-            btnClearLink.Click   += BtnClearLink_Click;
-            Controls.Add(btnClearLink);
-
-            lblLinkStatus.Location  = new Point(12, 403);
-            lblLinkStatus.AutoSize  = false;
-            lblLinkStatus.Size      = new Size(560, 18);
-            lblLinkStatus.Anchor    = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
-            lblLinkStatus.Font      = new Font("Segoe UI", 8.5F);
-            lblLinkStatus.ForeColor = Theme.TextMuted;
-            lblLinkStatus.Text      = "No linked record";
-            Controls.Add(lblLinkStatus);
-
-            // ── Subtasks section — y=428–533 ──────────────────────────────────────────
+            // ── Subtasks section — y=480–590 ──────────────────────────────────────────
             Controls.Add(new Label
             {
                 Text      = "Subtasks:",
-                Location  = new Point(12, 428),
+                Location  = new Point(12, 480),
                 AutoSize  = true,
                 Font      = new Font("Segoe UI", 9F, FontStyle.Bold)
             });
 
-            lblSubtaskCount.Location  = new Point(90, 430);
+            lblSubtaskCount.Location  = new Point(90, 482);
             lblSubtaskCount.AutoSize  = true;
             lblSubtaskCount.ForeColor = Theme.TextMuted;
             lblSubtaskCount.Font      = new Font("Segoe UI", 8.5F);
             lblSubtaskCount.Text      = "";
             Controls.Add(lblSubtaskCount);
 
-            clbSubtasks.Location      = new Point(12, 448);
+            clbSubtasks.Location      = new Point(12, 500);
             clbSubtasks.Size          = new Size(676, 100);
             clbSubtasks.Anchor        = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
             clbSubtasks.CheckOnClick  = true;
@@ -329,7 +317,7 @@ namespace JaneERP
             clbSubtasks.KeyDown      += ClbSubtasks_KeyDown;
             Controls.Add(clbSubtasks);
 
-            txtNewSubtask.Location        = new Point(12, 556);
+            txtNewSubtask.Location        = new Point(12, 608);
             txtNewSubtask.Size            = new Size(540, 23);
             txtNewSubtask.Anchor          = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
             txtNewSubtask.PlaceholderText = "New subtask title…";
@@ -338,37 +326,37 @@ namespace JaneERP
 
             btnAddSubtask.Text     = "Add";
             btnAddSubtask.Size     = new Size(60, 23);
-            btnAddSubtask.Location = new Point(562, 556);
+            btnAddSubtask.Location = new Point(562, 608);
             btnAddSubtask.Anchor   = AnchorStyles.Top | AnchorStyles.Right;
             btnAddSubtask.Click   += BtnAddSubtask_Click;
             Controls.Add(btnAddSubtask);
 
-            // ── Activity Log section — y=588–713 ──────────────────────────────────────
+            // ── Activity Log section — y=640–770 ──────────────────────────────────────
             Controls.Add(new Label
             {
                 Text      = "Activity:",
-                Location  = new Point(12, 590),
+                Location  = new Point(12, 642),
                 AutoSize  = true,
                 Font      = new Font("Segoe UI", 9F, FontStyle.Bold)
             });
 
-            lstHistory.Location      = new Point(12, 610);
+            lstHistory.Location      = new Point(12, 662);
             lstHistory.Size          = new Size(676, 120);
             lstHistory.Anchor        = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
             lstHistory.SelectionMode = SelectionMode.None;
             lstHistory.Font          = new Font("Consolas", 8F);
             Controls.Add(lstHistory);
 
-            // ── Discussion — y=740–878 ────────────────────────────────────────────────
-            Controls.Add(new Label { Text = "Discussion (type @ to tag a user):", Location = new Point(12, 740), AutoSize = true });
+            // ── Discussion — y=792–930 ────────────────────────────────────────────────
+            Controls.Add(new Label { Text = "Discussion (type @ to tag a user):", Location = new Point(12, 792), AutoSize = true });
 
-            lstComments.Location      = new Point(12, 760);
+            lstComments.Location      = new Point(12, 812);
             lstComments.Size          = new Size(676, 120);
             lstComments.Anchor        = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
             lstComments.SelectionMode = SelectionMode.None;
             Controls.Add(lstComments);
 
-            txtComment.Location        = new Point(12, 890);
+            txtComment.Location        = new Point(12, 942);
             txtComment.Size            = new Size(600, 23);
             txtComment.Anchor          = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
             txtComment.PlaceholderText = "Write a comment… (type @ to tag a user)";
@@ -379,13 +367,13 @@ namespace JaneERP
             btnPostComment.Text     = "Post";
             btnPostComment.Size     = new Size(70, 23);
             btnPostComment.Anchor   = AnchorStyles.Top | AnchorStyles.Right;
-            btnPostComment.Location = new Point(618, 890);
+            btnPostComment.Location = new Point(618, 942);
             btnPostComment.Click   += BtnPostComment_Click;
             Controls.Add(btnPostComment);
 
             // @mention popup listbox (hidden by default, floats near comment box)
             lstMention.Visible     = false;
-            lstMention.Location    = new Point(12, 848);
+            lstMention.Location    = new Point(12, 900);
             lstMention.Size        = new Size(250, 120);
             lstMention.Anchor      = AnchorStyles.Top | AnchorStyles.Left;
             lstMention.BorderStyle = BorderStyle.FixedSingle;
@@ -398,7 +386,7 @@ namespace JaneERP
             btnSaveChanges.Text     = "Save Changes";
             btnSaveChanges.Size     = new Size(110, 28);
             btnSaveChanges.Anchor   = AnchorStyles.Top | AnchorStyles.Left;
-            btnSaveChanges.Location = new Point(12, 924);
+            btnSaveChanges.Location = new Point(12, 976);
             btnSaveChanges.UseVisualStyleBackColor = true;
             btnSaveChanges.Click   += BtnSaveChanges_Click;
             Controls.Add(btnSaveChanges);
@@ -406,7 +394,7 @@ namespace JaneERP
             btnClose.Text     = "Close";
             btnClose.Size     = new Size(80, 28);
             btnClose.Anchor   = AnchorStyles.Top | AnchorStyles.Right;
-            btnClose.Location = new Point(608, 924);
+            btnClose.Location = new Point(608, 976);
             btnClose.Click   += (_, _) => Close();
             Controls.Add(btnClose);
         }
@@ -440,7 +428,7 @@ namespace JaneERP
             if (stages == null || stages.Count == 0)
             {
                 // Legacy mode — no workflow
-                cboStage.Items.AddRange(new object[] { "Open", "In Progress", "Done" });
+                cboStage.Items.AddRange(new object[] { "Open", "In Progress", "Done", "Cancelled" });
                 lblStageHint.Text = "(no workflow — using legacy statuses)";
                 // Select from task's Status field
                 cboStage.SelectedItem = _task.Status;
@@ -707,30 +695,45 @@ namespace JaneERP
             }
         }
 
-        // ── Linked Record ─────────────────────────────────────────────────────────────
+        // ── Linked Records (multi) ────────────────────────────────────────────────────
 
-        /// <summary>
-        /// Applies a link selection: populates the module/ID fields, saves immediately, and shows confirmation.
-        /// Called after the user selects an item in any search picker.
-        /// </summary>
-        private void ApplyLink(string module, string id, string displayLabel)
+        private void AddLinkEntry(string module, string id, string displayLabel)
         {
             try
             {
-                cboLinkModule.SelectedItem = module;
-                if (cboLinkModule.SelectedIndex < 0) cboLinkModule.SelectedIndex = 0;
-                txtLinkId.Text = id;
-                _repo.SetLinkedRecord(_task.TaskID, module, id, displayLabel);
-                lblLinkStatus.Text      = $"Linked to: {displayLabel}";
-                lblLinkStatus.ForeColor = Color.Green;
+                _repo.AddLinkedRecord(_task.TaskID, module, id, displayLabel);
+                LoadLinkedRecords();
                 Changed = true;
             }
             catch (Exception ex) { MessageBox.Show(this, ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error); }
         }
 
-        private void BtnSearchLinked_Click(object? sender, EventArgs e)
+        private void BtnAddLink_Click(object? sender, EventArgs e)
         {
-            var module = cboLinkModule.SelectedItem?.ToString();
+            var modules = new[] { "Sales Order", "Purchase Order", "Customer", "Product", "Part", "Cook Session" };
+            using var dlgModule = new Form
+            {
+                Text            = "Select Module",
+                Size            = new Size(260, 120),
+                StartPosition   = FormStartPosition.CenterParent,
+                FormBorderStyle = FormBorderStyle.FixedDialog,
+                MaximizeBox     = false,
+                MinimizeBox     = false
+            };
+            var cboMod = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Dock = DockStyle.Top };
+            foreach (var m in modules) cboMod.Items.Add(m);
+            cboMod.SelectedIndex = 0;
+            var btnOkMod = new Button { Text = "OK", DialogResult = DialogResult.OK, Dock = DockStyle.Bottom };
+            dlgModule.Controls.AddRange(new Control[] { btnOkMod, cboMod });
+            dlgModule.AcceptButton = btnOkMod;
+            if (dlgModule.ShowDialog(this) != DialogResult.OK) return;
+
+            var module = cboMod.SelectedItem?.ToString() ?? "";
+            SearchAndAddLink(module);
+        }
+
+        private void SearchAndAddLink(string module)
+        {
             switch (module)
             {
                 case "Customer":
@@ -745,12 +748,9 @@ namespace JaneERP
                             .ToList();
                         var result = ShowSimpleSearchDialog("Select Customer", customers);
                         if (result.HasValue)
-                            ApplyLink("Customer", result.Value.id, result.Value.display);
+                            AddLinkEntry("Customer", result.Value.id, result.Value.display);
                     }
-                    catch (Exception ex)
-                    {
-                        MessageBox.Show(this, ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                    }
+                    catch (Exception ex) { MessageBox.Show(this, ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error); }
                     break;
 
                 case "Purchase Order":
@@ -763,12 +763,9 @@ namespace JaneERP
                             .ToList();
                         var result = ShowSimpleSearchDialog("Select Purchase Order", pos);
                         if (result.HasValue)
-                            ApplyLink("Purchase Order", result.Value.id, result.Value.display);
+                            AddLinkEntry("Purchase Order", result.Value.id, result.Value.display);
                     }
-                    catch (Exception ex)
-                    {
-                        MessageBox.Show(this, ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                    }
+                    catch (Exception ex) { MessageBox.Show(this, ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error); }
                     break;
 
                 case "Product":
@@ -783,12 +780,9 @@ namespace JaneERP
                             .ToList();
                         var result = ShowSimpleSearchDialog("Select Product", products);
                         if (result.HasValue)
-                            ApplyLink("Product", result.Value.id, result.Value.display);
+                            AddLinkEntry("Product", result.Value.id, result.Value.display);
                     }
-                    catch (Exception ex)
-                    {
-                        MessageBox.Show(this, ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                    }
+                    catch (Exception ex) { MessageBox.Show(this, ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error); }
                     break;
 
                 case "Part":
@@ -801,12 +795,9 @@ namespace JaneERP
                             .ToList();
                         var result = ShowSimpleSearchDialog("Select Part", parts);
                         if (result.HasValue)
-                            ApplyLink("Part", result.Value.id, result.Value.display);
+                            AddLinkEntry("Part", result.Value.id, result.Value.display);
                     }
-                    catch (Exception ex)
-                    {
-                        MessageBox.Show(this, ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                    }
+                    catch (Exception ex) { MessageBox.Show(this, ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error); }
                     break;
 
                 case "Sales Order":
@@ -819,12 +810,9 @@ namespace JaneERP
                             .ToList();
                         var result = ShowSimpleSearchDialog("Select Sales Order", orders);
                         if (result.HasValue)
-                            ApplyLink("Sales Order", result.Value.id, result.Value.display);
+                            AddLinkEntry("Sales Order", result.Value.id, result.Value.display);
                     }
-                    catch (Exception ex)
-                    {
-                        MessageBox.Show(this, ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                    }
+                    catch (Exception ex) { MessageBox.Show(this, ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error); }
                     break;
 
                 case "Cook Session":
@@ -837,18 +825,15 @@ namespace JaneERP
                             .ToList();
                         var result = ShowSimpleSearchDialog("Select Cook Session", sessions);
                         if (result.HasValue)
-                            ApplyLink("Cook Session", result.Value.id, result.Value.display);
+                            AddLinkEntry("Cook Session", result.Value.id, result.Value.display);
                     }
-                    catch (Exception ex)
-                    {
-                        MessageBox.Show(this, ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                    }
+                    catch (Exception ex) { MessageBox.Show(this, ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error); }
                     break;
 
                 default:
                     MessageBox.Show(this,
-                        "Select a module type first before searching.",
-                        "No Module Selected", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                        "No search available for the selected module type.",
+                        "Unknown Module", MessageBoxButtons.OK, MessageBoxIcon.Information);
                     break;
             }
         }
@@ -903,52 +888,34 @@ namespace JaneERP
             return null;
         }
 
-        private void LoadLinkedRecord()
+        private void LoadLinkedRecords()
         {
+            dgvLinks.Rows.Clear();
             try
             {
-                var link = _repo.GetLinkedRecord(_task.TaskID);
-                if (link != null && !string.IsNullOrWhiteSpace(link.LinkedModule))
+                var links = _repo.GetLinkedRecords(_task.TaskID);
+                foreach (var link in links)
                 {
-                    cboLinkModule.SelectedItem = link.LinkedModule;
-                    if (cboLinkModule.SelectedIndex < 0) cboLinkModule.SelectedIndex = 0;
-                    txtLinkId.Text          = link.LinkedId;
-                    var display             = !string.IsNullOrWhiteSpace(link.LinkedDisplay)
-                                             ? link.LinkedDisplay
-                                             : $"{link.LinkedModule} #{link.LinkedId}";
-                    lblLinkStatus.Text      = $"Linked to: {display}";
-                    lblLinkStatus.ForeColor = Color.Green;
-                }
-                else
-                {
-                    lblLinkStatus.Text      = "No linked record";
-                    lblLinkStatus.ForeColor = Theme.TextMuted;
+                    int idx = dgvLinks.Rows.Add();
+                    dgvLinks.Rows[idx].Cells["colLinkId"].Value  = link.LinkId;
+                    dgvLinks.Rows[idx].Cells["colModule"].Value  = link.LinkedModule;
+                    dgvLinks.Rows[idx].Cells["colDisplay"].Value =
+                        !string.IsNullOrWhiteSpace(link.LinkedDisplay)
+                            ? link.LinkedDisplay
+                            : $"{link.LinkedModule} #{link.LinkedId}";
+                    dgvLinks.Rows[idx].Tag = link;
                 }
             }
             catch { /* non-fatal */ }
         }
 
-        private void BtnClearLink_Click(object? sender, EventArgs e)
+        private void BtnViewLink_Click(object? sender, EventArgs e)
         {
-            try
-            {
-                _repo.ClearLinkedRecord(_task.TaskID);
-                cboLinkModule.SelectedIndex = 0;
-                txtLinkId.Clear();
-                lblLinkStatus.Text      = "No linked record";
-                lblLinkStatus.ForeColor = Theme.TextMuted;
-                Changed = true;
-            }
-            catch (Exception ex) { MessageBox.Show(this, ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error); }
-        }
-
-        private void BtnViewLinked_Click(object? sender, EventArgs e)
-        {
-            var module = cboLinkModule.SelectedItem?.ToString();
-            var id     = txtLinkId.Text.Trim();
-            if (string.IsNullOrEmpty(module) || module == "(None)") return;
-            if (string.IsNullOrEmpty(id)) return;
-
+            if (dgvLinks.SelectedRows.Count == 0) return;
+            var link = dgvLinks.SelectedRows[0].Tag as TaskLinkedRecord;
+            if (link == null) return;
+            var module = link.LinkedModule;
+            var id     = link.LinkedId;
             try
             {
                 switch (module)
@@ -957,7 +924,7 @@ namespace JaneERP
                         using (var frm = new FormCustomers()) frm.ShowDialog(this);
                         break;
                     case "Sales Order":
-                        MessageBox.Show(this, $"Open the Sales dashboard and search for order: {id}", "Navigate to Sales Order", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                        using (var frm = new FormStoreDashboard()) frm.ShowDialog(this);
                         break;
                     case "Purchase Order":
                         using (var frm = new FormPurchaseOrders()) frm.ShowDialog(this);
@@ -981,6 +948,22 @@ namespace JaneERP
                         MessageBox.Show(this, $"No view available for module: {module}", "Info", MessageBoxButtons.OK, MessageBoxIcon.Information);
                         break;
                 }
+            }
+            catch (Exception ex) { MessageBox.Show(this, ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error); }
+        }
+
+        private void BtnRemoveLink_Click(object? sender, EventArgs e)
+        {
+            if (dgvLinks.SelectedRows.Count == 0) return;
+            var link = dgvLinks.SelectedRows[0].Tag as TaskLinkedRecord;
+            if (link == null) return;
+            if (MessageBox.Show(this, $"Remove link to '{link.LinkedDisplay}'?", "Confirm",
+                    MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
+            try
+            {
+                _repo.RemoveLinkedRecord(link.LinkId);
+                LoadLinkedRecords();
+                Changed = true;
             }
             catch (Exception ex) { MessageBox.Show(this, ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error); }
         }
@@ -1026,18 +1009,10 @@ namespace JaneERP
                 if (complete)
                     _repo.CompleteSubtask(subtask.SubtaskId, user);
                 else
-                {
-                    // Toggle back to incomplete — re-add with IsComplete=false by deleting and re-adding,
-                    // or if the repo has a direct uncomplete method use that; otherwise use UpdateTags workaround.
-                    // Since ITaskRepository only has CompleteSubtask, we delete and re-add to uncomplete.
-                    _repo.DeleteSubtask(subtask.SubtaskId);
-                    _repo.AddSubtask(_task.TaskID, subtask.Title, subtask.SortOrder);
-                }
+                    _repo.UncompleteSubtask(subtask.SubtaskId);
                 subtask.IsComplete = complete;
                 UpdateSubtaskCount();
                 Changed = true;
-                // Reload to get fresh SubtaskId if we re-added
-                if (!complete) BeginInvoke(new Action(LoadSubtasks));
             }
             catch (Exception ex) { JaneERP.Logging.AppLogger.Info($"[FormTaskDetail.ClbSubtasks_ItemCheck]: {ex.Message}"); }
         }
@@ -1130,15 +1105,30 @@ namespace JaneERP
             var pattern = cboRecurrence.SelectedItem?.ToString();
             if (string.IsNullOrEmpty(pattern) || pattern == "(None)")
             {
-                lblNextOccur.Text = "";
+                lblNextOccur.Text   = "";
                 nudInterval.Enabled = false;
                 return;
             }
             nudInterval.Enabled = true;
+            // Show computed next occurrence date even before completion
             if (_task.NextOccurrence.HasValue)
+            {
                 lblNextOccur.Text = $"Next: {_task.NextOccurrence.Value:yyyy-MM-dd}";
+            }
             else
-                lblNextOccur.Text = "";
+            {
+                // Preview: compute from current due date + interval
+                int interval = (int)nudInterval.Value;
+                var baseDate = _task.DueDate;
+                DateTime nextPreview = pattern switch
+                {
+                    "Daily"   => baseDate.AddDays(interval),
+                    "Weekly"  => baseDate.AddDays(interval * 7),
+                    "Monthly" => baseDate.AddMonths(interval),
+                    _         => baseDate.AddDays(interval)
+                };
+                lblNextOccur.Text = $"Next: {nextPreview:yyyy-MM-dd} (preview)";
+            }
         }
 
         private void TryGenerateNextRecurrence()
@@ -1204,7 +1194,7 @@ namespace JaneERP
                 else
                 {
                     // No workflow — stage combo holds legacy statuses
-                    var newStatus = stageVal is "Open" or "In Progress" or "Done" ? stageVal : "Open";
+                    var newStatus = stageVal is "Open" or "In Progress" or "Done" or "Cancelled" ? stageVal : "Open";
                     if (newStatus != _task.Status)
                     {
                         _repo.UpdateStatus(_task.TaskID, newStatus);

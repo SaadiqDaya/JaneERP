@@ -45,7 +45,6 @@ namespace JaneERP
             Theme.MakeBorderless(this);
             Theme.AddCloseButton(this);
             Theme.MakeResizable(this);
-            try { _repo.EnsureSchema(); } catch { }
             LoadUomDropdown();
             SeedFromProductTypeAttributes();
             LoadData();
@@ -76,21 +75,12 @@ namespace JaneERP
             MinimumSize   = new Size(820, 500);
             StartPosition = FormStartPosition.CenterParent;
 
-            // ── Title ─────────────────────────────────────────────────────────
-            Controls.Add(new Label
-            {
-                Text      = "Attribute Lists",
-                Font      = new Font("Segoe UI", 13F, FontStyle.Bold),
-                ForeColor = Theme.Gold,
-                Location  = new Point(12, 12),
-                AutoSize  = true
-            });
             Controls.Add(new Label
             {
                 Text      = "Define attribute names, categories, types, and allowed values.",
                 Font      = new Font("Segoe UI", 9F),
                 ForeColor = Theme.TextSecondary,
-                Location  = new Point(12, 40),
+                Location  = new Point(12, 56),
                 AutoSize  = true
             });
 
@@ -250,6 +240,7 @@ namespace JaneERP
 
             SizeChanged += (_, _) => PositionGrid();
             Load        += (_, _) => PositionGrid();
+            Theme.AddFormHeader(this, "📝  Attribute Lists");
         }
 
         private static Label MakeLabel(string text, int x, int y) =>

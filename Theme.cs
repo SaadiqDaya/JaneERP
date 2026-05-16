@@ -53,6 +53,36 @@ namespace JaneERP
             SendMessage(f.Handle, WM_NCLBUTTONDOWN, HTCAPTION, 0);
         }
 
+        /// <summary>
+        /// Adds a dark-teal header bar (DockStyle.Top, 52 px) with <paramref name="title"/> to
+        /// <paramref name="form"/> and makes it draggable.  Call this inside BuildUI() — before
+        /// Theme.Apply() runs — so that Apply's Tag-check keeps the dark colour intact.
+        /// Returns the panel so callers can add extra controls to it.
+        /// </summary>
+        public static Panel AddFormHeader(Form form, string title)
+        {
+            var pnl = new Panel
+            {
+                Dock      = DockStyle.Top,
+                Height    = 52,
+                BackColor = Header,
+                Tag       = "header"
+            };
+            pnl.Controls.Add(new Label
+            {
+                Text      = title,
+                Font      = new Font("Segoe UI", 13F, FontStyle.Bold),
+                ForeColor = Color.White,
+                Location  = new Point(14, 13),
+                AutoSize  = true
+            });
+            // Thin teal accent line at bottom of header
+            var accent = new Panel { Height = 2, Dock = DockStyle.Bottom, BackColor = Gold, Tag = "accent" };
+            pnl.Controls.Add(accent);
+            form.Controls.Add(pnl);
+            return pnl;
+        }
+
         public static Button AddCloseButton(Form form)
         {
             var btn = new Button
@@ -159,7 +189,7 @@ namespace JaneERP
 
         // ── Core palette ─────────────────────────────────────────────────────────
         // Light theme: off-white content · dark-teal header/sidebar · teal primary · purple secondary
-        public static readonly Color Background    = Color.FromArgb(243, 246, 249);  // #F3F6F9 — content bg
+        public static readonly Color Background    = Color.FromArgb(248, 244, 255);  // very light lavender — content bg
         public static readonly Color Surface       = Color.FromArgb(255, 255, 255);  // #FFFFFF — card/panel
         public static readonly Color Header        = Color.FromArgb(11,  37,  42);   // #0B252A — dark teal
         public static Color Gold          = Color.FromArgb(0,   190, 214);  // #00BED6 — teal primary

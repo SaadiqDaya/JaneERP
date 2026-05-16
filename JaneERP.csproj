@@ -8,12 +8,18 @@
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
 
-  <!-- Exclude the test project and API project subfolders from the main build -->
+  <!-- Exclude sub-projects from the main build — each is built by its own csproj -->
   <ItemGroup>
     <Compile Remove="JaneERP.Tests\**" />
     <None Include="JaneERP.Tests\**" />
     <Compile Remove="JaneERP.Api\**" />
     <None Include="JaneERP.Api\**" />
+    <Compile Remove="JaneERP.Core\**" />
+    <None Include="JaneERP.Core\**" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="JaneERP.Core\JaneERP.Core.csproj" />
   </ItemGroup>
 
   <ItemGroup>

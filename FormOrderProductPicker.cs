@@ -70,26 +70,16 @@ namespace JaneERP
             MinimumSize   = new Size(600, 420);
             StartPosition = FormStartPosition.CenterParent;
 
-            var lblTitle = new Label
-            {
-                Text      = "Add Products to Order",
-                Font      = new Font("Segoe UI", 13F, FontStyle.Bold),
-                ForeColor = Theme.Gold,
-                Location  = new Point(12, 12),
-                AutoSize  = true
-            };
-            Controls.Add(lblTitle);
-
             // ── Filter row ────────────────────────────────────────────────────────
-            Controls.Add(new Label { Text = "Search:", Location = new Point(12, 52), AutoSize = true });
-            txtSearch.Location    = new Point(72, 49);
+            Controls.Add(new Label { Text = "Search:", Location = new Point(12, 63), AutoSize = true });
+            txtSearch.Location    = new Point(72, 60);
             txtSearch.Size        = new Size(210, 23);
             txtSearch.PlaceholderText = "SKU or name...";
             txtSearch.TextChanged += (_, _) => ApplyFilter();
             Controls.Add(txtSearch);
 
-            Controls.Add(new Label { Text = "Type:", Location = new Point(296, 52), AutoSize = true });
-            cboType.Location      = new Point(332, 49);
+            Controls.Add(new Label { Text = "Type:", Location = new Point(296, 63), AutoSize = true });
+            cboType.Location      = new Point(332, 60);
             cboType.Size          = new Size(200, 23);
             cboType.DropDownStyle = ComboBoxStyle.DropDownList;
             cboType.Items.Add("(All Types)");
@@ -153,6 +143,7 @@ namespace JaneERP
             btnCancel.Location = new Point(610, 474);
             btnCancel.Click   += (_, _) => { DialogResult = DialogResult.Cancel; Close(); };
             Controls.Add(btnCancel);
+            Theme.AddFormHeader(this, "🔍  Add Products");
         }
 
         private void CboAttrName_Changed(object? sender, EventArgs e)

@@ -26,6 +26,8 @@ namespace JaneERP.Models
         public string  ProductName       { get; set; } = string.Empty;
         public int     OriginalQty       { get; set; }
         public int     ReturnQty         { get; set; }
+        /// <summary>Unit price captured from SalesOrderItems at return-creation time. Avoids price drift on approval.</summary>
+        public decimal OriginalUnitPrice  { get; set; }
         public string  Condition         { get; set; } = "Resalable"; // Resalable | Damaged | Destroy
         public int?    RestockLocationID { get; set; }
     }

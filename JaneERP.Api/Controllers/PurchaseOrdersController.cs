@@ -48,4 +48,20 @@ public class PurchaseOrdersController : ControllerBase
         var newId = _repo.DuplicatePO(id, _ctx.Username);
         return Ok(new { poid = newId });
     }
+
+    [HttpGet("suppliers")]
+    public IActionResult GetSuppliers() => Ok(_repo.GetSuppliers());
+
+    [HttpPost]
+    public IActionResult CreatePO([FromBody] CreatePORequest req)
+    {
+        if (req == null) return BadRequest(new { error = "Request body required." });
+        if (req.SupplierID <= 0)
+            return BadRequest(new { error = "SupplierID is required." });
+        if (!req.Items.Any())
+            return BadRequest(new { error = "At least one line item is required." });
+
+        var poid = _repo.CreatePO(req, _ctx.Username);
+        return Ok(new { poid });
+    }
 }

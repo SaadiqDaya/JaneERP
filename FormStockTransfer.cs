@@ -39,15 +39,6 @@ namespace JaneERP
             StartPosition = FormStartPosition.CenterParent;
             FormBorderStyle = FormBorderStyle.FixedDialog;
 
-            var lblTitle = new Label
-            {
-                Text      = "Location-to-Location Stock Transfer",
-                Font      = new Font("Segoe UI", 13F, FontStyle.Bold),
-                ForeColor = Theme.Gold,
-                Location  = new Point(12, 12),
-                AutoSize  = true
-            };
-            Controls.Add(lblTitle);
 
             int labelX  = 20;
             int controlX = 160;
@@ -120,6 +111,7 @@ namespace JaneERP
             btnCancel.Location = new Point(340, y);
             btnCancel.Click   += (_, _) => { DialogResult = DialogResult.Cancel; Close(); };
             Controls.Add(btnCancel);
+            Theme.AddFormHeader(this, "🔄  Stock Transfer");
         }
 
         private void LoadData(Product? preselected)

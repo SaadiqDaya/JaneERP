@@ -165,6 +165,10 @@ const InventoryPage = (() => {
             History
           </button>
         </div>
+        <button class="btn btn-outline btn-full mt-8" id="move-btn" disabled>
+          <svg viewBox="0 0 24 24" style="width:16px;height:16px;fill:currentColor;vertical-align:middle;margin-right:4px;"><path d="M10 9h4V6h3l-5-5-5 5h3v3zm-1 1H6V7l-5 5 5 5v-3h3v-4zm14 2l-5-5v3h-3v4h3v3l5-5zm-9 3h-4v3H7l5 5 5-5h-3v-3z"/></svg>
+          Move Stock
+        </button>
         <button class="btn btn-outline btn-full mt-8" id="close-sheet">Close</button>
       </div>`;
 
@@ -202,11 +206,94 @@ const InventoryPage = (() => {
               <span class="loc-name">${r.locationName}</span>
               <span class="loc-qty">${r.stock}</span>
             </div>`).join('')}`;
+
+        // Enable Move Stock once we have location data
+        const moveBtn = document.getElementById('move-btn');
+        if (moveBtn) {
+          const movable = stock.filter(r => r.stock > 0);
+          moveBtn.disabled = movable.length === 0;
+          moveBtn.addEventListener('click', () => {
+            overlay.remove();
+            openMoveModal(product, movable);
+          });
+        }
       }
     } catch (err) {
       const contentEl = document.getElementById('stock-detail-content');
       if (contentEl) contentEl.innerHTML = `<p class="text-danger">${err.message}</p>`;
     }
+  }
+
+  async function openMoveModal(product, stockRows) {
+    const overlay = document.createElement('div');
+    overlay.className = 'sheet-overlay';
+
+    let allLocations = [];
+    try { allLocations = await Api.get('/api/locations'); } catch {}
+
+    const sourceOpts = stockRows
+      .map(r => `<option value="${r.locationID}">${r.locationName} (${r.stock} on hand)</option>`)
+      .join('');
+
+    const destOpts = allLocations
+      .map(l => `<option value="${l.locationID}">${l.locationName}</option>`)
+      .join('');
+
+    overlay.innerHTML = `
+      <div class="sheet">
+        <div class="sheet-handle"></div>
+        <h2 style="font-size:16px;font-weight:700;margin-bottom:2px;">Move Stock</h2>
+        <p class="text-muted text-small" style="margin-bottom:16px;">${product.productName}</p>
+        <div class="form-group">
+          <label>From Location *</label>
+          <select id="mv-from" class="form-control">${sourceOpts}</select>
+        </div>
+        <div class="form-group">
+          <label>To Location *</label>
+          <select id="mv-to" class="form-control">
+            <option value="">— Select destination —</option>
+            ${destOpts}
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Quantity *</label>
+          <input id="mv-qty" type="number" class="form-control" placeholder="0"
+                 min="1" step="1" inputmode="numeric">
+        </div>
+        <div class="form-group">
+          <label>Notes</label>
+          <input id="mv-notes" type="text" class="form-control" placeholder="Optional…">
+        </div>
+        <button class="btn btn-primary btn-full" id="mv-save">Move Stock</button>
+        <button class="btn btn-outline btn-full mt-8" id="mv-cancel">Cancel</button>
+      </div>`;
+
+    document.body.appendChild(overlay);
+    overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+    document.getElementById('mv-cancel').addEventListener('click', () => overlay.remove());
+
+    document.getElementById('mv-save').addEventListener('click', async () => {
+      const fromId = parseInt(document.getElementById('mv-from').value, 10);
+      const toId   = parseInt(document.getElementById('mv-to').value, 10);
+      const qty    = parseInt(document.getElementById('mv-qty').value, 10) || 0;
+      const notes  = document.getElementById('mv-notes').value.trim() || null;
+
+      if (!toId)           { App.toast('Select a destination location', 'error'); return; }
+      if (fromId === toId) { App.toast('Source and destination must differ', 'error'); return; }
+      if (qty <= 0)        { App.toast('Enter a valid quantity', 'error'); return; }
+
+      const btn = document.getElementById('mv-save');
+      btn.disabled = true; btn.textContent = 'Moving…';
+      try {
+        await Api.post(`/api/inventory/${product.productID}/move`,
+          { fromLocationId: fromId, toLocationId: toId, qty, notes });
+        App.toast(`Moved ${qty} unit${qty !== 1 ? 's' : ''}`, 'success');
+        overlay.remove();
+      } catch (err) {
+        App.toast(err.message, 'error');
+        btn.disabled = false; btn.textContent = 'Move Stock';
+      }
+    });
   }
 
   function openAdjustModal(product) {

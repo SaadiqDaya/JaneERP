@@ -18,6 +18,7 @@ namespace JaneERP
         private ComboBox     cboFilter      = new();
         private ComboBox     cboStageFilter = new();
         private Button       btnAdd          = new();
+        private Button       btnTemplate     = new();
         private Button       btnDone         = new();
         private Button       btnDelete       = new();
         private Button       btnEmail        = new();
@@ -261,52 +262,59 @@ namespace JaneERP
             btnAdd.Click   += BtnAdd_Click;
             Controls.Add(btnAdd);
 
+            btnTemplate.Text     = "From Template...";
+            btnTemplate.Size     = new Size(130, 30);
+            btnTemplate.Anchor   = AnchorStyles.Bottom | AnchorStyles.Left;
+            btnTemplate.Location = new Point(140, 818);
+            btnTemplate.Click   += BtnTemplate_Click;
+            Controls.Add(btnTemplate);
+
             btnDone.Text     = "Mark Done";
             btnDone.Size     = new Size(100, 30);
             btnDone.Anchor   = AnchorStyles.Bottom | AnchorStyles.Left;
-            btnDone.Location = new Point(140, 818);
+            btnDone.Location = new Point(278, 818);
             btnDone.Click   += BtnDone_Click;
             Controls.Add(btnDone);
 
             btnReassign.Text     = "Reassign...";
             btnReassign.Size     = new Size(100, 30);
             btnReassign.Anchor   = AnchorStyles.Bottom | AnchorStyles.Left;
-            btnReassign.Location = new Point(248, 818);
+            btnReassign.Location = new Point(386, 818);
             btnReassign.Click   += BtnReassign_Click;
             Controls.Add(btnReassign);
 
             btnSetPriority.Text     = "Set Priority...";
             btnSetPriority.Size     = new Size(110, 30);
             btnSetPriority.Anchor   = AnchorStyles.Bottom | AnchorStyles.Left;
-            btnSetPriority.Location = new Point(356, 818);
+            btnSetPriority.Location = new Point(494, 818);
             btnSetPriority.Click   += BtnSetPriority_Click;
             Controls.Add(btnSetPriority);
 
             btnSetDue.Text     = "Set Due Date...";
             btnSetDue.Size     = new Size(115, 30);
             btnSetDue.Anchor   = AnchorStyles.Bottom | AnchorStyles.Left;
-            btnSetDue.Location = new Point(474, 818);
+            btnSetDue.Location = new Point(612, 818);
             btnSetDue.Click   += BtnSetDue_Click;
             Controls.Add(btnSetDue);
 
             btnDelete.Text     = "Delete";
             btnDelete.Size     = new Size(80, 30);
             btnDelete.Anchor   = AnchorStyles.Bottom | AnchorStyles.Left;
-            btnDelete.Location = new Point(597, 818);
+            btnDelete.Location = new Point(735, 818);
             btnDelete.Click   += BtnDelete_Click;
             Controls.Add(btnDelete);
 
             btnEmail.Text     = "Email Outstanding";
             btnEmail.Size     = new Size(140, 30);
             btnEmail.Anchor   = AnchorStyles.Bottom | AnchorStyles.Left;
-            btnEmail.Location = new Point(685, 818);
+            btnEmail.Location = new Point(823, 818);
             btnEmail.Click   += BtnEmail_Click;
             Controls.Add(btnEmail);
 
             btnWorkflows.Text     = "Manage Workflows";
             btnWorkflows.Size     = new Size(140, 30);
-            btnWorkflows.Anchor   = AnchorStyles.Bottom | AnchorStyles.Left;
-            btnWorkflows.Location = new Point(833, 818);
+            btnWorkflows.Anchor   = AnchorStyles.Bottom | AnchorStyles.Right;
+            btnWorkflows.Location = new Point(770, 818);
             btnWorkflows.Click   += (_, _) => { using var f = new FormWorkflowEditor(_repo); f.ShowDialog(this); };
             Controls.Add(btnWorkflows);
 
@@ -460,15 +468,15 @@ namespace JaneERP
             }
         }
 
-        /// <summary>Adds any workflow stage names to the stage filter combo (deduplicated).</summary>
+        /// <summary>Adds any workflow stage names to the stage filter combo (deduplicated). Uses single-query method.</summary>
         private void EnrichStageFilter()
         {
             try
             {
-                var workflows = _repo.GetWorkflows();
-                var allStages = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                foreach (var wf in workflows)
-                    foreach (var s in _repo.GetWorkflowStatusNames(wf.WorkflowID))
+                var allStageMap = _repo.GetAllWorkflowStageNames();
+                var allStages   = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (var kvp in allStageMap)
+                    foreach (var s in kvp.Value)
                         allStages.Add(s);
 
                 foreach (var stage in allStages)
@@ -548,6 +556,55 @@ namespace JaneERP
             {
                 LoadTasks();
                 LoadMentions();
+            }
+        }
+
+        private void BtnTemplate_Click(object? sender, EventArgs e)
+        {
+            List<TaskTemplate> templates;
+            try { templates = _repo.GetTemplates(); }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, "Could not load templates: " + ex.Message, "Error",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+
+            if (templates.Count == 0)
+            {
+                MessageBox.Show(this,
+                    "No task templates found.\nCreate templates in the task workflow editor, or ask an administrator.",
+                    "No Templates", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            var templateName = PickFromList("Select Template", templates.Select(t => t.Name));
+            if (templateName == null) return;
+            var selected = templates.FirstOrDefault(t => t.Name == templateName);
+            if (selected == null) return;
+
+            List<string> usernames;
+            try { usernames = _repo.GetAllUsernames(); }
+            catch { usernames = new List<string>(); }
+
+            var assignTo = PickFromList("Assign To", usernames);
+            if (assignTo == null) return;
+
+            var startDate = PickDate("Start Date");
+            if (startDate == null) return;
+
+            var currentUser = AppSession.CurrentUser?.Username ?? "system";
+            try
+            {
+                var created = _repo.CreateTasksFromTemplate(selected.TemplateId, assignTo, startDate.Value, currentUser);
+                LoadTasks();
+                MessageBox.Show(this,
+                    $"Created {created.Count} task(s) from template '{selected.Name}'.",
+                    "Tasks Created", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
 
@@ -657,16 +714,18 @@ namespace JaneERP
 
         private void BtnDelete_Click(object? sender, EventArgs e)
         {
-            if (dgvTasks.SelectedRows.Count == 0) return;
-            if (dgvTasks.SelectedRows[0].DataBoundItem is not ErpTask task) return;
-            if (MessageBox.Show(this, $"Delete task '{task.Title}'?", "Confirm",
+            var selected = GetSelectedTasks();
+            if (selected.Count == 0) return;
+            if (MessageBox.Show(this,
+                    $"Delete {selected.Count} task(s)?", "Confirm Delete",
                     MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
-            try
+            int deleted = 0;
+            foreach (var t in selected)
             {
-                _repo.Delete(task.TaskID);
-                LoadTasks(); // refreshes workload
+                try { _repo.Delete(t.TaskID); deleted++; }
+                catch (Exception ex) { JaneERP.Logging.AppLogger.Info($"[FormTaskManager.BtnDelete_Click]: {ex.Message}"); }
             }
-            catch (Exception ex) { MessageBox.Show(this, ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error); }
+            LoadTasks(); // refreshes workload
         }
 
         private void BtnEmail_Click(object? sender, EventArgs e)

@@ -591,6 +591,31 @@ namespace JaneERP
                 new { workflowId }).ToList();
         }
 
+        public Dictionary<string, List<string>> GetAllWorkflowStageNames()
+        {
+            using IDbConnection db = new SqlConnection(_cs);
+            var rows = db.Query<WorkflowStageNameRow>(@"
+                SELECT wf.Name AS WorkflowName, ws.StatusName
+                FROM   TaskWorkflowStatuses ws
+                JOIN   TaskWorkflows wf ON wf.WorkflowID = ws.WorkflowID
+                ORDER  BY wf.Name, ws.SortOrder").ToList();
+
+            var result = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+            foreach (var row in rows)
+            {
+                if (!result.ContainsKey(row.WorkflowName))
+                    result[row.WorkflowName] = new List<string>();
+                result[row.WorkflowName].Add(row.StatusName);
+            }
+            return result;
+        }
+
+        private class WorkflowStageNameRow
+        {
+            public string WorkflowName { get; set; } = "";
+            public string StatusName   { get; set; } = "";
+        }
+
         // ── Linked Records ────────────────────────────────────────────────────────
 
         public TaskLinkedRecord? GetLinkedRecord(int taskId)
@@ -631,6 +656,31 @@ namespace JaneERP
                 WHERE  lr.LinkedModule = @module AND lr.LinkedId = @linkedId
                 ORDER BY t.DueDate",
                 new { module, linkedId }).ToList();
+        }
+
+        public List<TaskLinkedRecord> GetLinkedRecords(int taskId)
+        {
+            using IDbConnection db = new SqlConnection(_cs);
+            return db.Query<TaskLinkedRecord>(
+                "SELECT * FROM TaskLinkedRecords WHERE TaskId = @taskId ORDER BY CreatedAt",
+                new { taskId }).ToList();
+        }
+
+        public bool AddLinkedRecord(int taskId, string module, string linkedId, string displayLabel)
+        {
+            using IDbConnection db = new SqlConnection(_cs);
+            int rows = db.Execute(@"
+                INSERT INTO TaskLinkedRecords (TaskId, LinkedModule, LinkedId, LinkedDisplay)
+                VALUES (@taskId, @module, @linkedId, @displayLabel)",
+                new { taskId, module, linkedId, displayLabel });
+            return rows > 0;
+        }
+
+        public bool RemoveLinkedRecord(int linkId)
+        {
+            using IDbConnection db = new SqlConnection(_cs);
+            int rows = db.Execute("DELETE FROM TaskLinkedRecords WHERE LinkId = @linkId", new { linkId });
+            return rows > 0;
         }
 
         // ── History / Audit Trail ─────────────────────────────────────────────────
@@ -691,6 +741,17 @@ namespace JaneERP
                 SET IsComplete = 1, CompletedBy = @completedBy, CompletedAt = GETDATE()
                 WHERE SubtaskId = @subtaskId",
                 new { subtaskId, completedBy });
+            return rows > 0;
+        }
+
+        public bool UncompleteSubtask(int subtaskId)
+        {
+            using IDbConnection db = new SqlConnection(_cs);
+            int rows = db.Execute(@"
+                UPDATE TaskSubtasks
+                SET IsComplete = 0, CompletedBy = NULL, CompletedAt = NULL
+                WHERE SubtaskId = @subtaskId",
+                new { subtaskId });
             return rows > 0;
         }
 

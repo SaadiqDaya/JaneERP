@@ -55,14 +55,14 @@ namespace JaneERP
         private void BuildUI()
         {
             Text            = "Manage Users";
-            ClientSize      = new Size(900, 520);
-            MinimumSize     = new Size(900, 520);
+            ClientSize      = new Size(900, 620);
+            MinimumSize     = new Size(900, 620);
             StartPosition   = FormStartPosition.CenterParent;
             FormBorderStyle = FormBorderStyle.Sizable;
 
             // ── Left: user grid ──────────────────────────────────────────────────────
             dgvUsers.Anchor            = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left;
-            dgvUsers.Location          = new Point(12, 12);
+            dgvUsers.Location          = new Point(12, 64);
             dgvUsers.Size              = new Size(430, 460);
             dgvUsers.ReadOnly          = true;
             dgvUsers.AllowUserToAddRows    = false;
@@ -94,7 +94,7 @@ namespace JaneERP
             Controls.Add(btnAddUser);
 
             // ── Right: edit panel ────────────────────────────────────────────────────
-            int x = 458, y = 12;
+            int x = 458, y = 64;
 
             lblUsername.AutoSize = false;
             lblUsername.Font     = new Font("Segoe UI", 11F, FontStyle.Bold);
@@ -229,6 +229,7 @@ namespace JaneERP
             Controls.Add(btnUnlock);
 
             SetEditPanelEnabled(false);
+            Theme.AddFormHeader(this, "👤  User Management");
         }
 
         private void SetEditPanelEnabled(bool enabled)

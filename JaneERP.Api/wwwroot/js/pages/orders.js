@@ -514,10 +514,16 @@ const OrderDetailPage = (() => {
 
 // ── New manual order ──────────────────────────────────────────────────────────
 const NewOrderPage = (() => {
-  let cart     = [];
-  let products = [];
+  let cart             = [];
+  let products         = [];
+  let selectedCustomer = null; // { customerID, email, fullName } or null
 
   async function render(container) {
+    // Consume prefill from customer detail "New Order" button
+    selectedCustomer = window._newOrderCustomer || null;
+    window._newOrderCustomer = null;
+    cart = [];
+
     container.innerHTML = `
       <div class="page">
         <div class="page-header">
@@ -530,14 +536,7 @@ const NewOrderPage = (() => {
           <!-- Customer -->
           <div class="card">
             <div style="font-weight:700;font-size:14px;margin-bottom:12px;">Customer</div>
-            <div class="form-group">
-              <label>Email *</label>
-              <input id="o-email" type="email" class="form-control" placeholder="customer@example.com">
-            </div>
-            <div class="form-group">
-              <label>Full Name</label>
-              <input id="o-name" type="text" class="form-control" placeholder="Customer name">
-            </div>
+            <div id="customer-section"></div>
           </div>
 
           <!-- Product search -->
@@ -584,10 +583,106 @@ const NewOrderPage = (() => {
       </div>`;
 
     document.getElementById('order-back').addEventListener('click', () => history.back());
+    renderCustomerSection();
     bindProductSearch();
     bindOrderInputs();
     document.getElementById('submit-order').addEventListener('click', submitOrder);
   }
+
+  // ── Customer section ─────────────────────────────────────────────────────────
+
+  function renderCustomerSection() {
+    const el = document.getElementById('customer-section');
+    if (!el) return;
+
+    if (selectedCustomer) {
+      const initial = (selectedCustomer.fullName || selectedCustomer.email || '?')[0].toUpperCase();
+      el.innerHTML = `
+        <div style="display:flex;align-items:center;gap:12px;">
+          <div style="width:36px;height:36px;border-radius:50%;background:var(--primary-lt);
+                      display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+            <span style="font-size:15px;font-weight:700;color:var(--primary);">${initial}</span>
+          </div>
+          <div style="flex:1;min-width:0;">
+            <div style="font-weight:700;font-size:14px;">${selectedCustomer.fullName || '(No name)'}</div>
+            <div class="text-muted text-small">${selectedCustomer.email}</div>
+          </div>
+          <button class="btn btn-outline" style="padding:6px 12px;font-size:13px;flex-shrink:0;"
+                  id="change-cust-btn">Change</button>
+        </div>`;
+      document.getElementById('change-cust-btn').addEventListener('click', () => {
+        selectedCustomer = null;
+        renderCustomerSection();
+      });
+    } else {
+      el.innerHTML = `
+        <div class="search-bar" style="margin-bottom:8px;">
+          <div class="search-icon">
+            <svg viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27A6.47 6.47 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
+          </div>
+          <input id="cust-search-input" type="search" placeholder="Search existing customer…" autocomplete="off">
+        </div>
+        <div id="cust-search-results"></div>
+        <details style="margin-top:8px;">
+          <summary style="font-size:13px;color:var(--text-2);cursor:pointer;list-style:none;padding:6px 0;">
+            + New customer not in system
+          </summary>
+          <div style="margin-top:10px;">
+            <div class="form-group">
+              <label>Email *</label>
+              <input id="o-email" type="email" class="form-control" placeholder="customer@example.com">
+            </div>
+            <div class="form-group" style="margin-bottom:0;">
+              <label>Full Name</label>
+              <input id="o-name" type="text" class="form-control" placeholder="Customer name">
+            </div>
+          </div>
+        </details>`;
+
+      let custTimer = null;
+      document.getElementById('cust-search-input')?.addEventListener('input', e => {
+        clearTimeout(custTimer);
+        const q = e.target.value.trim();
+        if (!q) { document.getElementById('cust-search-results').innerHTML = ''; return; }
+        custTimer = setTimeout(() => searchCustomers(q), 350);
+      });
+    }
+  }
+
+  async function searchCustomers(q) {
+    const resultsEl = document.getElementById('cust-search-results');
+    if (!resultsEl) return;
+    resultsEl.innerHTML = '<div class="skeleton skeleton-line" style="margin:6px 0;"></div>';
+    try {
+      const data = await Api.get(`/api/customers?q=${encodeURIComponent(q)}&page=1`);
+      const custs = (data.items || []).slice(0, 6);
+      if (custs.length === 0) {
+        resultsEl.innerHTML = `<p class="text-muted text-small" style="margin:6px 0;">
+          No matches — use "New customer" below</p>`;
+        return;
+      }
+      resultsEl.innerHTML = `<div class="search-results" style="margin-top:4px;">
+        ${custs.map(c => `
+          <div class="search-result-item" data-id="${c.customerID}"
+               data-email="${c.email}" data-name="${c.fullName || ''}">
+            <div class="sri-name">${c.fullName || '(No name)'}</div>
+            <div class="sri-sku">${c.email}</div>
+          </div>`).join('')}
+      </div>`;
+      resultsEl.querySelectorAll('.search-result-item').forEach(el => {
+        el.addEventListener('click', () => {
+          selectedCustomer = {
+            customerID: parseInt(el.dataset.id, 10),
+            email:      el.dataset.email,
+            fullName:   el.dataset.name,
+          };
+          renderCustomerSection();
+        });
+      });
+    } catch { resultsEl.innerHTML = ''; }
+  }
+
+  // ── Product search & cart ────────────────────────────────────────────────────
 
   function bindProductSearch() {
     let timer = null;
@@ -705,14 +800,22 @@ const NewOrderPage = (() => {
   }
 
   async function submitOrder() {
-    const email    = document.getElementById('o-email').value.trim();
-    const name     = document.getElementById('o-name').value.trim();
+    // Resolve customer from either selectedCustomer or manual entry fields
+    let email, name;
+    if (selectedCustomer) {
+      email = selectedCustomer.email;
+      name  = selectedCustomer.fullName || '';
+    } else {
+      email = document.getElementById('o-email')?.value.trim() || '';
+      name  = document.getElementById('o-name')?.value.trim() || '';
+    }
+
+    if (!email)           { App.toast('Select or enter a customer', 'error'); return; }
+    if (cart.length === 0){ App.toast('Add at least one item', 'error'); return; }
+
     const discount = parseFloat(document.getElementById('o-discount').value || 0) || 0;
     const shipping = parseFloat(document.getElementById('o-shipping').value || 0) || 0;
     const notes    = document.getElementById('o-notes').value.trim();
-
-    if (!email)          { App.toast('Customer email is required', 'error'); return; }
-    if (cart.length === 0){ App.toast('Add at least one item', 'error'); return; }
 
     const btn = document.getElementById('submit-order');
     btn.disabled = true;
@@ -739,6 +842,7 @@ const NewOrderPage = (() => {
       const res = await Api.post('/api/orders', payload);
       App.toast('Order created!', 'success');
       cart = [];
+      selectedCustomer = null;
       App.navigate(`orders/${res.salesOrderId}`);
     } catch (err) {
       App.toast(err.message, 'error');

@@ -33,22 +33,12 @@ namespace JaneERP
             MinimumSize   = new Size(500, 380);
             StartPosition = FormStartPosition.CenterParent;
 
-            var lblTitle = new Label
-            {
-                Text      = $"Bins for: {_location.LocationName}",
-                Font      = new Font("Segoe UI", 12F, FontStyle.Bold),
-                ForeColor = Theme.Gold,
-                Location  = new Point(12, 12),
-                AutoSize  = true
-            };
-            Controls.Add(lblTitle);
-
             var lblHint = new Label
             {
-                Text      = "Bins are storage spots within a location (e.g. A1, Shelf-3). Double-click to edit.",
+                Text      = $"Bins for {_location.LocationName} — storage spots within a location (e.g. A1, Shelf-3). Double-click to edit.",
                 ForeColor = Theme.TextSecondary,
                 AutoSize  = true,
-                Location  = new Point(12, 38)
+                Location  = new Point(12, 56)
             };
             Controls.Add(lblHint);
 
@@ -65,8 +55,8 @@ namespace JaneERP
             dgv.SelectionMode         = DataGridViewSelectionMode.FullRowSelect;
             dgv.MultiSelect           = false;
             dgv.Anchor   = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
-            dgv.Location = new Point(12, 62);
-            dgv.Size     = new Size(616, 390);
+            dgv.Location = new Point(12, 76);
+            dgv.Size     = new Size(616, 376);
             dgv.DoubleClick += (_, _) => EditSelected();
             Controls.Add(dgv);
 
@@ -96,6 +86,7 @@ namespace JaneERP
             lblStatus.Anchor   = AnchorStyles.Bottom | AnchorStyles.Right;
             lblStatus.Location = new Point(450, 468);
             Controls.Add(lblStatus);
+            Theme.AddFormHeader(this, "📍  Location Bins");
         }
 
         private void LoadBins()

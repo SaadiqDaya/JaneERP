@@ -26,16 +26,6 @@ namespace JaneERP
             MinimumSize   = new Size(560, 380);
             StartPosition = FormStartPosition.CenterParent;
 
-            var lblTitle = new Label
-            {
-                Text      = "Discount Tiers",
-                Font      = new Font("Segoe UI", 13F, FontStyle.Bold),
-                ForeColor = Theme.Gold,
-                Location  = new Point(12, 12),
-                AutoSize  = true
-            };
-            Controls.Add(lblTitle);
-
             // ── Grid ──────────────────────────────────────────────────────────────────
             dgvTiers.AutoGenerateColumns = false;
             dgvTiers.Columns.Add(new DataGridViewTextBoxColumn
@@ -70,8 +60,8 @@ namespace JaneERP
             dgvTiers.SelectionMode         = DataGridViewSelectionMode.FullRowSelect;
             dgvTiers.MultiSelect           = false;
             dgvTiers.Anchor   = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
-            dgvTiers.Location = new Point(12, 48);
-            dgvTiers.Size     = new Size(676, 380);
+            dgvTiers.Location = new Point(12, 64);
+            dgvTiers.Size     = new Size(676, 364);
             Controls.Add(dgvTiers);
 
             // ── Buttons ───────────────────────────────────────────────────────────────
@@ -128,6 +118,7 @@ namespace JaneERP
             };
             btnClose.Click += (_, _) => Close();
             Controls.Add(btnClose);
+            Theme.AddFormHeader(this, "💲  Discount Tiers");
         }
 
         private void LoadTiers()

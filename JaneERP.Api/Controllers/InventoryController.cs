@@ -64,4 +64,25 @@ public class InventoryController : ControllerBase
         _repo.AdjustStock(productId, req.Qty, req.Reason, _ctx.Username);
         return Ok(new { success = true });
     }
+
+    [HttpPost("{productId:int}/move")]
+    public IActionResult MoveStock(int productId, [FromBody] StockMoveRequest req)
+    {
+        if (req == null) return BadRequest(new { error = "Request body required." });
+        if (req.Qty <= 0) return BadRequest(new { error = "Quantity must be greater than zero." });
+        if (req.FromLocationId == req.ToLocationId)
+            return BadRequest(new { error = "Source and destination locations must differ." });
+
+        try
+        {
+            _repo.MoveStock(productId, req.FromLocationId, req.ToLocationId, req.Qty, req.Notes, _ctx.Username);
+            return Ok(new { success = true });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return UnprocessableEntity(new { error = ex.Message });
+        }
+    }
 }
+
+public record StockMoveRequest(int FromLocationId, int ToLocationId, int Qty, string? Notes);

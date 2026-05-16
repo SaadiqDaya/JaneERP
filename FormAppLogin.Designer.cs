@@ -54,12 +54,13 @@ namespace JaneERP
             pbMascot.Dock     = DockStyle.Left;
             pbMascot.Width    = 320;
             pbMascot.SizeMode = PictureBoxSizeMode.Zoom;
-            pbMascot.BackColor = Theme.Background;
+            pbMascot.BackColor = Color.FromArgb(76, 29, 149);
 
             // ── Right panel ───────────────────────────────────────────────────────
             pnlRight.Location  = new Point(320, 0);
             pnlRight.Size      = new Size(440, 480);
             pnlRight.BackColor = Theme.Surface;
+            pnlRight.Tag       = "card";
 
             // pbLogo (company logo, white background)
             pbLogo.Location   = new Point(120, 24);
@@ -186,7 +187,7 @@ namespace JaneERP
             AcceptButton        = btnLogin;
             AutoScaleDimensions = new SizeF(7F, 15F);
             AutoScaleMode       = AutoScaleMode.Font;
-            BackColor           = Theme.Background;
+            BackColor           = Color.FromArgb(76, 29, 149);
             ClientSize          = new Size(760, 480);
             FormBorderStyle     = FormBorderStyle.FixedSingle;
             MaximizeBox         = false;

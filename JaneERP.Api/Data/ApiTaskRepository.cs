@@ -19,23 +19,33 @@ public class ApiTaskRepository
 
     private IDbConnection Connect() => new SqlConnection(_ctx.ConnectionString);
 
-    public List<TaskItem> GetTasks(string? status, string? assignedTo)
+    public List<TaskItem> GetTasks(string? status, string? assignedTo,
+        string? linkedModule = null, string? linkedId = null)
     {
         using var db = Connect();
         try
         {
             var conditions = new List<string>();
-            if (status     != null) conditions.Add("Status = @status");
-            if (assignedTo != null) conditions.Add("AssignedTo = @assignedTo");
+            if (status     != null) conditions.Add("t.Status = @status");
+            if (assignedTo != null) conditions.Add("t.AssignedTo = @assignedTo");
+            string joinClause = "";
+            if (linkedModule != null && linkedId != null)
+            {
+                joinClause = "INNER JOIN TaskLinkedRecords lr ON lr.TaskId = t.TaskID AND lr.LinkedModule = @linkedModule AND lr.LinkedId = @linkedId";
+            }
             var where = conditions.Count > 0 ? "WHERE " + string.Join(" AND ", conditions) : "";
 
             return db.Query<TaskItem>($@"
-                SELECT TaskID, Title, Description, AssignedTo, CreatedBy,
-                       DueDate, Status, Priority, CreatedAt
-                FROM   Tasks
+                SELECT t.TaskID, t.Title, t.Description, t.AssignedTo, t.CreatedBy,
+                       t.DueDate, t.Status, t.Priority, t.CreatedAt,
+                       t.WorkflowCurrentStatus, t.Tags,
+                       wf.Name AS WorkflowName
+                FROM   Tasks t
+                LEFT JOIN TaskWorkflows wf ON wf.WorkflowID = t.WorkflowID
+                {joinClause}
                 {where}
-                ORDER  BY DueDate, TaskID DESC",
-                new { status, assignedTo }).ToList();
+                ORDER  BY t.DueDate, t.TaskID DESC",
+                new { status, assignedTo, linkedModule, linkedId }).ToList();
         }
         catch (Exception ex) { _logger.LogError(ex, "[ApiTaskRepository.GetTasks] Query failed"); return []; }
     }
@@ -46,10 +56,13 @@ public class ApiTaskRepository
         try
         {
             var task = db.QueryFirstOrDefault<TaskDetail>(@"
-                SELECT TaskID, Title, Description, AssignedTo, CreatedBy,
-                       DueDate, Status, Priority, CreatedAt
-                FROM   Tasks
-                WHERE  TaskID = @taskId",
+                SELECT t.TaskID, t.Title, t.Description, t.AssignedTo, t.CreatedBy,
+                       t.DueDate, t.Status, t.Priority, t.CreatedAt,
+                       t.WorkflowCurrentStatus, t.Tags, t.WorkflowID,
+                       wf.Name AS WorkflowName
+                FROM   Tasks t
+                LEFT JOIN TaskWorkflows wf ON wf.WorkflowID = t.WorkflowID
+                WHERE  t.TaskID = @taskId",
                 new { taskId });
             if (task == null) return null;
 
@@ -59,6 +72,35 @@ public class ApiTaskRepository
                 WHERE  TaskID = @taskId
                 ORDER  BY CreatedAt",
                 new { taskId }).ToList();
+
+            task.Subtasks = db.Query<TaskSubtaskItem>(@"
+                SELECT SubtaskId, Title, IsComplete, CompletedBy, CompletedAt
+                FROM   TaskSubtasks
+                WHERE  TaskId = @taskId
+                ORDER  BY SortOrder",
+                new { taskId }).ToList();
+
+            task.LinkedRecords = db.Query<LinkedRecordItem>(@"
+                SELECT LinkId, LinkedModule, LinkedId, LinkedDisplay, CreatedAt
+                FROM   TaskLinkedRecords
+                WHERE  TaskId = @taskId
+                ORDER  BY CreatedAt",
+                new { taskId }).ToList();
+
+            task.History = db.Query<TaskHistoryItem>(@"
+                SELECT FieldName, OldValue, NewValue, ChangedBy, ChangedAt
+                FROM   TaskHistory
+                WHERE  TaskId = @taskId
+                ORDER  BY ChangedAt",
+                new { taskId }).ToList();
+
+            // Load workflow stages if workflow is assigned
+            if (task.WorkflowID.HasValue && task.WorkflowID.Value != 0)
+            {
+                task.WorkflowStages = db.Query<string>(
+                    "SELECT StatusName FROM TaskWorkflowStatuses WHERE WorkflowID = @wid ORDER BY SortOrder",
+                    new { wid = task.WorkflowID.Value }).ToList();
+            }
 
             return task;
         }
@@ -99,6 +141,108 @@ public class ApiTaskRepository
             INSERT INTO TaskComments (TaskID, Username, Body)
             VALUES (@taskId, @username, @body)",
             new { taskId, username, body });
+
+        // Parse @mentions and insert into TaskMentions
+        var mentions = System.Text.RegularExpressions.Regex.Matches(body, @"@(\w+)")
+            .Cast<System.Text.RegularExpressions.Match>()
+            .Select(m => m.Groups[1].Value)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        foreach (var mentionedUser in mentions)
+        {
+            try
+            {
+                db.Execute(@"
+                    INSERT INTO TaskMentions (TaskID, MentionedUser, MentionedBy, CommentText)
+                    VALUES (@taskId, @mentionedUser, @mentionedBy, @body)",
+                    new { taskId, mentionedUser, mentionedBy = username, body });
+            }
+            catch (Exception ex) { _logger.LogWarning(ex, "[ApiTaskRepository.AddComment] Failed to insert mention for {User}", mentionedUser); }
+        }
+    }
+
+    public PagedTasksResponse GetPagedTasks(int page, int pageSize, string? status,
+        string? assignedTo, string? search, string? tag)
+    {
+        using var db = Connect();
+        try
+        {
+            var conditions = new List<string>();
+            if (status     != null) conditions.Add("t.Status = @status");
+            if (assignedTo != null) conditions.Add("t.AssignedTo = @assignedTo");
+            if (!string.IsNullOrWhiteSpace(search))
+                conditions.Add("(t.Title LIKE @search OR t.Description LIKE @search)");
+            if (!string.IsNullOrWhiteSpace(tag))
+                conditions.Add("t.Tags LIKE @tagSearch");
+
+            var where       = conditions.Count > 0 ? "WHERE " + string.Join(" AND ", conditions) : "";
+            var searchParam = $"%{search}%";
+            var tagParam    = $"%{tag}%";
+            var offset      = (page - 1) * pageSize;
+
+            int total = db.ExecuteScalar<int>(
+                $"SELECT COUNT(*) FROM Tasks t {where}",
+                new { status, assignedTo, search = searchParam, tagSearch = tagParam });
+
+            var items = db.Query<TaskItem>($@"
+                SELECT t.TaskID, t.Title, t.Description, t.AssignedTo, t.CreatedBy,
+                       t.DueDate, t.Status, t.Priority, t.CreatedAt,
+                       t.WorkflowCurrentStatus, t.Tags,
+                       wf.Name AS WorkflowName
+                FROM   Tasks t
+                LEFT JOIN TaskWorkflows wf ON wf.WorkflowID = t.WorkflowID
+                {where}
+                ORDER  BY t.DueDate, t.TaskID DESC
+                OFFSET @offset ROWS FETCH NEXT @pageSize ROWS ONLY",
+                new { status, assignedTo, search = searchParam, tagSearch = tagParam, offset, pageSize }).ToList();
+
+            return new PagedTasksResponse { Items = items, Total = total, Page = page, PageSize = pageSize };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[ApiTaskRepository.GetPagedTasks] Query failed");
+            return new PagedTasksResponse { Items = [], Total = 0, Page = page, PageSize = pageSize };
+        }
+    }
+
+    public List<LinkedRecordItem> GetLinkedRecords(int taskId)
+    {
+        using var db = Connect();
+        try
+        {
+            return db.Query<LinkedRecordItem>(@"
+                SELECT LinkId, LinkedModule, LinkedId, LinkedDisplay, CreatedAt
+                FROM   TaskLinkedRecords
+                WHERE  TaskId = @taskId
+                ORDER  BY CreatedAt",
+                new { taskId }).ToList();
+        }
+        catch (Exception ex) { _logger.LogError(ex, "[ApiTaskRepository.GetLinkedRecords] Query failed for TaskID={Id}", taskId); return []; }
+    }
+
+    public bool AddLinkedRecord(int taskId, string module, string linkedId, string linkedDisplay)
+    {
+        using var db = Connect();
+        try
+        {
+            int rows = db.Execute(@"
+                INSERT INTO TaskLinkedRecords (TaskId, LinkedModule, LinkedId, LinkedDisplay)
+                VALUES (@taskId, @module, @linkedId, @linkedDisplay)",
+                new { taskId, module, linkedId, linkedDisplay });
+            return rows > 0;
+        }
+        catch (Exception ex) { _logger.LogError(ex, "[ApiTaskRepository.AddLinkedRecord] Failed for TaskID={Id}", taskId); return false; }
+    }
+
+    public bool RemoveLinkedRecord(int linkId)
+    {
+        using var db = Connect();
+        try
+        {
+            int rows = db.Execute("DELETE FROM TaskLinkedRecords WHERE LinkId = @linkId", new { linkId });
+            return rows > 0;
+        }
+        catch (Exception ex) { _logger.LogError(ex, "[ApiTaskRepository.RemoveLinkedRecord] Failed for LinkID={Id}", linkId); return false; }
     }
 
     public List<string> GetUsernames()

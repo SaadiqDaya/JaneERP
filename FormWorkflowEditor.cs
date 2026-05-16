@@ -65,26 +65,16 @@ namespace JaneERP
             MinimumSize   = new Size(620, 480);
             StartPosition = FormStartPosition.CenterParent;
 
-            // Title
-            Controls.Add(new Label
-            {
-                Text      = "Workflow Manager",
-                Font      = new Font("Segoe UI", 13F, FontStyle.Bold),
-                ForeColor = Theme.Gold,
-                Location  = new Point(12, 12),
-                AutoSize  = true
-            });
-
             // ── Nav toggle buttons ────────────────────────────────────────────────
             _btnNavWorkflows.Text     = "Workflows";
             _btnNavWorkflows.Size     = new Size(110, 28);
-            _btnNavWorkflows.Location = new Point(12, 44);
+            _btnNavWorkflows.Location = new Point(12, 56);
             _btnNavWorkflows.Click   += (_, _) => ShowWorkflowsPanel();
             Controls.Add(_btnNavWorkflows);
 
             _btnNavTemplates.Text     = "Templates";
             _btnNavTemplates.Size     = new Size(110, 28);
-            _btnNavTemplates.Location = new Point(130, 44);
+            _btnNavTemplates.Location = new Point(130, 56);
             _btnNavTemplates.Click   += (_, _) => ShowTemplatesPanel();
             Controls.Add(_btnNavTemplates);
 
@@ -357,6 +347,7 @@ namespace JaneERP
 
             _pnlTemplates.Controls.Add(_pnlTmplDetail);
             Controls.Add(_pnlTemplates);
+            Theme.AddFormHeader(this, "⚙️  Workflow Manager");
         }
 
         // ── Panel switching ───────────────────────────────────────────────────────

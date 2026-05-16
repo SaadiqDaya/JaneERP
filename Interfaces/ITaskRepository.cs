@@ -29,6 +29,7 @@ namespace JaneERP.Interfaces
         void                MoveWorkflowStatus(int statusId, bool moveUp);
         void                SetTaskWorkflow(int taskId, int? workflowId, string? initialStatus);
         List<string>        GetWorkflowStatusNames(int workflowId);
+        Dictionary<string, List<string>> GetAllWorkflowStageNames(); // single-query: workflowName -> stage names
         List<(string Username, string Email)> GetUserEmails(IEnumerable<string> usernames);
 
         // ── Linked records ────────────────────────────────────────────────────────
@@ -36,6 +37,10 @@ namespace JaneERP.Interfaces
         bool                SetLinkedRecord(int taskId, string module, string linkedId, string displayLabel);
         bool                ClearLinkedRecord(int taskId);
         List<ErpTask>       GetTasksByLinkedRecord(string module, string linkedId);
+        // Multi-linked record methods
+        List<TaskLinkedRecord> GetLinkedRecords(int taskId);
+        bool                AddLinkedRecord(int taskId, string module, string linkedId, string displayLabel);
+        bool                RemoveLinkedRecord(int linkId);
 
         // ── History / audit trail ─────────────────────────────────────────────────
         List<TaskHistoryEntry> GetHistory(int taskId);
@@ -45,6 +50,7 @@ namespace JaneERP.Interfaces
         List<TaskSubtask>   GetSubtasks(int taskId);
         bool                AddSubtask(int taskId, string title, int sortOrder = 0);
         bool                CompleteSubtask(int subtaskId, string completedBy);
+        bool                UncompleteSubtask(int subtaskId);
         bool                DeleteSubtask(int subtaskId);
 
         // ── Workload ──────────────────────────────────────────────────────────────

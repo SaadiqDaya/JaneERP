@@ -78,6 +78,7 @@ namespace JaneERP
             tabMain.Dock = DockStyle.Fill;
             tabMain.SelectedIndexChanged += (_, _) => RefreshCurrentTab();
             Controls.Add(tabMain);
+            Theme.AddFormHeader(this, "📊  Reports");
 
             BuildStockTab();
             BuildSalesTab();

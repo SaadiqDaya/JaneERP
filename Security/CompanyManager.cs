@@ -1,3 +1,4 @@
+using System.Configuration;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -73,6 +74,23 @@ namespace JaneERP.Security
             };
             ActiveConnectionString = builder.ConnectionString;
             ActiveCompanyName      = company.Name;
+
+            // Patch ConfigurationManager so all repositories that read ConnectionStrings["MyERP"]
+            // automatically use the selected company's database without needing changes.
+            try
+            {
+                var cs = ConfigurationManager.ConnectionStrings["MyERP"];
+                if (cs != null)
+                {
+                    // ConfigurationElement is read-only after loading — unlock via reflection (standard pattern)
+                    var fi = typeof(System.Configuration.ConfigurationElement)
+                        .GetField("_bReadOnly", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+                    fi?.SetValue(cs, false);
+                    cs.ConnectionString = builder.ConnectionString;
+                    fi?.SetValue(cs, true);
+                }
+            }
+            catch { /* If reflection fails, repos will fall back to App.config default */ }
         }
 
         private static List<CompanyProfile> DefaultList() => new()

@@ -43,8 +43,8 @@ namespace JaneERP
 
             // ── Left: grid ───────────────────────────────────────────────────────
             dgvLocations.Anchor            = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left;
-            dgvLocations.Location          = new Point(12, 12);
-            dgvLocations.Size              = new Size(380, 580);
+            dgvLocations.Location          = new Point(12, 64);
+            dgvLocations.Size              = new Size(380, 528);
             dgvLocations.ReadOnly          = true;
             dgvLocations.AllowUserToAddRows    = false;
             dgvLocations.AllowUserToDeleteRows = false;
@@ -64,7 +64,7 @@ namespace JaneERP
             Controls.Add(lblCount);
 
             // ── Right: edit panel ────────────────────────────────────────────────
-            int x = 408, y = 12;
+            int x = 408, y = 64;
 
             lblEditTitle.AutoSize = false;
             lblEditTitle.Font     = new Font("Segoe UI", 11F, FontStyle.Bold);
@@ -175,6 +175,7 @@ namespace JaneERP
             Controls.Add(btnManageBins);
 
             SetEditEnabled(false);
+            Theme.AddFormHeader(this, "📍  Location Manager");
         }
 
         private void BtnManageBins_Click(object? sender, EventArgs e)

@@ -33,17 +33,8 @@ namespace JaneERP
             MinimumSize   = new Size(480, 360);
             StartPosition = FormStartPosition.CenterParent;
 
-            Controls.Add(new Label
-            {
-                Text      = "Search Customers",
-                Font      = new Font("Segoe UI", 12F, FontStyle.Bold),
-                ForeColor = Theme.Gold,
-                Location  = new Point(12, 12),
-                AutoSize  = true
-            });
-
-            Controls.Add(new Label { Text = "Search:", Location = new Point(12, 50), AutoSize = true });
-            txtSearch.Location        = new Point(70, 47);
+            Controls.Add(new Label { Text = "Search:", Location = new Point(12, 60), AutoSize = true });
+            txtSearch.Location        = new Point(70, 57);
             txtSearch.Size            = new Size(300, 23);
             txtSearch.PlaceholderText = "Name, email…";
             txtSearch.TextChanged    += (_, _) => ApplyFilter();
@@ -82,6 +73,7 @@ namespace JaneERP
             btnCancel.Location = new Point(456, 378);
             btnCancel.Click   += (_, _) => { DialogResult = DialogResult.Cancel; Close(); };
             Controls.Add(btnCancel);
+            Theme.AddFormHeader(this, "🔍  Search Customers");
         }
 
         private void ApplyFilter()

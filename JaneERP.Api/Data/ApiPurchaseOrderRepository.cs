@@ -144,12 +144,28 @@ public class ApiPurchaseOrderRepository
                     WHERE  POItemID = @id",
                     new { qty, id = r.PoItemId }, tx);
 
-                // Update Parts stock
+                // Update Parts stock + create a PartLot row for FEFO tracking
                 if (item.PartID.HasValue)
                 {
                     db.Execute(
                         "UPDATE Parts SET CurrentStock = CurrentStock + @qty WHERE PartID = @partId",
                         new { qty, partId = item.PartID.Value }, tx);
+
+                    // Create a lot row (lot number defaults to PO# if not supplied)
+                    var poNum = db.ExecuteScalar<string>(
+                        "SELECT PONumber FROM PurchaseOrders WHERE POID = @poid", new { poid }, tx)
+                        ?? poid.ToString();
+
+                    db.Execute(@"
+                        INSERT INTO PartLots (PartID, LocationID, LotNumber, Quantity, ReceivedAt, Notes)
+                        VALUES (@partId, NULL, @lotNumber, @qty, GETDATE(), @notes)",
+                        new
+                        {
+                            partId    = item.PartID.Value,
+                            lotNumber = $"PO-{poNum}",
+                            qty,
+                            notes     = $"Received via PO# {poNum}"
+                        }, tx);
                 }
 
                 // Create InventoryTransaction for product-linked items.
@@ -313,6 +329,88 @@ public class ApiPurchaseOrderRepository
             catch (Exception auditEx) { _logger.LogError(auditEx, "[ApiPurchaseOrderRepository.DuplicatePO] Audit insert failed for NewPOID={Id}", newPoid); }
 
             return newPoid;
+        }
+        catch { tx.Rollback(); throw; }
+    }
+
+    public List<SupplierItem> GetSuppliers()
+    {
+        using var db = Connect();
+        try
+        {
+            return db.Query<SupplierItem>(
+                "SELECT SupplierID, SupplierName FROM Suppliers ORDER BY SupplierName"
+            ).ToList();
+        }
+        catch (Exception ex) { _logger.LogError(ex, "[ApiPurchaseOrderRepository.GetSuppliers] Query failed"); return []; }
+    }
+
+    public int CreatePO(CreatePORequest req, string createdBy)
+    {
+        using var db = new SqlConnection(_ctx.ConnectionString);
+        db.Open();
+        using var tx = db.BeginTransaction();
+        try
+        {
+            decimal itemsTotal = req.Items.Sum(i => i.QuantityOrdered * i.UnitCost);
+            decimal totalCost  = itemsTotal + req.ShippingCost;
+
+            int poid = db.QuerySingle<int>(@"
+                INSERT INTO PurchaseOrders
+                    (PONumber, SupplierID, Status, OrderDate, ExpectedDate,
+                     TotalCost, ShippingCost, Notes, CreatedBy, CreatedAt)
+                VALUES
+                    ('TEMP', @SupplierID, 'Draft', GETDATE(), @ExpectedDate,
+                     @TotalCost, @ShippingCost, @Notes, @CreatedBy, GETDATE());
+                SELECT CAST(SCOPE_IDENTITY() AS INT)",
+                new
+                {
+                    req.SupplierID, req.ExpectedDate,
+                    TotalCost    = totalCost,
+                    req.ShippingCost,
+                    req.Notes,
+                    CreatedBy    = createdBy
+                }, tx);
+
+            // Use POID as PONumber — always unique
+            db.Execute("UPDATE PurchaseOrders SET PONumber = CAST(@poid AS NVARCHAR(50)) WHERE POID = @poid",
+                new { poid }, tx);
+
+            foreach (var item in req.Items)
+            {
+                db.Execute(@"
+                    INSERT INTO PurchaseOrderItems
+                        (POID, PartID, ProductID, SKU, ItemName, QuantityOrdered, QuantityReceived, UnitCost)
+                    VALUES
+                        (@poid, @PartID, @ProductID, @SKU, @ItemName, @QuantityOrdered, 0, @UnitCost)",
+                    new
+                    {
+                        poid,
+                        item.PartID,
+                        item.ProductID,
+                        SKU            = item.SKU ?? "",
+                        item.ItemName,
+                        item.QuantityOrdered,
+                        item.UnitCost
+                    }, tx);
+            }
+
+            tx.Commit();
+
+            try
+            {
+                db.Execute(@"
+                    INSERT INTO AuditLog (UserName, Action, Details, LoggedAt)
+                    VALUES (@user, 'CreatePurchaseOrder', @details, GETDATE())",
+                    new
+                    {
+                        user    = createdBy,
+                        details = $"POID={poid} SupplierID={req.SupplierID} Items={req.Items.Count} Total={totalCost:F2}"
+                    });
+            }
+            catch (Exception auditEx) { _logger.LogError(auditEx, "[ApiPurchaseOrderRepository.CreatePO] Audit insert failed for POID={Id}", poid); }
+
+            return poid;
         }
         catch { tx.Rollback(); throw; }
     }

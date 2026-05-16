@@ -79,17 +79,7 @@ namespace JaneERP
             MinimumSize   = new Size(820, 620);
             StartPosition = FormStartPosition.CenterParent;
 
-            var lblTitle = new Label
-            {
-                Text      = "New Sales Order",
-                Font      = new Font("Segoe UI", 13F, FontStyle.Bold),
-                ForeColor = Theme.Gold,
-                Location  = new Point(12, 12),
-                AutoSize  = true
-            };
-            Controls.Add(lblTitle);
-
-            int lx = 14, cx = 160, cw = 280, row = 46;
+            int lx = 14, cx = 160, cw = 280, row = 60;
 
             // ── Customer search ───────────────────────────────────────────────────
             AddLabel("Customer", lx, row + 2);
@@ -334,6 +324,7 @@ namespace JaneERP
             };
             btnCancel.Click += (_, _) => { DialogResult = DialogResult.Cancel; Close(); };
             Controls.Add(btnCancel);
+            Theme.AddFormHeader(this, "🛒  New Sales Order");
         }
 
         private void SetupCustomerAutocomplete()

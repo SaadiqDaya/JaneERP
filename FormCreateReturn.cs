@@ -48,19 +48,10 @@ namespace JaneERP
 
             Controls.Add(new Label
             {
-                Text      = $"Create Return — Order {_orderNumber}",
-                Font      = new Font("Segoe UI", 13F, FontStyle.Bold),
-                ForeColor = Theme.Gold,
-                Location  = new Point(12, 12),
-                AutoSize  = true
-            });
-
-            Controls.Add(new Label
-            {
                 Text      = "Select the items to return and set quantity and condition:",
                 Font      = new Font("Segoe UI", 9F),
                 ForeColor = Theme.TextSecondary,
-                Location  = new Point(12, 44),
+                Location  = new Point(12, 56),
                 AutoSize  = true
             });
 
@@ -123,6 +114,7 @@ namespace JaneERP
             _lblStatus.Location = new Point(156, y + 7);
             _lblStatus.AutoSize = true;
             Controls.Add(_lblStatus);
+            Theme.AddFormHeader(this, "↩️  Create Return");
         }
 
         private void LoadData()

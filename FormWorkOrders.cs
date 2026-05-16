@@ -37,18 +37,14 @@ namespace JaneERP
             StartPosition   = FormStartPosition.CenterParent;
             FormBorderStyle = FormBorderStyle.Sizable;
 
-            var lbl = new Label { Text = "Open Work Orders", Font = new Font("Segoe UI", 11F, FontStyle.Bold),
-                ForeColor = Theme.Gold, AutoSize = true, Location = new Point(12, 12) };
-            Controls.Add(lbl);
-
             // ── Date range filter ─────────────────────────────────────────────────
             chkDateFilter.Text     = "Filter by date:";
             chkDateFilter.AutoSize = true;
-            chkDateFilter.Location = new Point(220, 14);
+            chkDateFilter.Location = new Point(12, 66);
             chkDateFilter.CheckedChanged += (_, _) => { dtpFrom.Enabled = dtpTo.Enabled = chkDateFilter.Checked; LoadWorkOrders(); };
             Controls.Add(chkDateFilter);
 
-            dtpFrom.Location = new Point(336, 10);
+            dtpFrom.Location = new Point(152, 62);
             dtpFrom.Size     = new Size(120, 23);
             dtpFrom.Format   = DateTimePickerFormat.Short;
             dtpFrom.Value    = DateTime.Today.AddMonths(-1);
@@ -56,9 +52,9 @@ namespace JaneERP
             dtpFrom.ValueChanged += (_, _) => { if (chkDateFilter.Checked) LoadWorkOrders(); };
             Controls.Add(dtpFrom);
 
-            Controls.Add(new Label { Text = "→", Location = new Point(460, 14), AutoSize = true });
+            Controls.Add(new Label { Text = "→", Location = new Point(276, 66), AutoSize = true });
 
-            dtpTo.Location = new Point(478, 10);
+            dtpTo.Location = new Point(294, 62);
             dtpTo.Size     = new Size(120, 23);
             dtpTo.Format   = DateTimePickerFormat.Short;
             dtpTo.Value    = DateTime.Today;
@@ -66,8 +62,8 @@ namespace JaneERP
             dtpTo.ValueChanged += (_, _) => { if (chkDateFilter.Checked) LoadWorkOrders(); };
             Controls.Add(dtpTo);
 
-            dgvWOs.Location          = new Point(12, 40);
-            dgvWOs.Size              = new Size(876, 380);
+            dgvWOs.Location          = new Point(12, 92);
+            dgvWOs.Size              = new Size(876, 328);
             dgvWOs.Anchor            = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
             dgvWOs.ReadOnly          = true;
             dgvWOs.AllowUserToAddRows    = false;
@@ -126,6 +122,8 @@ namespace JaneERP
             btnClose.Anchor   = AnchorStyles.Bottom | AnchorStyles.Right;
             btnClose.Click   += (_, _) => Close();
             Controls.Add(btnClose);
+
+            Theme.AddFormHeader(this, "⚙️  Work Orders");
         }
 
         private void LoadWorkOrders()

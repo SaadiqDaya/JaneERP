@@ -37,32 +37,23 @@ namespace JaneERP
             StartPosition = FormStartPosition.CenterParent;
 
             // ── Header ────────────────────────────────────────────────────────
-            Controls.Add(new Label
-            {
-                Text      = "Returns Report",
-                Font      = new Font("Segoe UI", 14F, FontStyle.Bold),
-                ForeColor = Theme.Gold,
-                Location  = new Point(12, 12),
-                AutoSize  = true
-            });
-
             // ── Date range row ────────────────────────────────────────────────
-            Controls.Add(new Label { Text = "From:", Location = new Point(12, 50), AutoSize = true });
-            _dtpFrom.Location   = new Point(52, 46);
+            Controls.Add(new Label { Text = "From:", Location = new Point(12, 62), AutoSize = true });
+            _dtpFrom.Location   = new Point(52, 58);
             _dtpFrom.Size       = new Size(130, 23);
             _dtpFrom.Format     = DateTimePickerFormat.Short;
             _dtpFrom.Value      = new DateTime(DateTime.Today.Year, DateTime.Today.Month, 1);
             Controls.Add(_dtpFrom);
 
-            Controls.Add(new Label { Text = "To:", Location = new Point(194, 50), AutoSize = true });
-            _dtpTo.Location   = new Point(214, 46);
+            Controls.Add(new Label { Text = "To:", Location = new Point(194, 62), AutoSize = true });
+            _dtpTo.Location   = new Point(214, 58);
             _dtpTo.Size       = new Size(130, 23);
             _dtpTo.Format     = DateTimePickerFormat.Short;
             _dtpTo.Value      = DateTime.Today;
             Controls.Add(_dtpTo);
 
             _btnRun.Text     = "Run Report";
-            _btnRun.Location = new Point(356, 44);
+            _btnRun.Location = new Point(356, 58);
             _btnRun.Size     = new Size(100, 27);
             _btnRun.Click   += (_, _) => RunReport();
             Theme.StyleButton(_btnRun);
@@ -106,6 +97,7 @@ namespace JaneERP
             _lblStatus.AutoSize = true;
             Controls.Add(_lblStatus);
             SizeChanged += (_, _) => _lblStatus.Location = new Point(12, ClientSize.Height - 22);
+            Theme.AddFormHeader(this, "📊  Returns Report");
         }
 
         private void RunReport()

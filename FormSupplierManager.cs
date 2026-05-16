@@ -43,8 +43,8 @@ namespace JaneERP
 
             // ── Grid ─────────────────────────────────────────────────────────────
             dgvSuppliers.Anchor   = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left;
-            dgvSuppliers.Location = new Point(12, 12);
-            dgvSuppliers.Size     = new Size(480, 510);
+            dgvSuppliers.Location = new Point(12, 64);
+            dgvSuppliers.Size     = new Size(480, 458);
             dgvSuppliers.ReadOnly = true;
             dgvSuppliers.AllowUserToAddRows    = false;
             dgvSuppliers.AllowUserToDeleteRows = false;
@@ -62,7 +62,7 @@ namespace JaneERP
             Controls.Add(dgvSuppliers);
 
             // ── Edit panel ────────────────────────────────────────────────────────
-            int x = 508, y = 12;
+            int x = 508, y = 64;
 
             lblEdit.AutoSize  = false;
             lblEdit.Font      = new Font("Segoe UI", 11F, FontStyle.Bold);
@@ -112,6 +112,7 @@ namespace JaneERP
             btnClose.UseVisualStyleBackColor = true;
             btnClose.Click   += (_, _) => Close();
             Controls.Add(btnClose);
+            Theme.AddFormHeader(this, "🚚  Supplier Manager");
         }
 
         private void AddField(ref int y, int x, string label, TextBox txt)

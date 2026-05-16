@@ -51,21 +51,12 @@ namespace JaneERP
             MinimumSize   = new Size(760, 460);
             StartPosition = FormStartPosition.CenterParent;
 
-            // ── Header ────────────────────────────────────────────────────────────
-            Controls.Add(new Label
-            {
-                Text      = "Inventory Move Import",
-                Font      = new Font("Segoe UI", 14F, FontStyle.Bold),
-                ForeColor = Theme.Gold,
-                Location  = new Point(12, 12),
-                AutoSize  = true
-            });
             Controls.Add(new Label
             {
                 Text      = "CSV columns: SKU, FromLocation, ToLocation  (optional: RequestedQty, LotNumber)  —  blank ToLocation rows are skipped",
                 Font      = new Font("Segoe UI", 8.5F),
                 ForeColor = Theme.TextSecondary,
-                Location  = new Point(14, 38),
+                Location  = new Point(14, 56),
                 AutoSize  = true
             });
 
@@ -135,6 +126,7 @@ namespace JaneERP
             Controls.Add(_btnExecute);
             SizeChanged += (_, _) =>
                 _btnExecute.Location = new Point(ClientSize.Width - 154, ClientSize.Height - 34);
+            Theme.AddFormHeader(this, "📥  Inventory Move Import");
         }
 
         // ── Event handlers ────────────────────────────────────────────────────────
@@ -177,16 +169,24 @@ namespace JaneERP
                 _preview.Clear();
                 Refresh();
 
-                // Strip lot column before passing to the interface (which takes 4-tuples),
-                // then assign LotNumber back to the validated rows afterwards.
-                var coreInput = parsed.Select(p => (p.sku, p.from, p.to, p.qty));
-                _preview = _repo.ValidateInventoryMoves(coreInput);
-
-                // Carry lot numbers parsed from the CSV into the validated rows
-                for (int i = 0; i < _preview.Count && i < parsed.Count; i++)
+                Cursor = Cursors.WaitCursor;
+                try
                 {
-                    if (!string.IsNullOrEmpty(parsed[i].lot))
-                        _preview[i].LotNumber = parsed[i].lot;
+                    // Strip lot column before passing to the interface (which takes 4-tuples),
+                    // then assign LotNumber back to the validated rows afterwards.
+                    var coreInput = parsed.Select(p => (p.sku, p.from, p.to, p.qty));
+                    _preview = _repo.ValidateInventoryMoves(coreInput);
+
+                    // Carry lot numbers parsed from the CSV into the validated rows
+                    for (int i = 0; i < _preview.Count && i < parsed.Count; i++)
+                    {
+                        if (!string.IsNullOrEmpty(parsed[i].lot))
+                            _preview[i].LotNumber = parsed[i].lot;
+                    }
+                }
+                finally
+                {
+                    Cursor = Cursors.Default;
                 }
 
                 PopulateGrid();

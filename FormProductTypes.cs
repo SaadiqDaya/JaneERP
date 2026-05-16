@@ -32,7 +32,6 @@ namespace JaneERP
             Theme.MakeBorderless(this);
             Theme.AddCloseButton(this);
             Theme.MakeResizable(this);
-            try { _repo.EnsureSchema(); } catch { /* already logged at startup */ }
             LoadAttributeNames();
             LoadTypes();
         }
@@ -44,8 +43,8 @@ namespace JaneERP
             MinimumSize   = new Size(820, 520);
             StartPosition = FormStartPosition.CenterParent;
 
-            dgvTypes.Location        = new Point(12, 12);
-            dgvTypes.Size            = new Size(320, 480);
+            dgvTypes.Location        = new Point(12, 64);
+            dgvTypes.Size            = new Size(320, 428);
             dgvTypes.Anchor          = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left;
             dgvTypes.ReadOnly        = true;
             dgvTypes.AllowUserToAddRows    = false;
@@ -58,7 +57,7 @@ namespace JaneERP
             dgvTypes.SelectionChanged += DgvTypes_SelectionChanged;
             Controls.Add(dgvTypes);
 
-            int x = 348, y = 12;
+            int x = 348, y = 64;
 
             lblEdit.AutoSize  = false;
             lblEdit.Font      = new Font("Segoe UI", 11F, FontStyle.Bold);
@@ -173,6 +172,7 @@ namespace JaneERP
 
             SizeChanged += (_, _) =>
                 btnClose.Location = new Point(ClientSize.Width - btnClose.Width - 12, ClientSize.Height - btnClose.Height - 10);
+            Theme.AddFormHeader(this, "📂  Product Types");
         }
 
         private void LoadAttributeNames()

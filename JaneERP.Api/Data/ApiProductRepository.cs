@@ -129,6 +129,59 @@ public class ApiProductRepository
         return (items, total);
     }
 
+    public void MoveStock(int productId, int fromLocationId, int toLocationId, int qty, string? notes, string username)
+    {
+        if (qty <= 0) throw new InvalidOperationException("Quantity must be greater than zero.");
+        if (fromLocationId == toLocationId) throw new InvalidOperationException("Source and destination locations must be different.");
+
+        using var db = new SqlConnection(_ctx.ConnectionString);
+        db.Open();
+        using var tx = db.BeginTransaction();
+        try
+        {
+            var sourceStock = db.ExecuteScalar<int>(@"
+                SELECT ISNULL(SUM(QuantityChange), 0)
+                FROM   InventoryTransactions
+                WHERE  ProductID  = @productId
+                  AND  LocationID = @fromLocationId",
+                new { productId, fromLocationId }, tx);
+
+            if (sourceStock < qty)
+                throw new InvalidOperationException(
+                    $"Insufficient stock at source — have {sourceStock}, need {qty}.");
+
+            var noteText = string.IsNullOrWhiteSpace(notes)
+                ? $"Stock move by {username}"
+                : $"Stock move by {username}: {notes}";
+
+            db.Execute(@"
+                INSERT INTO InventoryTransactions
+                    (ProductID, QuantityChange, TransactionType, LocationID, Notes, TransactionDate)
+                VALUES
+                    (@productId, @outQty, 'StockMove', @fromLocationId, @notes, GETDATE())",
+                new { productId, outQty = -qty, fromLocationId, notes = noteText }, tx);
+
+            db.Execute(@"
+                INSERT INTO InventoryTransactions
+                    (ProductID, QuantityChange, TransactionType, LocationID, Notes, TransactionDate)
+                VALUES
+                    (@productId, @qty, 'StockMove', @toLocationId, @notes, GETDATE())",
+                new { productId, qty, toLocationId, notes = noteText }, tx);
+
+            tx.Commit();
+
+            try
+            {
+                db.Execute(@"
+                    INSERT INTO AuditLog (UserName, Action, Details, LoggedAt)
+                    VALUES (@user, 'MoveStock', @details, GETDATE())",
+                    new { user = username, details = $"ProductID={productId} Qty={qty} From={fromLocationId} To={toLocationId}" });
+            }
+            catch (Exception auditEx) { _logger.LogError(auditEx, "[ApiProductRepository.MoveStock] Audit insert failed for ProductID={Id}", productId); }
+        }
+        catch { tx.Rollback(); throw; }
+    }
+
     public void AdjustStock(int productId, int qty, string reason, string username)
     {
         using var db = Connect();

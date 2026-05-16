@@ -1135,7 +1135,7 @@ namespace JaneERP
             pnl.Controls.Add(_btnAccentColor);
 
             var btnResetAccent = new Button { Text = "Reset", Size = new Size(55, 26), Location = new Point(246, y) };
-            btnResetAccent.Click += (_, _) => { _settings.AccentColor = ""; _pnlAccentPreview.BackColor = Color.FromArgb(155, 55, 220); };
+            btnResetAccent.Click += (_, _) => { _settings.AccentColor = ""; _pnlAccentPreview.BackColor = Color.FromArgb(0, 190, 214); };
             pnl.Controls.Add(btnResetAccent);
             pnl.Controls.Add(new Label
             {
@@ -1166,7 +1166,7 @@ namespace JaneERP
             pnl.Controls.Add(_btnHighlightColor);
 
             var btnResetHighlight = new Button { Text = "Reset", Size = new Size(55, 26), Location = new Point(246, y) };
-            btnResetHighlight.Click += (_, _) => { _settings.HighlightColor = ""; _pnlHighlightPreview.BackColor = Color.FromArgb(32, 184, 204); };
+            btnResetHighlight.Click += (_, _) => { _settings.HighlightColor = ""; _pnlHighlightPreview.BackColor = Color.FromArgb(109, 40, 217); };
             pnl.Controls.Add(btnResetHighlight);
             pnl.Controls.Add(new Label
             {

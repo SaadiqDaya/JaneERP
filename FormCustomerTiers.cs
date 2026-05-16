@@ -35,18 +35,8 @@ namespace JaneERP
             StartPosition   = FormStartPosition.CenterParent;
             FormBorderStyle = FormBorderStyle.Sizable;
 
-            var lblTitle = new Label
-            {
-                Text      = "Assign Discount Tiers to Customers",
-                Font      = new Font("Segoe UI", 11F, FontStyle.Bold),
-                ForeColor = Theme.Gold,
-                AutoSize  = true,
-                Location  = new Point(12, 12)
-            };
-            Controls.Add(lblTitle);
-
-            dgv.Location          = new Point(12, 44);
-            dgv.Size              = new Size(672, 320);
+            dgv.Location          = new Point(12, 64);
+            dgv.Size              = new Size(672, 300);
             dgv.Anchor            = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
             dgv.ReadOnly          = true;
             dgv.AllowUserToAddRows    = false;
@@ -108,6 +98,7 @@ namespace JaneERP
             btnClose.Anchor   = AnchorStyles.Bottom | AnchorStyles.Right;
             btnClose.Click   += (_, _) => Close();
             Controls.Add(btnClose);
+            Theme.AddFormHeader(this, "🏷️  Customer Tiers");
         }
 
         private void LoadData()

@@ -149,7 +149,10 @@ public class ApiCookingRepository
         catch (Exception ex) { _logger.LogError(ex, "[ApiCookingRepository.GetSession] Query failed for CookSessionID={Id}", cookSessionId); return null; }
     }
 
-    /// <summary>In-progress work orders available for a new cook session.</summary>
+    /// <summary>
+    /// Work orders available for a new cook session.
+    /// Returns Live (inventory locked, ready to cook) and InProgress (already cooking).
+    /// </summary>
     public List<CookWorkOrderItem> GetPendingWorkOrders()
     {
         using var db = Connect();
@@ -161,8 +164,10 @@ public class ApiCookingRepository
                 FROM   WorkOrders          wo
                 JOIN   ManufacturingOrders mo ON mo.MOID    = wo.MOID
                 JOIN   Products            p  ON p.ProductID = wo.ProductID
-                WHERE  wo.Status IN ('In Progress','InProgress')
-                ORDER  BY wo.WorkOrderID").ToList();
+                WHERE  wo.Status IN ('Live', 'InProgress', 'In Progress')
+                ORDER  BY
+                    CASE wo.Status WHEN 'InProgress' THEN 0 WHEN 'In Progress' THEN 0 ELSE 1 END,
+                    wo.WorkOrderID").ToList();
         }
         catch (Exception ex) { _logger.LogError(ex, "[ApiCookingRepository.GetPendingWorkOrders] Query failed"); return []; }
     }
@@ -189,10 +194,17 @@ public class ApiCookingRepository
             foreach (int woId in woIds)
             {
                 var woInfo = db.QueryFirstOrDefault(@"
-                    SELECT wo.Quantity, wo.ProductID
+                    SELECT wo.Quantity, wo.ProductID, wo.Status
                     FROM   WorkOrders wo
                     WHERE  wo.WorkOrderID = @woId", new { woId }, tx);
                 if (woInfo == null) continue;
+
+                // Advance Live → InProgress when cooking begins
+                if ((string)woInfo.Status == "Live")
+                {
+                    db.Execute("UPDATE WorkOrders SET Status = 'InProgress' WHERE WorkOrderID = @woId",
+                        new { woId }, tx);
+                }
 
                 int woQty     = (int)woInfo.Quantity;
                 int productId = (int)woInfo.ProductID;

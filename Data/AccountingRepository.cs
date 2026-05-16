@@ -79,7 +79,9 @@ namespace JaneERP.Data
                 FROM   Expenses
                 WHERE  ExpenseDate >= @from AND ExpenseDate <= @to", new { from, to });
 
-            // Credit notes issued in period reduce effective revenue
+            // Only outstanding (unredeemed) credits reduce period revenue.
+            // Redeemed credits have already been consumed by a customer order, so
+            // double-counting them here would understate revenue for that later period.
             decimal creditNotes = 0m;
             try
             {
@@ -88,7 +90,8 @@ namespace JaneERP.Data
                     FROM   CustomerCredits cc
                     LEFT JOIN ReturnOrders ro ON ro.ReturnID = cc.ReturnID
                     WHERE  COALESCE(ro.ReturnDate, cc.CreatedAt) >= @from
-                      AND  COALESCE(ro.ReturnDate, cc.CreatedAt) <= @to",
+                      AND  COALESCE(ro.ReturnDate, cc.CreatedAt) <= @to
+                      AND  cc.IsRedeemed = 0",
                     new { from, to });
             }
             catch (Exception ex) { Logging.AppLogger.Info($"[AccountingRepository.GetSummary] CustomerCredits not available: {ex.Message}"); }

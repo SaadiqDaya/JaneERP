@@ -76,7 +76,12 @@ namespace JaneERP.Data
                 IF NOT EXISTS (SELECT 1 FROM sys.columns
                                WHERE object_id = OBJECT_ID('ReturnOrders')
                                  AND name = 'ApprovedAt')
-                    ALTER TABLE ReturnOrders ADD ApprovedAt DATETIME NULL;");
+                    ALTER TABLE ReturnOrders ADD ApprovedAt DATETIME NULL;
+
+                IF NOT EXISTS (SELECT 1 FROM sys.columns
+                               WHERE object_id = OBJECT_ID('ReturnOrderItems')
+                                 AND name = 'OriginalUnitPrice')
+                    ALTER TABLE ReturnOrderItems ADD OriginalUnitPrice DECIMAL(18,2) NOT NULL DEFAULT 0;");
         }
 
         // ── Queries ──────────────────────────────────────────────────────────────
@@ -161,12 +166,27 @@ namespace JaneERP.Data
 
             foreach (var item in request.Items.Where(i => i.ReturnQty > 0))
             {
+                // Capture sale price at return-creation time to avoid price drift on approval.
+                decimal originalUnitPrice = 0m;
+                if (item.SalesOrderItemID.HasValue)
+                {
+                    originalUnitPrice = db.QueryFirstOrDefault<decimal>(
+                        "SELECT ISNULL(UnitPrice, 0) FROM SalesOrderItems WHERE SalesOrderItemID = @id",
+                        new { id = item.SalesOrderItemID.Value }, tx);
+                }
+                if (originalUnitPrice == 0m && item.ProductID > 0)
+                {
+                    originalUnitPrice = db.QueryFirstOrDefault<decimal>(
+                        "SELECT ISNULL(RetailPrice, 0) FROM Products WHERE ProductID = @id",
+                        new { id = item.ProductID }, tx);
+                }
+
                 db.Execute(@"
                     INSERT INTO ReturnOrderItems
                            (ReturnID, SalesOrderItemID, ProductID, SKU, ProductName,
-                            OriginalQty, ReturnQty, Condition, RestockLocationID)
+                            OriginalQty, ReturnQty, OriginalUnitPrice, Condition, RestockLocationID)
                     VALUES (@ReturnID, @SalesOrderItemID, @ProductID, @SKU, @ProductName,
-                            @OriginalQty, @ReturnQty, @Condition, @RestockLocationID)",
+                            @OriginalQty, @ReturnQty, @OriginalUnitPrice, @Condition, @RestockLocationID)",
                     new
                     {
                         ReturnID          = returnId,
@@ -176,6 +196,7 @@ namespace JaneERP.Data
                         item.ProductName,
                         item.OriginalQty,
                         item.ReturnQty,
+                        OriginalUnitPrice = originalUnitPrice,
                         item.Condition,
                         item.RestockLocationID
                     }, tx);
@@ -242,8 +263,10 @@ namespace JaneERP.Data
 
             foreach (var item in allItems)
             {
-                decimal unitPrice = 0m;
-                if (item.SalesOrderItemID.HasValue)
+                // Prefer the price captured at return-creation time (avoids price drift).
+                // Fall back to live queries only for legacy rows where OriginalUnitPrice was not stored.
+                decimal unitPrice = item.OriginalUnitPrice;
+                if (unitPrice == 0m && item.SalesOrderItemID.HasValue)
                 {
                     unitPrice = db.QueryFirstOrDefault<decimal>(
                         "SELECT ISNULL(UnitPrice,0) FROM SalesOrderItems WHERE SalesOrderItemID=@id",

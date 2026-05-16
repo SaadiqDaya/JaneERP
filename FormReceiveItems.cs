@@ -33,22 +33,11 @@ namespace JaneERP
             StartPosition = FormStartPosition.CenterParent;
 
             // ── Header info ───────────────────────────────────────────────────────
-            var lblTitle = new Label
-            {
-                Text      = $"Receive Items for {_po.PONumber}",
-                Font      = new Font("Segoe UI", 13F, FontStyle.Bold),
-                ForeColor = Theme.Gold,
-                AutoSize  = false,
-                Location  = new Point(12, 12),
-                Size      = new Size(600, 28)
-            };
-            Controls.Add(lblTitle);
-
             var lblInfo = new Label
             {
-                Text      = $"Supplier: {_po.SupplierName}   |   Status: {_po.Status}",
+                Text      = $"Supplier: {_po.SupplierName}   |   Status: {_po.Status}   |   {_po.PONumber}",
                 AutoSize  = true,
-                Location  = new Point(12, 44),
+                Location  = new Point(12, 56),
                 ForeColor = Theme.TextSecondary
             };
             Controls.Add(lblInfo);
@@ -134,6 +123,7 @@ namespace JaneERP
 
             SizeChanged += (_, _) => PositionBottomControls();
             Load        += (_, _) => PositionBottomControls();
+            Theme.AddFormHeader(this, "📦  Receive Items");
         }
 
         private void PositionBottomControls()

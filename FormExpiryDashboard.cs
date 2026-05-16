@@ -31,23 +31,14 @@ namespace JaneERP
             MinimumSize   = new Size(700, 420);
             StartPosition = FormStartPosition.CenterParent;
 
-            Controls.Add(new Label
-            {
-                Text      = "Expiry & Lot Tracker",
-                Font      = new Font("Segoe UI", 14F, FontStyle.Bold),
-                ForeColor = Theme.Gold,
-                Location  = new Point(12, 12),
-                AutoSize  = true
-            });
-
             // Filter combo
             Controls.Add(new Label
             {
                 Text      = "Show:",
-                Location  = new Point(12, 50),
+                Location  = new Point(12, 62),
                 AutoSize  = true
             });
-            _cboFilter.Location      = new Point(56, 46);
+            _cboFilter.Location      = new Point(56, 58);
             _cboFilter.Size          = new Size(180, 23);
             _cboFilter.DropDownStyle = ComboBoxStyle.DropDownList;
             _cboFilter.Items.AddRange(new object[]
@@ -64,7 +55,7 @@ namespace JaneERP
             Controls.Add(_cboFilter);
 
             _btnRefresh.Text     = "Refresh";
-            _btnRefresh.Location = new Point(248, 44);
+            _btnRefresh.Location = new Point(248, 58);
             _btnRefresh.Size     = new Size(80, 27);
             _btnRefresh.Click   += (_, _) => LoadData();
             Controls.Add(_btnRefresh);
@@ -98,6 +89,7 @@ namespace JaneERP
             _lblStatus.AutoSize = true;
             Controls.Add(_lblStatus);
             SizeChanged += (_, _) => _lblStatus.Location = new Point(12, ClientSize.Height - 22);
+            Theme.AddFormHeader(this, "⏰  Expiry & Lot Tracker");
         }
 
         private void LoadData()

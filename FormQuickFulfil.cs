@@ -304,6 +304,7 @@ namespace JaneERP
 
             _btnFulfil.Enabled = false;
             Cursor = Cursors.WaitCursor;
+            string currentStep = "initialising";
             try
             {
                 string user = AppSession.CurrentUser?.Username ?? "system";
@@ -313,7 +314,6 @@ namespace JaneERP
                     _svc.SaveSOReservations(_salesOrderId, _confirmedReservations);
 
                 // Advance through each remaining step
-                string currentStep = "initialising";
                 foreach (var step in GetRemainingSteps())
                 {
                     currentStep = step;

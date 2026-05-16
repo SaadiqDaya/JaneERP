@@ -24,10 +24,25 @@ public class TasksController : ControllerBase
     private string CurrentUser =>
         User.FindFirstValue(ClaimTypes.Name) ?? "mobile";
 
-    // GET /api/tasks?status=Open&assignedTo=bob
+    // GET /api/tasks?status=Open&assignedTo=bob&linkedModule=Customer&linkedId=123
     [HttpGet]
-    public IActionResult GetTasks([FromQuery] string? status, [FromQuery] string? assignedTo)
-        => Ok(_repo.GetTasks(status, assignedTo));
+    public IActionResult GetTasks(
+        [FromQuery] string? status,
+        [FromQuery] string? assignedTo,
+        [FromQuery] string? linkedModule,
+        [FromQuery] string? linkedId)
+        => Ok(_repo.GetTasks(status, assignedTo, linkedModule, linkedId));
+
+    // GET /api/tasks/paged?page=1&pageSize=25&status=&assignedTo=&search=&tag=
+    [HttpGet("paged")]
+    public IActionResult GetPagedTasks(
+        [FromQuery] int     page       = 1,
+        [FromQuery] int     pageSize   = 25,
+        [FromQuery] string? status     = null,
+        [FromQuery] string? assignedTo = null,
+        [FromQuery] string? search     = null,
+        [FromQuery] string? tag        = null)
+        => Ok(_repo.GetPagedTasks(page, pageSize, status, assignedTo, search, tag));
 
     // GET /api/tasks/{id}
     [HttpGet("{id:int}")]
@@ -144,19 +159,44 @@ public class TasksController : ControllerBase
         return success ? Ok(new { success = true }) : NotFound();
     }
 
-    // ── History & linked record ───────────────────────────────────────────────
+    // ── History & linked records ──────────────────────────────────────────────
 
     /// <summary>Get the activity/audit log for a task.</summary>
     [HttpGet("{id:int}/history")]
     public IActionResult GetHistory(int id)
         => Ok(_repo.GetHistory(id));
 
-    /// <summary>Get the linked module record for a task, if any.</summary>
+    /// <summary>Get the linked module record for a task, if any (legacy single).</summary>
     [HttpGet("{id:int}/linked")]
     public IActionResult GetLinkedRecord(int id)
     {
         var record = _repo.GetLinkedRecord(id);
         return record == null ? NotFound() : Ok(record);
+    }
+
+    /// <summary>Get all linked records for a task.</summary>
+    [HttpGet("{id:int}/links")]
+    public IActionResult GetLinkedRecords(int id)
+        => Ok(_repo.GetLinkedRecords(id));
+
+    /// <summary>Add a linked record to a task.</summary>
+    [HttpPost("{id:int}/links")]
+    public IActionResult AddLinkedRecord(int id, [FromBody] AddLinkedRecordRequest req)
+    {
+        if (req == null || string.IsNullOrWhiteSpace(req.Module))
+            return BadRequest(new { error = "Module is required." });
+        if (string.IsNullOrWhiteSpace(req.LinkedId))
+            return BadRequest(new { error = "LinkedId is required." });
+        var success = _repo.AddLinkedRecord(id, req.Module, req.LinkedId, req.LinkedDisplay);
+        return success ? Ok(new { success = true }) : BadRequest(new { error = "Failed to add linked record." });
+    }
+
+    /// <summary>Remove a linked record from a task.</summary>
+    [HttpDelete("{id:int}/links/{linkId:int}")]
+    public IActionResult RemoveLinkedRecord(int id, int linkId)
+    {
+        var success = _repo.RemoveLinkedRecord(linkId);
+        return success ? Ok(new { success = true }) : NotFound();
     }
 }
 

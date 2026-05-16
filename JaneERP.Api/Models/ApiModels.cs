@@ -384,6 +384,179 @@ public class BatchLossPresetDto
     public decimal Percent { get; set; }
 }
 
+// ── Suppliers ─────────────────────────────────────────────────────────────────
+
+public class SupplierItem
+{
+    public int    SupplierID   { get; set; }
+    public string SupplierName { get; set; } = "";
+}
+
+// ── Create PO ─────────────────────────────────────────────────────────────────
+
+public class CreatePORequest
+{
+    public int       SupplierID   { get; set; }
+    public DateTime? ExpectedDate { get; set; }
+    public string?   Notes        { get; set; }
+    public decimal   ShippingCost { get; set; }
+    public List<CreatePOItem> Items { get; set; } = [];
+}
+
+public class CreatePOItem
+{
+    public int?    PartID          { get; set; }
+    public int?    ProductID       { get; set; }
+    public string  ItemName        { get; set; } = "";
+    public string  SKU             { get; set; } = "";
+    public int     QuantityOrdered { get; set; }
+    public decimal UnitCost        { get; set; }
+}
+
+// ── Tasks ─────────────────────────────────────────────────────────────────────
+
+public class TaskItem
+{
+    public int      TaskID                { get; set; }
+    public string   Title                 { get; set; } = "";
+    public string?  Description           { get; set; }
+    public string   AssignedTo            { get; set; } = "";
+    public string   CreatedBy             { get; set; } = "";
+    public DateTime DueDate               { get; set; }
+    public string   Status                { get; set; } = "Open";
+    public string   Priority              { get; set; } = "Normal";
+    public DateTime CreatedAt             { get; set; }
+    public int?     WorkflowID            { get; set; }
+    public string?  WorkflowCurrentStatus { get; set; }
+    public string?  WorkflowName          { get; set; }
+    public string?  Tags                  { get; set; }
+}
+
+public class TaskCommentItem
+{
+    public int      CommentID { get; set; }
+    public int      TaskID    { get; set; }
+    public string   Username  { get; set; } = "";
+    public string   Body      { get; set; } = "";
+    public DateTime CreatedAt { get; set; }
+}
+
+public class TaskSubtaskItem
+{
+    public int       SubtaskId   { get; set; }
+    public string    Title       { get; set; } = "";
+    public bool      IsComplete  { get; set; }
+    public string?   CompletedBy { get; set; }
+    public DateTime? CompletedAt { get; set; }
+}
+
+public class LinkedRecordItem
+{
+    public int      LinkId        { get; set; }
+    public string   LinkedModule  { get; set; } = "";
+    public string   LinkedId      { get; set; } = "";
+    public string?  LinkedDisplay { get; set; }
+    public DateTime CreatedAt     { get; set; }
+}
+
+public class TaskHistoryItem
+{
+    public string   FieldName  { get; set; } = "";
+    public string?  OldValue   { get; set; }
+    public string?  NewValue   { get; set; }
+    public string   ChangedBy  { get; set; } = "";
+    public DateTime ChangedAt  { get; set; }
+}
+
+public class TaskDetail : TaskItem
+{
+    public List<TaskCommentItem> Comments       { get; set; } = [];
+    public List<TaskSubtaskItem> Subtasks       { get; set; } = [];
+    public List<LinkedRecordItem> LinkedRecords { get; set; } = [];
+    public List<TaskHistoryItem> History        { get; set; } = [];
+    public List<string>          WorkflowStages { get; set; } = [];
+}
+
+public class PagedTasksResponse
+{
+    public List<TaskItem> Items    { get; set; } = [];
+    public int            Total    { get; set; }
+    public int            Page     { get; set; }
+    public int            PageSize { get; set; }
+}
+
+public class AddLinkedRecordRequest
+{
+    public string Module        { get; set; } = "";
+    public string LinkedId      { get; set; } = "";
+    public string LinkedDisplay { get; set; } = "";
+}
+
+public class CreateTaskRequest
+{
+    public string   Title       { get; set; } = "";
+    public string?  Description { get; set; }
+    public string   AssignedTo  { get; set; } = "";
+    public DateTime DueDate     { get; set; }
+    public string   Priority    { get; set; } = "Normal";
+}
+
+public record UpdateTaskStatusRequest(string Status);
+
+public class AddTaskCommentRequest
+{
+    public string Body { get; set; } = "";
+}
+
+// ── Work Order — Go-Live / Complete API request types ─────────────────────────
+// (LotAvailabilityRow, PartLotAvailability, LotReservation live in JaneERP.Core.Models)
+
+/// <summary>User's selected lot quantities for the GoLive endpoint.</summary>
+public class LotReservationLine
+{
+    public int LotID    { get; set; }
+    public int PartID   { get; set; }
+    public int Quantity { get; set; }
+}
+
+public class GoLiveRequest
+{
+    public List<LotReservationLine> Reservations { get; set; } = [];
+}
+
+public class CompleteWORequest
+{
+    public int     CompletedQty { get; set; }
+    public int     ScrapQty     { get; set; }
+    public string? ScrapReason  { get; set; }
+    public int?    LocationID   { get; set; }
+    public string? Notes        { get; set; }
+}
+
+public class WOBomPreviewRow
+{
+    public int     PartID           { get; set; }
+    public string  PartNumber       { get; set; } = "";
+    public string  PartName         { get; set; } = "";
+    public string  UOM              { get; set; } = "";
+    public int     RequiredQty      { get; set; }
+    public int     OnHand           { get; set; }
+    public bool    CreatesBatchLoss { get; set; }
+    public decimal BatchLossRate    { get; set; }
+}
+
+// ── Receive PO items with lot info ────────────────────────────────────────────
+
+public class ReceiveItemWithLot
+{
+    public int      PoItemId      { get; set; }
+    public int      QtyReceived   { get; set; }
+    /// <summary>Location for the received stock (parts only — creates a PartLot row).</summary>
+    public int?     LocationID    { get; set; }
+    public string?  LotNumber     { get; set; }
+    public DateTime? ExpirationDate { get; set; }
+}
+
 // Shopify API response shapes (snake_case via [JsonPropertyName])
 
 public class ShopifyOrdersResponse

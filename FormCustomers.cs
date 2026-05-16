@@ -8,10 +8,12 @@ namespace JaneERP
     {
         private readonly ICustomerRepository _custRepo   = AppServices.Get<ICustomerRepository>();
         private readonly IReturnRepository   _returnRepo = AppServices.Get<IReturnRepository>();
+        private readonly TaskRepository      _taskRepo   = new();
 
         private DataGridView _dgvCustomers      = new();
         private DataGridView _dgvOrders         = new();
         private DataGridView _dgvNotes          = new();
+        private DataGridView _dgvCustTasks      = new();
         private TextBox      _txtSearch         = new();
         private Label        _lblName           = new();
         private Label        _lblEmail          = new();
@@ -49,8 +51,8 @@ namespace JaneERP
         private void BuildUI()
         {
             Text          = "Customers";
-            ClientSize    = new Size(1020, 620);
-            MinimumSize   = new Size(840, 520);
+            ClientSize    = new Size(1020, 700);
+            MinimumSize   = new Size(840, 600);
             StartPosition = FormStartPosition.CenterParent;
 
             // ── Header bar ───────────────────────────────────────────────────────
@@ -66,7 +68,7 @@ namespace JaneERP
 
             // Left: customer list
             _dgvCustomers.Location        = new Point(12, 74);
-            _dgvCustomers.Size            = new Size(420, 514);
+            _dgvCustomers.Size            = new Size(420, 594);
             _dgvCustomers.Anchor          = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left;
             _dgvCustomers.ReadOnly        = true;
             _dgvCustomers.AllowUserToAddRows    = false;
@@ -231,6 +233,33 @@ namespace JaneERP
             Theme.StyleGrid(_dgvNotes);
             Controls.Add(_dgvNotes);
 
+            // ── Linked Tasks panel ───────────────────────────────────────────────
+            Controls.Add(new Label
+            {
+                Text      = "Linked Tasks:",
+                Font      = new Font("Segoe UI", 9F, FontStyle.Bold),
+                ForeColor = Theme.TextSecondary,
+                Location  = new Point(x, 595),
+                AutoSize  = true
+            });
+
+            _dgvCustTasks.Location        = new Point(x, 613);
+            _dgvCustTasks.Size            = new Size(554, 60);
+            _dgvCustTasks.Anchor          = AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
+            _dgvCustTasks.ReadOnly        = true;
+            _dgvCustTasks.AllowUserToAddRows    = false;
+            _dgvCustTasks.AllowUserToDeleteRows = false;
+            _dgvCustTasks.AutoGenerateColumns   = false;
+            _dgvCustTasks.RowHeadersVisible     = false;
+            _dgvCustTasks.SelectionMode         = DataGridViewSelectionMode.FullRowSelect;
+            _dgvCustTasks.Columns.Add(new DataGridViewTextBoxColumn { Name = "colTaskTitle",    HeaderText = "Title",    AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill, ReadOnly = true });
+            _dgvCustTasks.Columns.Add(new DataGridViewTextBoxColumn { Name = "colTaskStage",    HeaderText = "Stage",    Width = 80,  ReadOnly = true });
+            _dgvCustTasks.Columns.Add(new DataGridViewTextBoxColumn { Name = "colTaskDue",      HeaderText = "Due",      Width = 90,  ReadOnly = true });
+            _dgvCustTasks.Columns.Add(new DataGridViewTextBoxColumn { Name = "colTaskAssigned", HeaderText = "Assigned", Width = 100, ReadOnly = true });
+            _dgvCustTasks.CellDoubleClick += DgvCustTasks_CellDoubleClick;
+            Theme.StyleGrid(_dgvCustTasks);
+            Controls.Add(_dgvCustTasks);
+
             _lblStatus.Anchor   = AnchorStyles.Bottom | AnchorStyles.Left;
             _lblStatus.Location = new Point(12, ClientSize.Height - 24);
             _lblStatus.AutoSize = true;
@@ -302,6 +331,7 @@ namespace JaneERP
             catch (Exception ex) { Logging.AppLogger.Error($"[FormCustomers.GetActiveCreditBalance] customerId={customerId}: {ex}"); _lblCredit.Text = ""; }
 
             LoadNotes(customerId);
+            LoadCustomerTasks(customerId);
 
             // Reset to page 1 and load the paged transaction view
             _txnCurrentPage = 1;
@@ -579,6 +609,35 @@ namespace JaneERP
                 MessageBox.Show(this, ex.Message, "Payment Failed",
                     MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
+        }
+
+        private void LoadCustomerTasks(int customerId)
+        {
+            _dgvCustTasks.Rows.Clear();
+            try
+            {
+                var tasks = _taskRepo.GetTasksByLinkedRecord("Customer", customerId.ToString());
+                foreach (var t in tasks)
+                {
+                    int idx = _dgvCustTasks.Rows.Add();
+                    var r   = _dgvCustTasks.Rows[idx];
+                    r.Cells["colTaskTitle"].Value    = t.Title;
+                    r.Cells["colTaskStage"].Value    = t.StageDisplay;
+                    r.Cells["colTaskDue"].Value      = t.DueDate.ToString("yyyy-MM-dd");
+                    r.Cells["colTaskAssigned"].Value = t.AssignedTo;
+                    r.Tag = t;
+                }
+            }
+            catch (Exception ex) { Logging.AppLogger.Error($"[FormCustomers.LoadCustomerTasks] customerId={customerId}: {ex}"); }
+        }
+
+        private void DgvCustTasks_CellDoubleClick(object? sender, DataGridViewCellEventArgs e)
+        {
+            if (e.RowIndex < 0 || _dgvCustTasks.Rows[e.RowIndex].Tag is not ErpTask task) return;
+            using var detail = new FormTaskDetail(_taskRepo, task);
+            detail.ShowDialog(this);
+            if (detail.Changed && _selectedCustomerId >= 0)
+                LoadCustomerTasks(_selectedCustomerId);
         }
 
         private void ShowOrderDetail(int salesOrderId, string orderNumber)

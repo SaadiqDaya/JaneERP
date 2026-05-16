@@ -42,26 +42,17 @@ namespace JaneERP
             MinimumSize   = new Size(800, 520);
             StartPosition = FormStartPosition.CenterParent;
 
-            Controls.Add(new Label
-            {
-                Text      = "Vendors",
-                Font      = new Font("Segoe UI", 14F, FontStyle.Bold),
-                ForeColor = Theme.Gold,
-                Location  = new Point(12, 12),
-                AutoSize  = true
-            });
-
             // Search
-            Controls.Add(new Label { Text = "Search:", Location = new Point(12, 48), AutoSize = true });
-            _txtSearch.Location = new Point(68, 44);
+            Controls.Add(new Label { Text = "Search:", Location = new Point(12, 60), AutoSize = true });
+            _txtSearch.Location = new Point(68, 56);
             _txtSearch.Size     = new Size(200, 23);
             _txtSearch.PlaceholderText = "Filter vendors...";
             _txtSearch.TextChanged += (_, _) => ApplyFilter();
             Controls.Add(_txtSearch);
 
             // Left: vendor grid
-            _dgvVendors.Location        = new Point(12, 74);
-            _dgvVendors.Size            = new Size(370, 490);
+            _dgvVendors.Location        = new Point(12, 84);
+            _dgvVendors.Size            = new Size(370, 480);
             _dgvVendors.Anchor          = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left;
             _dgvVendors.ReadOnly        = true;
             _dgvVendors.AllowUserToAddRows    = false;
@@ -77,7 +68,7 @@ namespace JaneERP
             Controls.Add(_dgvVendors);
 
             // Right: edit panel
-            int x = 400, y = 46;
+            int x = 400, y = 60;
 
             void AddRow(string label, Control ctl)
             {
@@ -175,6 +166,7 @@ namespace JaneERP
             Controls.Add(_lblStatus);
 
             SizeChanged += (_, _) => _lblStatus.Location = new Point(12, ClientSize.Height - 24);
+            Theme.AddFormHeader(this, "🏢  Vendors");
         }
 
         private void LoadVendors()
