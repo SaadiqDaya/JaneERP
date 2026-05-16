@@ -35,6 +35,7 @@ namespace JaneERP.Infrastructure
             services.AddSingleton<IDiscountTierRepository, DiscountTierRepository>();
             services.AddSingleton<ICycleCountRepository,   CycleCountRepository>();
             services.AddSingleton<IAccountingRepository,  AccountingRepository>();
+            services.AddSingleton<IBoxTypeRepository,      BoxTypeRepository>();
 
             // ── Manufacturing ─────────────────────────────────────────────────────
             services.AddSingleton<IManufacturingRepository, ManufacturingRepository>();

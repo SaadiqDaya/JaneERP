@@ -15,5 +15,7 @@ namespace JaneERP.Models
         public DateTime? PickedAt         { get; set; }
         /// <summary>Location(s) from which to pick — populated by GetOrderItemsWithPicking(), not stored.</summary>
         public string?   PickLocation     { get; set; }
+        // Shipping workflow
+        public int       ShippedQty       { get; set; }
     }
 }

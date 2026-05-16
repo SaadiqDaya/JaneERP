@@ -138,7 +138,10 @@ namespace JaneERP
 
             dgv.Columns.Add(Col("colSKU",       "SKU",        80));
             dgv.Columns.Add(Col("colName",       "Product",    220, fill: true));
-            dgv.Columns.Add(Col("colStock",      "Stock",      65,  right: true));
+            dgv.Columns.Add(Col("colStock",      "In Stock",   65,  right: true));
+            dgv.Columns.Add(Col("colSoQty",      "On SO",      60,  right: true));
+            dgv.Columns.Add(Col("colMoQty",      "On MO",      60,  right: true));
+            dgv.Columns.Add(Col("colVirtual",    "Virtual",    65,  right: true));
             dgv.Columns.Add(Col("colReorder",    "Reorder At", 80,  right: true));
             dgv.Columns.Add(Col("colType",       "Type",       100));
             dgv.Columns.Add(Col("colLocation",   "Location",   110));
@@ -411,13 +414,23 @@ namespace JaneERP
                     p.SKU,
                     p.ProductName,
                     p.CurrentStock,
+                    p.SoQty,
+                    p.MoQty,
+                    p.VirtualQty,
                     p.ReorderPoint,
                     p.ProductTypeName ?? "",
                     p.DefaultLocationName ?? "",
                     p.RetailPrice.ToString("C"),
                     p.WholesalePrice.ToString("C"));
 
-                dgv.Rows[dgv.Rows.Count - 1].Tag = p;
+                var row = dgv.Rows[dgv.Rows.Count - 1];
+                row.Tag = p;
+
+                // Colour the Virtual qty cell: red when negative (need to manufacture), gold when zero
+                var virtualCell = row.Cells["colVirtual"];
+                virtualCell.Style.ForeColor = p.VirtualQty < 0 ? Theme.Danger
+                                            : p.VirtualQty == 0 ? Theme.Gold
+                                            : Theme.Teal;
             }
 
             dgv.ResumeLayout();

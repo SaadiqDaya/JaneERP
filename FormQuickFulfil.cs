@@ -263,25 +263,33 @@ namespace JaneERP
             }
 
             // ── Stock availability check ──────────────────────────────────────────
-            try
-            {
-                var lines = _svc.GetSOReservationItems(_salesOrderId);
-                var insufficient = lines
-                    .GroupBy(l => l.ItemId)
-                    .Where(g => g.Sum(l => l.Available) < g.First().Required)
-                    .Select(g => g.First().DisplayLabel)
-                    .ToList();
+            // Skip if inventory was already deducted (e.g. pre-existing manual Live order)
+            bool alreadyAffected = false;
+            try { alreadyAffected = _svc.IsInventoryAffected(_salesOrderId); }
+            catch { /* non-critical */ }
 
-                if (insufficient.Count > 0)
+            if (!alreadyAffected)
+            {
+                try
                 {
-                    MessageBox.Show(this,
-                        "Cannot fulfil — insufficient stock for:\n\n  • " +
-                        string.Join("\n  • ", insufficient),
-                        "Insufficient Stock", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                    return;
+                    var lines = _svc.GetSOReservationItems(_salesOrderId);
+                    var insufficient = lines
+                        .GroupBy(l => l.ItemId)
+                        .Where(g => g.Sum(l => l.Available) < g.First().Required)
+                        .Select(g => g.First().DisplayLabel)
+                        .ToList();
+
+                    if (insufficient.Count > 0)
+                    {
+                        MessageBox.Show(this,
+                            "Cannot fulfil — insufficient stock for:\n\n  • " +
+                            string.Join("\n  • ", insufficient),
+                            "Insufficient Stock", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                        return;
+                    }
                 }
+                catch { /* if reservation check fails, fall through — don't block on a non-critical error */ }
             }
-            catch { /* if reservation check fails, fall through — don't block on a non-critical error */ }
 
             string tracking = _txtTracking.Text.Trim();
             string notes    = _txtNotes.Text.Trim();
@@ -305,8 +313,10 @@ namespace JaneERP
                     _svc.SaveSOReservations(_salesOrderId, _confirmedReservations);
 
                 // Advance through each remaining step
+                string currentStep = "initialising";
                 foreach (var step in GetRemainingSteps())
                 {
+                    currentStep = step;
                     if (step == "Shipped")
                     {
                         _svc.RecordShipment(_salesOrderId,
@@ -320,6 +330,19 @@ namespace JaneERP
                     else
                     {
                         _svc.UpdateOrderStatus(_salesOrderId, step);
+
+                        // Stamp all items as fully picked so picking history is accurate
+                        if (step == "Picking")
+                        {
+                            string picker = Security.AppSession.CurrentUser?.Username ?? "system";
+                            try
+                            {
+                                var items = _svc.GetOrderItemsWithPicking(_salesOrderId);
+                                foreach (var item in items)
+                                    _svc.UpdatePickedQty(item.SalesOrderItemID, item.Quantity, picker);
+                            }
+                            catch { /* non-fatal — picking stamps can be corrected on the picking screen */ }
+                        }
                     }
                 }
 
@@ -333,7 +356,9 @@ namespace JaneERP
             }
             catch (Exception ex)
             {
-                MessageBox.Show(this, $"Fulfilment failed at one of the steps:\n\n{ex.Message}",
+                MessageBox.Show(this,
+                    $"Fulfilment failed at step '{currentStep}':\n\n{ex.Message}\n\n" +
+                    "Earlier steps may have already been applied. Check the order status before retrying.",
                     "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
             finally

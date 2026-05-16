@@ -45,8 +45,10 @@ namespace JaneERP.Data
         {
             // Backorders are derived live: active orders where on-hand stock
             // (Products.CurrentStock — the authoritative source) is less than ordered qty.
-            using IDbConnection db = new SqlConnection(_cs);
-            return db.Query<Backorder>(@"
+            using var db = new SqlConnection(_cs);
+            db.Open();
+
+            var live = db.Query<Backorder>(@"
                 SELECT  soi.SalesOrderItemID             AS BackorderID,
                         so.SalesOrderID,
                         CAST(so.OrderNumber AS NVARCHAR) AS OrderNumber,
@@ -72,6 +74,45 @@ namespace JaneERP.Data
                          FROM   InventoryTransactions
                          WHERE  ProductID = p.ProductID) < soi.Quantity
                 ORDER   BY so.CreatedAt ASC").ToList();
+
+            // Sync live shortages into the persistent Backorders table so that
+            // FulfillBackorders() and audit history have real rows to work with.
+            try
+            {
+                // Insert any live backorder that doesn't already have an active row.
+                foreach (var bo in live)
+                {
+                    db.Execute(@"
+                        IF NOT EXISTS (
+                            SELECT 1 FROM Backorders
+                            WHERE SalesOrderItemID = @SalesOrderItemID
+                              AND Status IN ('Open','PartiallyFilled')
+                        )
+                        INSERT INTO Backorders (SalesOrderID, SalesOrderItemID, ProductID, BackorderedQty)
+                        VALUES (@SalesOrderID, @SalesOrderItemID, @ProductID, @BackorderedQty)",
+                        new
+                        {
+                            bo.SalesOrderItemID,
+                            bo.SalesOrderID,
+                            bo.ProductID,
+                            bo.BackorderedQty
+                        });
+                }
+
+                // Auto-cancel rows whose parent order is no longer in an active status.
+                db.Execute(@"
+                    UPDATE b SET b.Status = 'Cancelled'
+                    FROM Backorders b
+                    JOIN SalesOrders so ON so.SalesOrderID = b.SalesOrderID
+                    WHERE b.Status IN ('Open','PartiallyFilled')
+                      AND so.Status NOT IN ('Live','Picking','Packing')");
+            }
+            catch (Exception ex)
+            {
+                AppLogger.Info($"[BackorderRepository.GetOpenBackorders] Sync warning: {ex.Message}");
+            }
+
+            return live;
         }
 
         public List<Backorder> GetBackordersForProduct(int productId)

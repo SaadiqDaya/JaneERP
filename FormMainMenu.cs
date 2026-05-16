@@ -109,6 +109,7 @@ namespace JaneERP
             btnLocations.Visible      = isAdmin || PermissionHelper.CanEdit("Inventory");
             btnProductTypes.Visible   = isAdmin || PermissionHelper.CanEdit("Inventory");
             btnAttributeLists.Visible = isAdmin || PermissionHelper.CanEdit("Inventory");
+            btnBoxTypes.Visible       = isAdmin || PermissionHelper.CanEdit("Inventory");
             btnCycleCount.Visible     = isAdmin || PermissionHelper.CanEdit("CycleCount") || PermissionHelper.CanEdit("Inventory");
             btnInventoryDash.Visible  = isAdmin || isEditor;
             btnReorderReport.Visible  = isAdmin || isEditor;
@@ -262,6 +263,12 @@ namespace JaneERP
         private void btnAttributeLists_Click(object sender, EventArgs e)
         {
             using var frm = new FormAttributeLists();
+            frm.ShowDialog(this);
+        }
+
+        private void btnBoxTypes_Click(object sender, EventArgs e)
+        {
+            using var frm = new FormBoxTypes();
             frm.ShowDialog(this);
         }
 

@@ -15,11 +15,42 @@ namespace JaneERP
         // ── Sidebar ───────────────────────────────────────────────────────────
         private Panel pnlSidebar;
 
-        // ── Content grid ──────────────────────────────────────────────────────
+        // ── Content host (fills remaining space after header+sidebar) ─────────
+        private Panel pnlContentHost;
+
+        // ── Content grid (High Level view) ───────────────────────────────────
         private FlowLayoutPanel pnlGrid;
 
-        // ── Section header refs (for sidebar scroll) ──────────────────────────
+        // ── Section panels (focused views) ────────────────────────────────────
+        private Panel pnlSectionSales;
+        private Panel pnlSectionProducts;
+        private Panel pnlSectionMfg;
+        private Panel pnlSectionAnalytics;
+        private Panel pnlSectionData;
+        private Panel pnlSectionAdmin;
+        private Panel pnlSectionPurchasing;
+        private Panel pnlSectionTasks;
+
+        // ── Section header refs (for sidebar scroll / backward compat) ────────
         private Panel _hdrSales, _hdrProducts, _hdrMfg, _hdrAnalytics, _hdrData, _hdrAdmin;
+
+        // ── Nav button refs for active-state highlighting ─────────────────────
+        internal Button _navHighLevel, _navSales, _navProducts, _navMfg, _navAnalytics, _navData, _navAdmin;
+        internal Button _navPurchasing, _navTasks;
+
+        // ── KPI value labels — updated async when each section loads ──────────
+        internal Label _kpiS0, _kpiS1, _kpiS2;        // Sales: Pending Orders, Revenue Today, Orders Today
+        internal Label _kpiP0, _kpiP1, _kpiP2;        // Products: In Stock, Low Stock, Inventory Value
+        internal Label _kpiM0;                          // Mfg: Open Work Orders
+        internal Label _kpiA0, _kpiA1;                 // Analytics: Revenue Today, Inventory Value
+        internal Label _kpiA2, _kpiA3, _kpiA4;        // Analytics: Inventory Value, Low Stock, Under Reorder Pt
+        internal Label _kpiD0, _kpiD1;                 // Data: Total Products, Total Parts
+        internal Label _kpiAd0, _kpiAd1;               // Admin: Tasks Overdue, Low Stock Alerts
+        internal Label _kpiPu0, _kpiPu1;               // Purchasing: Pending POs, Outstanding Amount
+        internal Label _kpiT0, _kpiT1, _kpiT2;        // Tasks: Overdue, Open Total, Due This Week
+        // Time-range button arrays for sections that support it
+        internal Button[] _salesTimeBtns = Array.Empty<Button>();
+        internal Button[] _analyticsTimeBtns = Array.Empty<Button>();
 
         // ── Button fields (kept for handler compatibility) ─────────────────────
         private Button btnInventory;
@@ -63,6 +94,7 @@ namespace JaneERP
         private Button btnReturnsReport;
         private Button btnInventoryMoveImport;
         private Button btnPackageExplorer;
+        private Button btnBoxTypes;
 
         // ── Misc ──────────────────────────────────────────────────────────────
         private Label   lblSelectDept;
@@ -86,11 +118,12 @@ namespace JaneERP
             btnLogout     = new Button();
             pnlSidebar    = new Panel();
             pnlGrid       = new FlowLayoutPanel();
+            pnlContentHost = new Panel();
             lblSelectDept = new Label { Visible = false };
             btnExitApp    = new Button { Visible = false, Size = new Size(1, 1) };
             btnExitApp.Click += (_, _) => Application.Exit();
 
-            // ── Build icon buttons ─────────────────────────────────────────────
+            // ── Build icon buttons (pnlGrid / High Level view) ─────────────────
             btnInventory      = MakeIconButton("\U0001F4E6", "Stock Browser",      btnInventory_Click);
             btnParts          = MakeIconButton("\U0001F527", "Parts",              btnParts_Click);
             btnBOM            = MakeIconButton("\U0001F4CB", "BOM",                btnBOM_Click);
@@ -129,6 +162,7 @@ namespace JaneERP
             btnReturnsReport       = MakeIconButton("\U0001F4CB", "Returns Report",     btnReturnsReport_Click);
             btnInventoryMoveImport = MakeIconButton("\U0001F69A", "Move Import",         btnInventoryMoveImport_Click);
             btnPackageExplorer     = MakeIconButton("\U0001F381", "Packages",             btnPackageExplorer_Click);
+            btnBoxTypes            = MakeIconButton("\U0001F4E6", "Box Types",            btnBoxTypes_Click);
 
             // Quick-dial buttons in header — always on dark background
             btnJane    = new Button { Text = "\U0001F4DE Jane",    UseVisualStyleBackColor = false };
@@ -178,6 +212,7 @@ namespace JaneERP
             toolTip1.SetToolTip(btnReturnsReport,       "Date-range report: returns by condition and credit value");
             toolTip1.SetToolTip(btnInventoryMoveImport, "Bulk-move stock between locations via CSV (SKU, FromLocation, ToLocation)");
             toolTip1.SetToolTip(btnPackageExplorer,     "View, create, and manage product bundles and their components");
+            toolTip1.SetToolTip(btnBoxTypes,            "Define box and package types used when packing orders");
 
             // ════════════════════════════════════════════════════════════════
             // BEGIN INIT
@@ -186,6 +221,7 @@ namespace JaneERP
             pnlHeader.SuspendLayout();
             pnlSidebar.SuspendLayout();
             pnlGrid.SuspendLayout();
+            pnlContentHost.SuspendLayout();
             SuspendLayout();
 
             // ── Header ────────────────────────────────────────────────────────
@@ -270,12 +306,13 @@ namespace JaneERP
             pnlHeader.Resize += (_, _) => PositionHeaderButtons();
             Load             += (_, _) => PositionHeaderButtons();
 
-            // Bottom accent line
+            // Bottom accent line — "accent" tag tells Theme.Apply() to leave BackColor intact
             var headerLine = new Panel
             {
                 Height    = 2,
                 Dock      = DockStyle.Bottom,
-                BackColor = Theme.Gold
+                BackColor = Theme.Gold,
+                Tag       = "accent"
             };
             pnlHeader.Controls.Add(headerLine);
 
@@ -311,40 +348,66 @@ namespace JaneERP
             };
             sidebarFlow.Controls.Add(lblNavTitle);
 
-            // Sidebar nav buttons — scroll content to each section
-            var navSales    = MakeSidebarNavButton("\U0001F6D2", "Sales & Purchasing");
-            var navProducts = MakeSidebarNavButton("\U0001F4E6", "Products & Inventory");
-            var navMfg      = MakeSidebarNavButton("\U0001F3ED", "Manufacturing");
-            var navAnalytics= MakeSidebarNavButton("\U0001F4C9", "Analytics & Reports");
-            var navData     = MakeSidebarNavButton("\U0001F4BE", "Data");
-            var navAdmin    = MakeSidebarNavButton("\U0001F464", "Team & Admin");
+            // ── Nav buttons ───────────────────────────────────────────────────
+            _navHighLevel = MakeSidebarNavButton("\U0001F3E0", "High Level");
+            sidebarFlow.Controls.Add(_navHighLevel);
+            _navHighLevel.Click += (_, _) => ShowSection("HighLevel");
 
-            navSales.Click     += (_, _) => ScrollToSection(_hdrSales);
-            navProducts.Click  += (_, _) => ScrollToSection(_hdrProducts);
-            navMfg.Click       += (_, _) => ScrollToSection(_hdrMfg);
-            navAnalytics.Click += (_, _) => ScrollToSection(_hdrAnalytics);
-            navData.Click      += (_, _) => ScrollToSection(_hdrData);
-            navAdmin.Click     += (_, _) => ScrollToSection(_hdrAdmin);
+            // Separator line
+            var navSep = new Panel
+            {
+                Height    = 1,
+                Width     = 192,
+                BackColor = Color.FromArgb(22, 58, 68),
+                Margin    = new Padding(0, 6, 0, 6),
+                Tag       = "accent"
+            };
+            sidebarFlow.Controls.Add(navSep);
 
-            sidebarFlow.Controls.Add(navSales);
-            sidebarFlow.Controls.Add(navProducts);
-            sidebarFlow.Controls.Add(navMfg);
-            sidebarFlow.Controls.Add(navAnalytics);
-            sidebarFlow.Controls.Add(navData);
-            sidebarFlow.Controls.Add(navAdmin);
+            _navSales = MakeSidebarNavButton("\U0001F6D2", "Sales & Purchasing");
+            sidebarFlow.Controls.Add(_navSales);
+            _navSales.Click += (_, _) => ShowSection("Sales");
+
+            _navPurchasing = MakeSidebarNavButton("\U0001F69B", "Purchasing");
+            sidebarFlow.Controls.Add(_navPurchasing);
+            _navPurchasing.Click += (_, _) => ShowSection("Purchasing");
+
+            _navProducts = MakeSidebarNavButton("\U0001F4E6", "Products & Inventory");
+            sidebarFlow.Controls.Add(_navProducts);
+            _navProducts.Click += (_, _) => ShowSection("Products");
+
+            _navMfg = MakeSidebarNavButton("\U0001F3ED", "Manufacturing");
+            sidebarFlow.Controls.Add(_navMfg);
+            _navMfg.Click += (_, _) => ShowSection("Mfg");
+
+            _navAnalytics = MakeSidebarNavButton("\U0001F4CA", "Analytics & Reports");
+            sidebarFlow.Controls.Add(_navAnalytics);
+            _navAnalytics.Click += (_, _) => ShowSection("Analytics");
+
+            _navTasks = MakeSidebarNavButton("\u2705", "Tasks");
+            sidebarFlow.Controls.Add(_navTasks);
+            _navTasks.Click += (_, _) => ShowSection("Tasks");
+
+            _navData = MakeSidebarNavButton("\U0001F4BE", "Data");
+            sidebarFlow.Controls.Add(_navData);
+            _navData.Click += (_, _) => ShowSection("Data");
+
+            _navAdmin = MakeSidebarNavButton("\U0001F464", "Team & Admin");
+            sidebarFlow.Controls.Add(_navAdmin);
+            _navAdmin.Click += (_, _) => ShowSection("Admin");
 
             // Vertical separator line on the right edge of the sidebar
             var sidebarBorder = new Panel
             {
                 Width     = 1,
                 Dock      = DockStyle.Right,
-                BackColor = Color.FromArgb(30, 255, 255, 255),
-                Tag       = "sidebar"
+                BackColor = Color.FromArgb(22, 58, 68),
+                Tag       = "accent"
             };
             pnlSidebar.Controls.Add(sidebarFlow);
             pnlSidebar.Controls.Add(sidebarBorder);
 
-            // ── Grid Panel ────────────────────────────────────────────────────
+            // ── Grid Panel (High Level view) ──────────────────────────────────
             pnlGrid.Dock              = DockStyle.Fill;
             pnlGrid.FlowDirection     = FlowDirection.LeftToRight;
             pnlGrid.WrapContents      = true;
@@ -352,6 +415,7 @@ namespace JaneERP
             pnlGrid.AutoScrollMargin  = new Size(0, 20);
             pnlGrid.Padding           = new Padding(20, 16, 20, 16);
             pnlGrid.BackColor         = Theme.Background;
+            pnlGrid.Visible           = true;
 
             // ── Group header helper ──────────────────────────────────────────
             var _grpHeaderList = new List<Control>();
@@ -411,6 +475,7 @@ namespace JaneERP
             pnlGrid.Controls.Add(btnParts);
             pnlGrid.Controls.Add(btnBOM);
             pnlGrid.Controls.Add(btnPackageExplorer);
+            pnlGrid.Controls.Add(btnBoxTypes);
             pnlGrid.Controls.Add(btnProductSearch);
             pnlGrid.Controls.Add(btnLocations);
             pnlGrid.Controls.Add(btnProductTypes);
@@ -480,12 +545,288 @@ namespace JaneERP
             pnlGrid.Resize += (_, _) => UpdateHeaders();
             Load           += (_, _) => UpdateHeaders();
 
+            // ── Section panels (focused views) ────────────────────────────────
+
+            // ── Sales section ─────────────────────────────────────────────────────────
+            pnlSectionSales = BuildSectionView(
+                "Sales",
+                new (string, Color, EventHandler?)[]
+                {
+                    ("Pending Orders",  Theme.Gold, (_, _) => btnSales_Click(null!, EventArgs.Empty)),
+                    ("Revenue",         Theme.Gold, null),
+                    ("Orders Today",    Theme.Gold, null),
+                },
+                out var kpisSales,
+                hasTimeRange: true,
+                out var salesTimeBtns,
+                rows: new (string, bool, (string, string, EventHandler)[])[]
+                {
+                    ("Workflow", true, new (string, string, EventHandler)[]
+                    {
+                        ("\U0001F6D2", "Sales",    btnSales_Click),
+                        ("\U0001F4CB", "Picking",  btnPickingDash_Click),
+                        ("\U0001F4E6", "Packing",  btnPackingDash_Click),
+                    }),
+                    ("Operations", false, new (string, string, EventHandler)[]
+                    {
+                        ("\U0001F4E6", "Backorders",  btnBackorders_Click),
+                        ("\u21A9",     "Returns",     btnReturnsManager_Click),
+                        ("\U0001F504", "Cycle Count", btnCycleCount_Click),
+                        ("\u26A0",     "Unverified",  btnUnverified_Click),
+                    }),
+                    ("Products & Data", false, new (string, string, EventHandler)[]
+                    {
+                        ("\U0001F50D", "Product Explorer",  btnProductSearch_Click),
+                        ("\U0001F4CA", "Inv. Snapshot",     btnInventoryDash_Click),
+                        ("\U0001F381", "Packages",          btnPackageExplorer_Click),
+                        ("\U0001F4E6", "Stock Browser",     btnInventory_Click),
+                        ("\U0001F3F7", "Types",             btnProductTypes_Click),
+                        ("\U0001F4CB", "Attr Lists",        btnAttributeLists_Click),
+                        ("\U0001F6D2", "Shopify Stores",    btnShopifyStores_Click),
+                        ("\U0001F4CD", "Locations",         btnLocations_Click),
+                    }),
+                },
+                quickActions: new (string, EventHandler)[]
+                {
+                    ("New Order",         (_, _) => btnSales_Click(null!, EventArgs.Empty)),
+                    ("New Customer",      btnCustomers_Click),
+                    ("Customer Note",     btnCustomers_Click),
+                    ("Inventory Move",    btnInventoryMoveImport_Click),
+                    ("New Product",       btnInventory_Click),
+                });
+            _kpiS0 = kpisSales[0]; _kpiS1 = kpisSales[1]; _kpiS2 = kpisSales[2];
+            _salesTimeBtns = salesTimeBtns;
+
+            // ── Purchasing section ────────────────────────────────────────────────────
+            pnlSectionPurchasing = BuildSectionView(
+                "Purchasing",
+                new (string, Color, EventHandler?)[]
+                {
+                    ("Pending POs",        Theme.Gold, (_, _) => btnPurchaseOrders_Click(null!, EventArgs.Empty)),
+                    ("Outstanding Amount", Theme.Gold, null),
+                },
+                out var kpisPurchasing,
+                hasTimeRange: false,
+                out _,
+                rows: new (string, bool, (string, string, EventHandler)[])[]
+                {
+                    ("Workflow", true, new (string, string, EventHandler)[]
+                    {
+                        ("\U0001F69B", "Purchase Orders", btnPurchaseOrders_Click),
+                        ("\U0001F4E5", "Receive / Manage", btnPurchaseOrders_Click),
+                        ("\u26A0",     "Reorder Report",  btnReorderReport_Click),
+                    }),
+                },
+                quickActions: new (string, EventHandler)[]
+                {
+                    ("New PO",   btnPurchaseOrders_Click),
+                    ("Vendors",  btnVendors_Click),
+                });
+            _kpiPu0 = kpisPurchasing[0]; _kpiPu1 = kpisPurchasing[1];
+
+            // ── Products & Inventory section ──────────────────────────────────────────
+            pnlSectionProducts = BuildSectionView(
+                "Products & Inventory",
+                new (string, Color, EventHandler?)[]
+                {
+                    ("In Stock",       Theme.Gold, (_, _) => btnInventory_Click(null!, EventArgs.Empty)),
+                    ("Low Stock",      Theme.Gold, (_, _) => btnReorderReport_Click(null!, EventArgs.Empty)),
+                    ("Inv. Value",     Theme.Gold, null),
+                },
+                out var kpisProducts,
+                hasTimeRange: false,
+                out _,
+                rows: new (string, bool, (string, string, EventHandler)[])[]
+                {
+                    ("Catalogue", false, new (string, string, EventHandler)[]
+                    {
+                        ("\U0001F4E6", "Stock Browser",    btnInventory_Click),
+                        ("\U0001F527", "Parts",            btnParts_Click),
+                        ("\U0001F4CB", "BOM",              btnBOM_Click),
+                        ("\U0001F381", "Packages",         btnPackageExplorer_Click),
+                        ("\U0001F4E6", "Box Types",        btnBoxTypes_Click),
+                        ("\U0001F50D", "Product Explorer", btnProductSearch_Click),
+                        ("\U0001F4CD", "Locations",        btnLocations_Click),
+                        ("\U0001F3F7", "Types",            btnProductTypes_Click),
+                        ("\U0001F4CB", "Attr Lists",       btnAttributeLists_Click),
+                    }),
+                    ("Operations", false, new (string, string, EventHandler)[]
+                    {
+                        ("\U0001F504", "Cycle Count",      btnCycleCount_Click),
+                        ("\U0001F4CA", "Inv. Snapshot",    btnInventoryDash_Click),
+                        ("\u26A0",     "Reorder",          btnReorderReport_Click),
+                        ("\u26A0",     "Unverified",       btnUnverified_Click),
+                        ("\u23F0",     "Expiry",           btnExpiryTracker_Click),
+                    }),
+                },
+                quickActions: null);
+            _kpiP0 = kpisProducts[0]; _kpiP1 = kpisProducts[1]; _kpiP2 = kpisProducts[2];
+
+            // ── Manufacturing section ─────────────────────────────────────────────────
+            pnlSectionMfg = BuildSectionView(
+                "Manufacturing",
+                new (string, Color, EventHandler?)[]
+                {
+                    ("Open Work Orders", Theme.Gold, (_, _) => btnManufacturing_Click(null!, EventArgs.Empty)),
+                },
+                out var kpisMfg,
+                hasTimeRange: false,
+                out _,
+                rows: new (string, bool, (string, string, EventHandler)[])[]
+                {
+                    ("Workflow", true, new (string, string, EventHandler)[]
+                    {
+                        ("\U0001F3ED", "Mfg Dash",     btnManufacturing_Click),
+                        ("\U0001F6E0", "Work Orders",  btnWorkOrders_Click),
+                        ("\U0001F9EA", "Batch Cooking", btnBatchCooking_Click),
+                    }),
+                    ("Reference", false, new (string, string, EventHandler)[]
+                    {
+                        ("\U0001F4CB", "BOM Explorer",  btnBOM_Click),
+                        ("\u23F0",     "Expiry Tracker", btnExpiryTracker_Click),
+                    }),
+                },
+                quickActions: new (string, EventHandler)[]
+                {
+                    ("New Work Order",  btnManufacturing_Click),
+                    ("New Part",        btnParts_Click),
+                });
+            _kpiM0 = kpisMfg[0];
+
+            // ── Analytics section ─────────────────────────────────────────────────────
+            pnlSectionAnalytics = BuildSectionView(
+                "Analytics & Reports",
+                new (string, Color, EventHandler?)[]
+                {
+                    ("Expenses (7d)",    Theme.Gold, (_, _) => btnAccounting_Click(null!, EventArgs.Empty)),
+                    ("Revenue",          Theme.Gold, (_, _) => btnDashboard_Click(null!, EventArgs.Empty)),
+                    ("Inventory Value",  Theme.Gold, (_, _) => btnInventoryDash_Click(null!, EventArgs.Empty)),
+                    ("Low Stock",        Theme.Gold, (_, _) => btnReorderReport_Click(null!, EventArgs.Empty)),
+                    ("Under Reorder Pt", Theme.Gold, (_, _) => btnReorderReport_Click(null!, EventArgs.Empty)),
+                },
+                out var kpisAnalytics,
+                hasTimeRange: true,
+                out var analyticsTimeBtns,
+                rows: new (string, bool, (string, string, EventHandler)[])[]
+                {
+                    ("Dashboards", true, new (string, string, EventHandler)[]
+                    {
+                        ("\U0001F4C9", "KPI Dash",   btnDashboard_Click),
+                        ("\U0001F4C8", "Reports",    btnReports_Click),
+                        ("\U0001F4B0", "Accounting", btnAccounting_Click),
+                    }),
+                    ("Tools", false, new (string, string, EventHandler)[]
+                    {
+                        ("\u2696",     "Breakeven",       btnBreakeven_Click),
+                        ("\U0001F4CB", "Returns Report",  btnReturnsReport_Click),
+                    }),
+                },
+                quickActions: new (string, EventHandler)[]
+                {
+                    ("New Expense", btnAccounting_Click),
+                });
+            _kpiA0 = kpisAnalytics[0]; _kpiA1 = kpisAnalytics[1];
+            _kpiA2 = kpisAnalytics[2]; _kpiA3 = kpisAnalytics[3]; _kpiA4 = kpisAnalytics[4];
+            _analyticsTimeBtns = analyticsTimeBtns;
+
+            // ── Tasks section ─────────────────────────────────────────────────────────
+            pnlSectionTasks = BuildSectionView(
+                "Tasks",
+                new (string, Color, EventHandler?)[]
+                {
+                    ("Overdue Tasks",    Theme.Gold, (_, _) => btnTaskManager_Click(null!, EventArgs.Empty)),
+                    ("Open Tasks",       Theme.Gold, (_, _) => btnTaskManager_Click(null!, EventArgs.Empty)),
+                    ("Due This Week",    Theme.Gold, (_, _) => btnTaskManager_Click(null!, EventArgs.Empty)),
+                },
+                out var kpisTasks,
+                hasTimeRange: false,
+                out _,
+                rows: new (string, bool, (string, string, EventHandler)[])[]
+                {
+                    ("Task Management", false, new (string, string, EventHandler)[]
+                    {
+                        ("\u2705", "Task Manager", btnTaskManager_Click),
+                    }),
+                },
+                quickActions: new (string, EventHandler)[]
+                {
+                    ("New Task", btnTaskManager_Click),
+                });
+            _kpiT0 = kpisTasks[0]; _kpiT1 = kpisTasks[1]; _kpiT2 = kpisTasks[2];
+
+            // ── Admin section ─────────────────────────────────────────────────────────
+            pnlSectionAdmin = BuildSectionView(
+                "Team & Admin",
+                new (string, Color, EventHandler?)[]
+                {
+                    ("Active Users",   Theme.Gold, (_, _) => btnManageUsers_Click(null!, EventArgs.Empty)),
+                    ("Tasks Overdue",  Theme.Gold, (_, _) => btnTaskManager_Click(null!, EventArgs.Empty)),
+                },
+                out var kpisAdmin,
+                hasTimeRange: false,
+                out _,
+                rows: new (string, bool, (string, string, EventHandler)[])[]
+                {
+                    ("User Management", false, new (string, string, EventHandler)[]
+                    {
+                        ("\U0001F464", "Users",     btnManageUsers_Click),
+                        ("\U0001F4DD", "Login Log", btnLoginLog_Click),
+                        ("\U0001F4DC", "Audit Log", btnActivityLog_Click),
+                        ("\U0001F5C2", "App Logs",  btnAppLogs_Click),
+                    }),
+                },
+                quickActions: new (string, EventHandler)[]
+                {
+                    ("New User", btnManageUsers_Click),
+                });
+            _kpiAd0 = kpisAdmin[0]; _kpiAd1 = kpisAdmin[1];
+
+            // ── Data section ──────────────────────────────────────────────────────────
+            pnlSectionData = BuildSectionView(
+                "Data",
+                new (string, Color, EventHandler?)[]
+                {
+                    ("Total Products", Theme.Gold, (_, _) => btnInventory_Click(null!, EventArgs.Empty)),
+                    ("Total Parts",    Theme.Gold, (_, _) => btnParts_Click(null!, EventArgs.Empty)),
+                },
+                out var kpisData,
+                hasTimeRange: false,
+                out _,
+                rows: new (string, bool, (string, string, EventHandler)[])[]
+                {
+                    ("Import / Export", true, new (string, string, EventHandler)[]
+                    {
+                        ("\U0001F4E5", "Imports",    btnImports_Click),
+                        ("\U0001F4BE", "Exports",    btnExport_Click),
+                    }),
+                    ("Bulk Operations", false, new (string, string, EventHandler)[]
+                    {
+                        ("\U0001F69A", "Move Import", btnInventoryMoveImport_Click),
+                    }),
+                },
+                quickActions: null);
+            _kpiD0 = kpisData[0]; _kpiD1 = kpisData[1];
+
+            // ── Content host ──────────────────────────────────────────────────
+            pnlContentHost.Dock      = DockStyle.Fill;
+            pnlContentHost.BackColor = Theme.Background;
+            // Add pnlGrid first (visible), then section panels (hidden)
+            pnlContentHost.Controls.Add(pnlGrid);
+            pnlContentHost.Controls.Add(pnlSectionSales);
+            pnlContentHost.Controls.Add(pnlSectionPurchasing);
+            pnlContentHost.Controls.Add(pnlSectionProducts);
+            pnlContentHost.Controls.Add(pnlSectionMfg);
+            pnlContentHost.Controls.Add(pnlSectionAnalytics);
+            pnlContentHost.Controls.Add(pnlSectionTasks);
+            pnlContentHost.Controls.Add(pnlSectionData);
+            pnlContentHost.Controls.Add(pnlSectionAdmin);
+
             // ── Form ──────────────────────────────────────────────────────────
             AutoScaleDimensions = new SizeF(7F, 15F);
             AutoScaleMode       = AutoScaleMode.Font;
             ClientSize          = new Size(1080, 800);
             MinimumSize         = new Size(780, 600);
-            WindowState         = FormWindowState.Maximized;
+            WindowState         = FormWindowState.Normal;
             FormBorderStyle     = FormBorderStyle.None;
             MaximizeBox         = false;
             Name                = "FormMainMenu";
@@ -493,18 +834,22 @@ namespace JaneERP
             Text                = "JaneERP";
 
             // Add order: Fill first, then Left, then Top (reverse z-order docking)
-            Controls.Add(pnlGrid);
+            Controls.Add(pnlContentHost);
             Controls.Add(pnlSidebar);
             Controls.Add(pnlHeader);
 
             ((System.ComponentModel.ISupportInitialize)pbLogo).EndInit();
             pnlGrid.ResumeLayout(false);
+            pnlContentHost.ResumeLayout(false);
             pnlSidebar.ResumeLayout(false);
             pnlHeader.ResumeLayout(false);
             ResumeLayout(false);
+
+            // Ensure High Level view is visible on startup
+            pnlGrid.Visible = true;
         }
 
-        // ── Scroll helper ─────────────────────────────────────────────────────
+        // ── Scroll helper (backward compat) ──────────────────────────────────
         private void ScrollToSection(Panel sectionHeader)
         {
             if (sectionHeader == null) return;
@@ -655,6 +1000,296 @@ namespace JaneERP
             path.AddArc(bounds.X,          bounds.Bottom - d,  d, d,  90, 90);
             path.CloseFigure();
             return path;
+        }
+
+        // ── KPI tile factory ──────────────────────────────────────────────────
+        private static (Panel tile, Label valueLabel) MakeKpiTile(string description, Color accent)
+        {
+            var wrapper = new Panel
+            {
+                Size      = new Size(174, 84),
+                BackColor = Color.FromArgb(28, 68, 82),
+                Margin    = new Padding(0, 0, 14, 0),
+            };
+            var inner = new Panel
+            {
+                Dock      = DockStyle.Fill,
+                BackColor = Color.FromArgb(14, 32, 46),
+                Padding   = new Padding(1)
+            };
+            var accentBar = new Panel
+            {
+                Width     = 3,
+                Dock      = DockStyle.Left,
+                BackColor = accent,
+                Tag       = "accent"
+            };
+            var lblValue = new Label
+            {
+                Text      = "\u2014",
+                Font      = new Font("Segoe UI", 18F, FontStyle.Bold),
+                ForeColor = Theme.Gold,
+                AutoSize  = false,
+                Location  = new Point(10, 6),
+                Size      = new Size(158, 32),
+                BackColor = Color.Transparent,
+                TextAlign = ContentAlignment.MiddleLeft
+            };
+            var lblDesc = new Label
+            {
+                Text      = description,
+                Font      = new Font("Segoe UI", 8F),
+                ForeColor = Color.FromArgb(130, 180, 195),
+                AutoSize  = false,
+                Location  = new Point(10, 42),
+                Size      = new Size(158, 36),
+                BackColor = Color.Transparent,
+                TextAlign = ContentAlignment.MiddleLeft,
+                Tag       = "accent"
+            };
+            inner.Controls.Add(accentBar);
+            inner.Controls.Add(lblValue);
+            inner.Controls.Add(lblDesc);
+            wrapper.Controls.Add(inner);
+            return (wrapper, lblValue);
+        }
+
+        // ── Section view builder (new: rows + arrows + quick-actions sidebar) ─────────
+        private Panel BuildSectionView(
+            string title,
+            (string desc, Color accent, EventHandler? onClick)[] kpiDefs,
+            out Label[] kpiLabels,
+            bool hasTimeRange,
+            out Button[] timeBtns,
+            (string header, bool arrows, (string icon, string lbl, EventHandler h)[] btns)[] rows,
+            (string lbl, EventHandler h)[]? quickActions)
+        {
+            var panel = new Panel { Dock = DockStyle.Fill, Visible = false, BackColor = Theme.Background };
+
+            // ── Title bar ──────────────────────────────────────────────────────────
+            var titleBar = new Panel { Dock = DockStyle.Top, Height = 40, BackColor = Theme.Header };
+            titleBar.Controls.Add(new Label
+            {
+                Text = title.ToUpper(),
+                Font = new Font("Segoe UI", 10F, FontStyle.Bold),
+                ForeColor = Theme.Gold,
+                AutoSize = false, Dock = DockStyle.Fill,
+                TextAlign = ContentAlignment.MiddleLeft,
+                Padding = new Padding(16, 0, 0, 0),
+                BackColor = Color.Transparent
+            });
+
+            // ── KPI strip ──────────────────────────────────────────────────────────
+            int kpiStripH = hasTimeRange ? 118 : 100;
+            var kpiStrip = new Panel
+            {
+                Dock = DockStyle.Top, Height = kpiStripH,
+                BackColor = Color.FromArgb(10, 26, 38),
+                Padding = new Padding(0)
+            };
+            var kpiFlow = new FlowLayoutPanel
+            {
+                FlowDirection = FlowDirection.LeftToRight,
+                WrapContents = false,
+                BackColor = Color.Transparent,
+                Padding = new Padding(16, 8, 16, 0),
+                AutoSize = true,
+                Location = new Point(0, 0)
+            };
+            var outLabels = new List<Label>();
+            foreach (var (desc, accent, onClick) in kpiDefs)
+            {
+                var (tile, lbl) = MakeKpiTile(desc, accent);
+                if (onClick != null)
+                {
+                    tile.Cursor = Cursors.Hand;
+                    tile.Click += onClick;
+                    foreach (Control child in tile.Controls)
+                        child.Click += onClick;
+                }
+                kpiFlow.Controls.Add(tile);
+                outLabels.Add(lbl);
+            }
+            kpiLabels = outLabels.ToArray();
+            kpiStrip.Controls.Add(kpiFlow);
+
+            // Time range buttons
+            timeBtns = Array.Empty<Button>();
+            if (hasTimeRange)
+            {
+                var timeFlow = new FlowLayoutPanel
+                {
+                    FlowDirection = FlowDirection.LeftToRight,
+                    WrapContents = false,
+                    BackColor = Color.Transparent,
+                    Padding = new Padding(16, 0, 0, 0),
+                    AutoSize = true,
+                    Location = new Point(0, 90)
+                };
+                var tbLabels = new[] { "Today", "7 Days", "30 Days" };
+                var buttons = new Button[3];
+                for (int i = 0; i < 3; i++)
+                {
+                    var tb = new Button
+                    {
+                        Text = tbLabels[i],
+                        Size = new Size(62, 20),
+                        FlatStyle = FlatStyle.Flat,
+                        Font = new Font("Segoe UI", 7.5F),
+                        BackColor = i == 0 ? Theme.Gold : Color.FromArgb(22, 60, 70),
+                        ForeColor = i == 0 ? Color.White : Color.FromArgb(130, 180, 195),
+                        Cursor = Cursors.Hand,
+                        UseVisualStyleBackColor = false,
+                        Margin = new Padding(0, 0, 4, 0),
+                        TabStop = false
+                    };
+                    tb.FlatAppearance.BorderSize = 0;
+                    buttons[i] = tb;
+                    timeFlow.Controls.Add(tb);
+                }
+                timeBtns = buttons;
+                kpiStrip.Controls.Add(timeFlow);
+            }
+
+            // ── Quick actions sidebar ──────────────────────────────────────────────
+            if (quickActions != null && quickActions.Length > 0)
+            {
+                var qaSidebar = new Panel
+                {
+                    Dock = DockStyle.Right,
+                    Width = 182,
+                    BackColor = Color.FromArgb(14, 40, 52)
+                };
+                var sep = new Panel { Width = 1, Dock = DockStyle.Left, BackColor = Color.FromArgb(22, 58, 68), Tag = "accent" };
+                var qaHeader = new Label
+                {
+                    Text = "QUICK ACTIONS",
+                    Font = new Font("Segoe UI", 7.5F, FontStyle.Bold),
+                    ForeColor = Color.FromArgb(100, 160, 170),
+                    Dock = DockStyle.Top, Height = 34,
+                    TextAlign = ContentAlignment.BottomLeft,
+                    Padding = new Padding(14, 0, 0, 4),
+                    BackColor = Color.Transparent
+                };
+                var qaFlow = new FlowLayoutPanel
+                {
+                    Dock = DockStyle.Fill,
+                    FlowDirection = FlowDirection.TopDown,
+                    WrapContents = false,
+                    BackColor = Color.Transparent,
+                    Padding = new Padding(10, 4, 10, 8)
+                };
+                foreach (var (lbl, h) in quickActions)
+                {
+                    var qBtn = new Button
+                    {
+                        Text = "+ " + lbl,
+                        Width = 160, Height = 34,
+                        FlatStyle = FlatStyle.Flat,
+                        Font = new Font("Segoe UI", 9F),
+                        BackColor = Color.FromArgb(22, 60, 75),
+                        ForeColor = Color.FromArgb(200, 230, 240),
+                        Cursor = Cursors.Hand,
+                        UseVisualStyleBackColor = false,
+                        Margin = new Padding(0, 0, 0, 5),
+                        TextAlign = ContentAlignment.MiddleLeft,
+                        Padding = new Padding(8, 0, 0, 0),
+                        TabStop = false
+                    };
+                    qBtn.FlatAppearance.BorderColor = Color.FromArgb(30, 80, 95);
+                    qBtn.FlatAppearance.BorderSize = 1;
+                    qBtn.FlatAppearance.MouseOverBackColor = Color.FromArgb(30, 80, 95);
+                    qBtn.Click += h;
+                    qaFlow.Controls.Add(qBtn);
+                }
+                qaSidebar.Controls.Add(qaFlow);
+                qaSidebar.Controls.Add(qaHeader);
+                qaSidebar.Controls.Add(sep);
+                panel.Controls.Add(qaSidebar);  // add before Fill content
+            }
+
+            // ── Tool rows area ─────────────────────────────────────────────────────
+            var scrollPanel = new Panel
+            {
+                Dock = DockStyle.Fill,
+                AutoScroll = true,
+                BackColor = Theme.Background
+            };
+            var rowsFlow = new FlowLayoutPanel
+            {
+                Dock = DockStyle.Top,
+                AutoSize = true,
+                AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                FlowDirection = FlowDirection.TopDown,
+                WrapContents = false,
+                BackColor = Theme.Background,
+                Padding = new Padding(20, 14, 20, 24)
+            };
+
+            foreach (var (header, arrows, btns) in rows)
+            {
+                if (btns.Length == 0) continue;
+
+                // Row header label
+                rowsFlow.Controls.Add(new Label
+                {
+                    Text = header.ToUpper(),
+                    Font = new Font("Segoe UI", 7.5F, FontStyle.Bold),
+                    ForeColor = Theme.Gold,
+                    AutoSize = false, Width = 900, Height = 26,
+                    TextAlign = ContentAlignment.BottomLeft,
+                    BackColor = Color.Transparent,
+                    Margin = new Padding(0, 8, 0, 2)
+                });
+
+                // Buttons (with optional arrows)
+                var btnRow = new FlowLayoutPanel
+                {
+                    FlowDirection = FlowDirection.LeftToRight,
+                    WrapContents = true,
+                    AutoSize = true,
+                    AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                    BackColor = Color.Transparent,
+                    Padding = new Padding(0),
+                    Margin = new Padding(0, 0, 0, 6)
+                };
+                for (int i = 0; i < btns.Length; i++)
+                {
+                    var (icon, lbl, h) = btns[i];
+                    btnRow.Controls.Add(MakeIconButton(icon, lbl, h));
+                    if (arrows && i < btns.Length - 1)
+                    {
+                        btnRow.Controls.Add(new Label
+                        {
+                            Text = "\u2192",
+                            Font = new Font("Segoe UI", 20F),
+                            ForeColor = Color.FromArgb(80, 130, 150),
+                            AutoSize = false, Size = new Size(30, 98),
+                            TextAlign = ContentAlignment.MiddleCenter,
+                            BackColor = Color.Transparent,
+                            Margin = new Padding(2, 6, 2, 6)
+                        });
+                    }
+                }
+                rowsFlow.Controls.Add(btnRow);
+
+                // Separator
+                rowsFlow.Controls.Add(new Panel
+                {
+                    Height = 1, Width = 900,
+                    BackColor = Color.FromArgb(228, 220, 244),
+                    Margin = new Padding(0, 2, 0, 2),
+                    Tag = "accent"
+                });
+            }
+            rowsFlow.Controls.Add(new Panel { Width = 1, Height = 40, Margin = new Padding(0) });
+            scrollPanel.Controls.Add(rowsFlow);
+            panel.Controls.Add(scrollPanel);  // DockStyle.Fill
+
+            panel.Controls.Add(kpiStrip);   // DockStyle.Top
+            panel.Controls.Add(titleBar);   // DockStyle.Top (renders on top of kpiStrip)
+
+            return panel;
         }
     }
 }

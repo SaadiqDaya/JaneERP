@@ -31,5 +31,19 @@ namespace JaneERP.Interfaces
         void                     UpdatePickedQty(int salesOrderItemId, int pickedQty, string pickedBy);
         void                     RecordShipment(int salesOrderId, string? trackingNumber, string? carrier);
         bool                     MarkComplete(int salesOrderId);
+        /// <summary>Returns true if the order has already had inventory deducted (InventoryAffected = 1).</summary>
+        bool                     IsInventoryAffected(int salesOrderId);
+
+        // ── Box Types ──────────────────────────────────────────────────────────
+        IReadOnlyList<BoxType> GetBoxTypes(bool activeOnly = true);
+        BoxType SaveBoxType(BoxType bt);
+        void DeleteBoxType(int boxTypeId);
+
+        // ── Shipments (packing) ────────────────────────────────────────────────
+        IReadOnlyList<Shipment> GetShipmentsForOrder(int salesOrderId);
+        int CreateShipment(int salesOrderId, int? boxTypeId, string boxLabel, string createdBy);
+        void SetShipmentItems(int shipmentId, IReadOnlyList<(int SalesOrderItemId, int Qty)> items, string packedBy);
+        void MarkShipmentShipped(int shipmentId, string trackingNumber, string carrier, string shippedBy);
+        void DeleteShipment(int shipmentId);
     }
 }

@@ -45,6 +45,7 @@ namespace JaneERP
         private List<FulfillmentOrder> _orders  = [];
         private List<SalesOrderItem>   _items   = [];
         private FulfillmentOrder?      _current;
+        private readonly HashSet<int>  _dirtyItemIds = [];
 
         public FormPickingDash()
         {
@@ -320,6 +321,7 @@ namespace JaneERP
                 UpdateButtons();
                 return;
             }
+            _dirtyItemIds.Clear();
             _dgvItems.SuspendLayout();
             _dgvItems.Rows.Clear();
             foreach (var item in _items)
@@ -409,6 +411,7 @@ namespace JaneERP
                 item.PickedQty = Math.Clamp(val, 0, item.Quantity);
                 _dgvItems.Rows[e.RowIndex].Cells["colPicked"].Value = item.PickedQty;
                 _dgvItems.Rows[e.RowIndex].Cells["colLeft"].Value   = item.Quantity - item.PickedQty;
+                _dirtyItemIds.Add(item.SalesOrderItemID);
             }
             _dgvItems.Invalidate();
             UpdateButtons();
@@ -467,6 +470,7 @@ namespace JaneERP
                 foreach (var item in _items)
                 {
                     item.PickedQty = item.Quantity;
+                    _dirtyItemIds.Add(item.SalesOrderItemID);
                     _svc.UpdatePickedQty(item.SalesOrderItemID, item.Quantity, picker);
                 }
                 LoadItems(_current.SalesOrderID);
@@ -504,10 +508,12 @@ namespace JaneERP
             if (_svc == null || _current == null || _current.Status != "Picking") return;
             if (!_items.All(i => i.PickedQty >= i.Quantity))
             {
-                MessageBox.Show(this,
-                    "All items must be fully picked before completing.\nSave partial progress first.",
-                    "Incomplete", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                return;
+                var ans = MessageBox.Show(this,
+                    "Not all items are fully picked.\n\n" +
+                    "Force-advance to Packing anyway?\n\n" +
+                    "Stock will still be checked at shipment time.",
+                    "Partial Picks", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
+                if (ans != DialogResult.Yes) return;
             }
             try
             {
@@ -549,8 +555,9 @@ namespace JaneERP
             _dgvItems.CommitEdit(DataGridViewDataErrorContexts.Commit);
             _dgvItems.EndEdit();
             string picker = AppSession.CurrentUser?.Username ?? "system";
-            foreach (var item in _items)
+            foreach (var item in _items.Where(i => _dirtyItemIds.Contains(i.SalesOrderItemID)))
                 _svc.UpdatePickedQty(item.SalesOrderItemID, item.PickedQty, picker);
+            _dirtyItemIds.Clear();
         }
 
         private void UpdateButtons()

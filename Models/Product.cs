@@ -10,6 +10,12 @@ namespace JaneERP.Models
         public int     CurrentStock      { get; set; }
         /// <summary>Qty soft-locked by open Live/WIP sales orders. Available = CurrentStock - ReservedQty.</summary>
         public int     ReservedQty       { get; set; }
+        /// <summary>Total qty on open sales orders (Draft/Live/Picking/Packing), regardless of reservation status.</summary>
+        public int     SoQty             { get; set; }
+        /// <summary>Total qty on open manufacturing/work orders (Pending/Live/InProgress).</summary>
+        public int     MoQty             { get; set; }
+        /// <summary>CurrentStock minus open SO demand plus open MO supply. Negative = need to manufacture more.</summary>
+        public int     VirtualQty        => CurrentStock - SoQty + MoQty;
         public int     ReorderPoint      { get; set; } = 0;
         /// <summary>Target stock level to order up to when restocking.</summary>
         public int     OrderUpTo         { get; set; } = 0;

@@ -93,7 +93,9 @@ namespace JaneERP.Data
                         v.VendorName    AS DefaultVendorName,
                         p.BomNumber,
                         ISNULL(inv.CurrentStock, 0) AS CurrentStock,
-                        ISNULL(res.ReservedQty,  0) AS ReservedQty
+                        ISNULL(res.ReservedQty,  0) AS ReservedQty,
+                        ISNULL(so_open.SoQty,    0) AS SoQty,
+                        ISNULL(mo_open.MoQty,    0) AS MoQty
                 FROM    Products p
                 LEFT JOIN ProductTypes pt ON pt.ProductTypeID = p.ProductTypeID
                 LEFT JOIN Locations    l  ON l.LocationID     = p.DefaultLocationID
@@ -109,6 +111,19 @@ namespace JaneERP.Data
                     FROM   StockReservations
                     GROUP  BY ProductID
                 ) res ON res.ProductID = p.ProductID
+                LEFT JOIN (
+                    SELECT soi.ProductID, SUM(soi.Quantity) AS SoQty
+                    FROM   SalesOrderItems soi
+                    JOIN   SalesOrders so ON so.SalesOrderID = soi.SalesOrderID
+                    WHERE  so.Status NOT IN ('Shipped','Complete','Cancelled')
+                    GROUP  BY soi.ProductID
+                ) so_open ON so_open.ProductID = p.ProductID
+                LEFT JOIN (
+                    SELECT wo.ProductID, SUM(wo.Quantity) AS MoQty
+                    FROM   WorkOrders wo
+                    WHERE  wo.Status NOT IN ('Complete','Cancelled')
+                    GROUP  BY wo.ProductID
+                ) mo_open ON mo_open.ProductID = p.ProductID
                 WHERE   {filter}",
                 new { LocationID = locationId }).ToList();
         }

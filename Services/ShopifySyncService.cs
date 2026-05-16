@@ -626,21 +626,18 @@ namespace JaneERP.Services
                 decimal subtotal = lineItems.Sum(li => li.Qty * li.UnitPrice);
                 decimal total    = subtotal - discountAmount + shippingCost;
 
-                bool affectsInventory = status == "Live";
-
                 var salesOrderId = db.QuerySingle<int>(@"
                     INSERT INTO SalesOrders (ShopifyOrderID, OrderNumber, CustomerID, StoreID, OrderDate, TotalPrice, Currency, Notes, Status, InventoryAffected, OrderType, DiscountType, DiscountAmount, DiscountPercent, ShippingCost)
-                    VALUES (NULL, @OrderNumber, @CustomerID, @StoreID, @OrderDate, @TotalPrice, @Currency, @Notes, @Status, @InventoryAffected, @OrderType, @DiscountType, @DiscountAmount, @DiscountPercent, @ShippingCost);
+                    VALUES (NULL, @OrderNumber, @CustomerID, @StoreID, @OrderDate, @TotalPrice, @Currency, @Notes, @Status, 0, @OrderType, @DiscountType, @DiscountAmount, @DiscountPercent, @ShippingCost);
                     SELECT CAST(SCOPE_IDENTITY() AS INT);",
                     new { OrderNumber = orderNumber, CustomerID = customerId, StoreID = storeId,
                           OrderDate = orderDate, TotalPrice = total, Currency = currency ?? "CAD",
-                          Notes = notes, Status = status, InventoryAffected = affectsInventory,
+                          Notes = notes, Status = status,
                           OrderType = orderType,
                           DiscountType = discountType, DiscountAmount = discountAmount, DiscountPercent = discountPercent,
                           ShippingCost = shippingCost }, tx);
 
-                // Pass 1: find/create products and insert order items; collect (productId, qty, sku) for inventory
-                var inventoryItems = new List<(int productId, int qty, string sku)>();
+                // Inventory is deducted when the order is Shipped, matching Shopify order behaviour.
                 foreach (var li in lineItems)
                 {
                     var sku = li.Sku.Trim();
@@ -662,35 +659,6 @@ namespace JaneERP.Services
                         VALUES (@SalesOrderID, @ProductID, @SKU, @Title, @Quantity, @UnitPrice);",
                         new { SalesOrderID = salesOrderId, ProductID = productId,
                               SKU = sku, Title = li.Title, Quantity = li.Qty, UnitPrice = li.UnitPrice }, tx);
-
-                    inventoryItems.Add((productId.Value, li.Qty, sku));
-                }
-
-                // Pass 2: stock guard then deduction (only for Live orders)
-                if (affectsInventory)
-                {
-                    var shortages = new List<string>();
-                    foreach (var (pid, qty, sku) in inventoryItems)
-                    {
-                        int stock = db.ExecuteScalar<int>(
-                            "SELECT ISNULL(SUM(QuantityChange), 0) FROM InventoryTransactions WITH (UPDLOCK, HOLDLOCK) WHERE ProductID = @pid",
-                            new { pid }, tx);
-                        if (stock < qty)
-                            shortages.Add($"SKU {sku}: need {qty}, have {stock}");
-                    }
-
-                    if (shortages.Any())
-                        throw new InvalidOperationException(
-                            $"Insufficient stock for order #{orderNumber}:\n{string.Join("\n", shortages)}");
-
-                    foreach (var (pid, qty, sku) in inventoryItems)
-                    {
-                        db.Execute(@"
-                            INSERT INTO InventoryTransactions (ProductID, QuantityChange, TransactionType, Notes, TransactionDate)
-                            VALUES (@ProductID, @QuantityChange, 'Manual Sale', @Notes, @TransactionDate);",
-                            new { ProductID = pid, QuantityChange = -qty,
-                                  Notes = $"Manual Order #{orderNumber}", TransactionDate = orderDate }, tx);
-                    }
                 }
 
                 tx.Commit();
@@ -775,6 +743,28 @@ namespace JaneERP.Services
                         PaymentStatus  = paymentStatus,
                         CancelledAt    = cancelledAt
                     }, tx);
+
+                // ── Payment record for paid Shopify orders ───────────────────────────
+                // Shopify orders arrive already-paid (FinancialStatus=paid). Insert a
+                // CustomerPayments row so it appears in the customer transaction history.
+                // IF NOT EXISTS guard makes it safe on re-sync.
+                if (isPaid && order.TotalPrice > 0)
+                {
+                    db.Execute(@"
+                        IF NOT EXISTS (SELECT 1 FROM CustomerPayments WHERE SalesOrderID = @salesOrderId)
+                        INSERT INTO CustomerPayments
+                               (CustomerID, SalesOrderID, Amount, PaymentMethod, Notes, PaidAt, RecordedBy)
+                        VALUES (@customerId, @salesOrderId, @amount, @paymentMethod, @notes, @paidAt, 'shopify-sync')",
+                        new
+                        {
+                            customerId   = customerId,
+                            salesOrderId = salesOrderId,
+                            amount       = order.TotalPrice,
+                            paymentMethod = order.PaymentGateway ?? "Shopify",
+                            notes        = $"Shopify #{order.OrderNumber} — {order.FinancialStatus}",
+                            paidAt       = order.CreatedAt
+                        }, tx);
+                }
 
                 // ── Line items ───────────────────────────────────────────────────────
                 foreach (var li in order.LineItems)
@@ -1088,5 +1078,212 @@ namespace JaneERP.Services
         /// UpdateOrderStatus so the InventoryAffected guard prevents any double-deduction.
         /// </summary>
         public bool MarkComplete(int salesOrderId) => UpdateOrderStatus(salesOrderId, "Complete");
+
+        /// <summary>Returns true if the order has already had inventory deducted (InventoryAffected = 1).</summary>
+        public bool IsInventoryAffected(int salesOrderId)
+        {
+            using IDbConnection db = new SqlConnection(_connectionString);
+            return db.ExecuteScalar<bool>(
+                "SELECT ISNULL(InventoryAffected, 0) FROM SalesOrders WHERE SalesOrderID = @id",
+                new { id = salesOrderId });
+        }
+
+        // ── Box Types ──────────────────────────────────────────────────────────
+
+        public IReadOnlyList<BoxType> GetBoxTypes(bool activeOnly = true)
+        {
+            using IDbConnection db = new SqlConnection(_connectionString);
+            var sql = activeOnly
+                ? "SELECT * FROM BoxTypes WHERE IsActive = 1 ORDER BY BoxName"
+                : "SELECT * FROM BoxTypes ORDER BY BoxName";
+            return db.Query<BoxType>(sql).ToList();
+        }
+
+        public BoxType SaveBoxType(BoxType bt)
+        {
+            using IDbConnection db = new SqlConnection(_connectionString);
+            if (bt.BoxTypeID == 0)
+            {
+                bt.BoxTypeID = db.ExecuteScalar<int>(
+                    "INSERT INTO BoxTypes (BoxName, Notes, IsActive) " +
+                    "VALUES (@BoxName, @Notes, @IsActive); SELECT SCOPE_IDENTITY();", bt);
+            }
+            else
+            {
+                db.Execute("UPDATE BoxTypes SET BoxName = @BoxName, Notes = @Notes, IsActive = @IsActive " +
+                           "WHERE BoxTypeID = @BoxTypeID", bt);
+            }
+            return bt;
+        }
+
+        public void DeleteBoxType(int boxTypeId)
+        {
+            using IDbConnection db = new SqlConnection(_connectionString);
+            db.Execute("UPDATE BoxTypes SET IsActive = 0 WHERE BoxTypeID = @id", new { id = boxTypeId });
+        }
+
+        // ── Shipments (packing) ────────────────────────────────────────────────
+
+        public IReadOnlyList<Shipment> GetShipmentsForOrder(int salesOrderId)
+        {
+            using IDbConnection db = new SqlConnection(_connectionString);
+
+            var shipments = db.Query<Shipment>(@"
+                SELECT s.*, ISNULL(bt.BoxName, '') AS BoxTypeName
+                FROM Shipments s
+                LEFT JOIN BoxTypes bt ON bt.BoxTypeID = s.BoxTypeID
+                WHERE s.SalesOrderID = @id
+                ORDER BY s.ShipmentID", new { id = salesOrderId }).ToList();
+
+            if (shipments.Count == 0) return shipments;
+
+            var items = db.Query<ShipmentItem>(@"
+                SELECT si.*, soi.Title AS ProductTitle, soi.SKU
+                FROM ShipmentItems si
+                JOIN SalesOrderItems soi ON soi.SalesOrderItemID = si.SalesOrderItemID
+                WHERE si.ShipmentID IN @ids",
+                new { ids = shipments.Select(s => s.ShipmentID).ToList() }).ToList();
+
+            foreach (var s in shipments)
+                s.Items = items.Where(i => i.ShipmentID == s.ShipmentID).ToList();
+
+            return shipments;
+        }
+
+        public int CreateShipment(int salesOrderId, int? boxTypeId, string boxLabel, string createdBy)
+        {
+            using IDbConnection db = new SqlConnection(_connectionString);
+            return db.ExecuteScalar<int>(@"
+                INSERT INTO Shipments (SalesOrderID, BoxTypeID, BoxLabel, Status, CreatedBy)
+                VALUES (@salesOrderId, @boxTypeId, @boxLabel, 'Open', @createdBy);
+                SELECT SCOPE_IDENTITY();",
+                new { salesOrderId, boxTypeId, boxLabel, createdBy });
+        }
+
+        public void SetShipmentItems(int shipmentId, IReadOnlyList<(int SalesOrderItemId, int Qty)> items, string packedBy)
+        {
+            using IDbConnection db = new SqlConnection(_connectionString);
+            using var tx = db.BeginTransaction();
+            try
+            {
+                // Replace all items for this shipment
+                db.Execute("DELETE FROM ShipmentItems WHERE ShipmentID = @id",
+                    new { id = shipmentId }, tx);
+
+                foreach (var (soiId, qty) in items)
+                {
+                    if (qty <= 0) continue;
+                    db.Execute(@"
+                        INSERT INTO ShipmentItems (ShipmentID, SalesOrderItemID, Quantity, PackedBy, PackedAt)
+                        VALUES (@shipmentId, @soiId, @qty, @packedBy, GETUTCDATE())",
+                        new { shipmentId, soiId, qty, packedBy }, tx);
+                }
+
+                // Mark shipment as Packed if it has items
+                var hasItems = items.Any(i => i.Qty > 0);
+                db.Execute("UPDATE Shipments SET Status = @s WHERE ShipmentID = @id",
+                    new { s = hasItems ? "Packed" : "Open", id = shipmentId }, tx);
+
+                tx.Commit();
+            }
+            catch { tx.Rollback(); throw; }
+        }
+
+        public void MarkShipmentShipped(int shipmentId, string trackingNumber, string carrier, string shippedBy)
+        {
+            using IDbConnection db = new SqlConnection(_connectionString);
+            using var tx = db.BeginTransaction();
+            try
+            {
+                // Mark shipment shipped
+                db.Execute(@"
+                    UPDATE Shipments
+                    SET Status = 'Shipped', TrackingNumber = @tracking, Carrier = @carrier,
+                        ShippedAt = GETUTCDATE(), ShippedBy = @shippedBy
+                    WHERE ShipmentID = @id",
+                    new { tracking = trackingNumber, carrier, shippedBy, id = shipmentId }, tx);
+
+                // Update ShippedQty on each SalesOrderItem based on all shipped shipments for that item
+                db.Execute(@"
+                    UPDATE soi
+                    SET soi.ShippedQty = (
+                        SELECT ISNULL(SUM(si2.Quantity), 0)
+                        FROM ShipmentItems si2
+                        JOIN Shipments s2 ON s2.ShipmentID = si2.ShipmentID
+                        WHERE si2.SalesOrderItemID = soi.SalesOrderItemID
+                          AND s2.Status = 'Shipped'
+                    )
+                    FROM SalesOrderItems soi
+                    WHERE soi.SalesOrderItemID IN (
+                        SELECT si.SalesOrderItemID FROM ShipmentItems si WHERE si.ShipmentID = @id
+                    )", new { id = shipmentId }, tx);
+
+                // Deduct inventory for these items (mark InventoryAffected)
+                var salesOrderId = db.ExecuteScalar<int>(
+                    "SELECT SalesOrderID FROM Shipments WHERE ShipmentID = @id",
+                    new { id = shipmentId }, tx);
+
+                // Check if ALL items are now fully shipped → advance order
+                var allShipped = db.ExecuteScalar<bool>(@"
+                    SELECT CASE WHEN COUNT(*) = 0 THEN 1 ELSE 0 END
+                    FROM SalesOrderItems
+                    WHERE SalesOrderID = @soId
+                      AND ShippedQty < Quantity",
+                    new { soId = salesOrderId }, tx);
+
+                if (allShipped)
+                {
+                    db.Execute(@"
+                        UPDATE SalesOrders
+                        SET Status = 'Complete', InventoryAffected = 1
+                        WHERE SalesOrderID = @soId AND Status NOT IN ('Complete','Cancelled')",
+                        new { soId = salesOrderId }, tx);
+                }
+
+                tx.Commit();
+
+                // Deduct inventory outside the transaction (non-fatal if it fails)
+                try { DeductInventoryForShipment(db, shipmentId, salesOrderId); }
+                catch (Exception ex) { AppLogger.Info($"[MarkShipmentShipped] Inventory deduction failed for shipment {shipmentId}: {ex.Message}"); }
+            }
+            catch { tx.Rollback(); throw; }
+        }
+
+        private void DeductInventoryForShipment(IDbConnection db, int shipmentId, int salesOrderId)
+        {
+            // Get items from this shipment with their reservation locations
+            var items = db.Query(@"
+                SELECT si.SalesOrderItemID, si.Quantity, sr.LocationID, soi.ProductID
+                FROM ShipmentItems si
+                JOIN SalesOrderItems soi ON soi.SalesOrderItemID = si.SalesOrderItemID
+                LEFT JOIN StockReservations sr ON sr.SalesOrderID = @soId
+                    AND sr.ProductID = soi.ProductID
+                WHERE si.ShipmentID = @sid",
+                new { soId = salesOrderId, sid = shipmentId });
+
+            foreach (var item in items)
+            {
+                db.Execute(@"
+                    INSERT INTO InventoryTransactions
+                        (ProductID, QuantityChange, TransactionType, Notes, TransactionDate, LocationID)
+                    VALUES
+                        (@productId, @qty, 'Sale', @notes, GETUTCDATE(), @locationId)",
+                    new
+                    {
+                        productId  = (int)item.ProductID,
+                        qty        = -(int)item.Quantity,
+                        notes      = $"Shipped in shipment {shipmentId}, order {salesOrderId}",
+                        locationId = (int?)item.LocationID
+                    });
+            }
+        }
+
+        public void DeleteShipment(int shipmentId)
+        {
+            using IDbConnection db = new SqlConnection(_connectionString);
+            // ShipmentItems cascade on delete via FK
+            db.Execute("DELETE FROM Shipments WHERE ShipmentID = @id AND Status != 'Shipped'",
+                new { id = shipmentId });
+        }
     }
 }

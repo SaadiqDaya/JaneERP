@@ -138,8 +138,20 @@ namespace JaneERP
             using var dlg = new FormNewCompany();
             if (dlg.ShowDialog(this) == DialogResult.OK && dlg.NewProfile != null)
             {
+                var newName = dlg.NewProfile.Name;
                 CompanyManager.AddCompany(dlg.NewProfile);
                 LoadCompanies();
+
+                // Auto-select the newly created company and open it immediately
+                for (int i = 0; i < lstCompanies.Items.Count; i++)
+                {
+                    if (lstCompanies.Items[i] is CompanyProfile cp && cp.Name == newName)
+                    {
+                        lstCompanies.SelectedIndex = i;
+                        break;
+                    }
+                }
+                BtnSelect_Click(null, EventArgs.Empty);
             }
         }
 
@@ -184,6 +196,7 @@ namespace JaneERP
             BuildUI();
             Theme.Apply(this);
             Theme.MakeBorderless(this);
+            Theme.AddCloseButton(this);
         }
 
         private void BuildUI()
